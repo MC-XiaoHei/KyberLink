@@ -76,6 +76,31 @@ fn main() {
         println!("sign: {} vectors", n);
     }
 
+    if mode == "shake" || mode == "all" {
+        let mut v = Vec::new();
+        for i in 0..n {
+            let len = (i % 137) as usize;
+            let mut msg = vec![0u8; len];
+            if len > 0 {
+                shake(&mut msg, b"shake-msg", i);
+            }
+            let mut d = [0u8; 32];
+            {
+                use sha3::digest::{ExtendableOutput, Update, XofReader};
+                let mut x = sha3::Shake256::default();
+                x.update(&msg);
+                x.finalize_xof().read(&mut d);
+            }
+            v.push(json!({
+                "index": i,
+                "msg": hex::encode(&msg),
+                "digest": hex::encode(d),
+            }));
+        }
+        std::fs::write(out_dir.join("shake.json"), serde_json::to_string_pretty(&v).unwrap()).unwrap();
+        println!("shake: {} vectors", n);
+    }
+
     if mode == "cipher" || mode == "all" {
         let mut v = Vec::new();
         for i in 0..n {

@@ -1,0 +1,7 @@
+SIM ?= verilator
+TOPLEVEL_LANG ?= verilog
+VERILOG_SOURCES = $(PWD)/../rtl/keccak_f1600_round.v
+TOPLEVEL = keccak_f1600_round
+MODULE = test_keccak
+
+include $(shell cocotb-config --makefiles)/Makefile.sim
