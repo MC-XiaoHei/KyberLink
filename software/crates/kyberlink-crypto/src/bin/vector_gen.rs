@@ -77,9 +77,11 @@ fn main() {
     }
 
     if mode == "shake" || mode == "all" {
-        let mut v = Vec::new();
+        let mut v256 = Vec::new();
+        let mut v128 = Vec::new();
+        let mut vlong = Vec::new();
         for i in 0..n {
-            let len = (i % 137) as usize;
+            let len = (i % 169) as usize;
             let mut msg = vec![0u8; len];
             if len > 0 {
                 shake(&mut msg, b"shake-msg", i);
@@ -91,14 +93,50 @@ fn main() {
                 x.update(&msg);
                 x.finalize_xof().read(&mut d);
             }
-            v.push(json!({
+            v256.push(json!({
                 "index": i,
                 "msg": hex::encode(&msg),
                 "digest": hex::encode(d),
             }));
+            let mut d128 = [0u8; 32];
+            {
+                use sha3::digest::{ExtendableOutput, Update, XofReader};
+                let mut x = sha3::Shake128::default();
+                x.update(&msg);
+                x.finalize_xof().read(&mut d128);
+            }
+            if len <= 136 {
+                v128.push(json!({
+                    "index": i,
+                    "msg": hex::encode(&msg),
+                    "digest": hex::encode(d128),
+                }));
+                let mut out256 = vec![0u8; 272];
+                let mut out128 = vec![0u8; 336];
+                {
+                    use sha3::digest::{ExtendableOutput, Update, XofReader};
+                    let mut x = sha3::Shake256::default();
+                    x.update(&msg);
+                    x.finalize_xof().read(&mut out256);
+                }
+                {
+                    use sha3::digest::{ExtendableOutput, Update, XofReader};
+                    let mut x = sha3::Shake128::default();
+                    x.update(&msg);
+                    x.finalize_xof().read(&mut out128);
+                }
+                vlong.push(json!({
+                    "index": i,
+                    "msg": hex::encode(&msg),
+                    "shake256_272": hex::encode(&out256),
+                    "shake128_336": hex::encode(&out128),
+                }));
+            }
         }
-        std::fs::write(out_dir.join("shake.json"), serde_json::to_string_pretty(&v).unwrap()).unwrap();
-        println!("shake: {} vectors", n);
+        std::fs::write(out_dir.join("shake.json"), serde_json::to_string_pretty(&v256).unwrap()).unwrap();
+        std::fs::write(out_dir.join("shake128.json"), serde_json::to_string_pretty(&v128).unwrap()).unwrap();
+        std::fs::write(out_dir.join("shakelong.json"), serde_json::to_string_pretty(&vlong).unwrap()).unwrap();
+        println!("shake: {} vectors (256/128/long)", n);
     }
 
     if mode == "cipher" || mode == "all" {
