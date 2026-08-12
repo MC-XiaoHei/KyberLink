@@ -6,11 +6,11 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-ml-kem.workspace = true
-ml-dsa.workspace = true
+ml-kem = { version = "0.3.2", features = ["getrandom"] }
+ml-dsa = { version = "0.1.1", features = ["rand_core"] }
 aes-gcm.workspace = true
-rand_core.workspace = true
 hex.workspace = true
 serde_json.workspace = true
+sha3 = "0.10"
 
 [dev-dependencies]

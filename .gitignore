@@ -6,4 +6,7 @@ hardware/*.json
 hardware/*.gprj
 sim_build/
 results.xml
+.venv/
 docs/
+vectors/cross/
+vectors/generated/
