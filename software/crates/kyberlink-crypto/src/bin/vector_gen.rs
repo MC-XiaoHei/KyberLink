@@ -27,6 +27,59 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
+const Q: u16 = 3329;
+
+fn shake_stream(out: &mut [u8], label: &[u8]) {
+    use sha3::digest::{ExtendableOutput, Update, XofReader};
+    if out.len() == 840 {
+        let mut x = sha3::Shake128::default();
+        x.update(label);
+        x.finalize_xof().read(out);
+    } else {
+        let mut x = sha3::Shake256::default();
+        x.update(label);
+        x.finalize_xof().read(out);
+    }
+}
+
+fn sample_ntt(seed: &[u8; 34]) -> Vec<u16> {
+    let mut stream = vec![0u8; 840];
+    shake_stream(&mut stream, seed);
+    let mut coeffs = Vec::with_capacity(256);
+    let mut pos = 0;
+    while coeffs.len() < 256 {
+        let b0 = stream[pos] as u16;
+        let b1 = stream[pos + 1] as u16;
+        let b2 = stream[pos + 2] as u16;
+        pos += 3;
+        let d1 = b0 + 256 * (b1 % 16);
+        let d2 = b1 / 16 + 16 * b2;
+        if d1 < Q {
+            coeffs.push(d1);
+        }
+        if d2 < Q && coeffs.len() < 256 {
+            coeffs.push(d2);
+        }
+    }
+    coeffs
+}
+
+fn sample_cbd(seed: &[u8; 33]) -> Vec<i16> {
+    let mut stream = vec![0u8; 128];
+    shake_stream(&mut stream, seed);
+    let mut coeffs = Vec::with_capacity(256);
+    for b in stream.chunks(4) {
+        let d = b[0] as u32 | ((b[1] as u32) << 8) | ((b[2] as u32) << 16) | ((b[3] as u32) << 24);
+        for k in 0..8 {
+            let bits = (d >> (4 * k)) & 0xF;
+            let pos = (bits & 0b11).count_ones() as i16;
+            let neg = ((bits >> 2) & 0b11).count_ones() as i16;
+            coeffs.push(pos - neg);
+        }
+    }
+    coeffs
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mode = args.get(1).map(String::as_str).unwrap_or("all");
@@ -137,6 +190,38 @@ fn main() {
         std::fs::write(out_dir.join("shake128.json"), serde_json::to_string_pretty(&v128).unwrap()).unwrap();
         std::fs::write(out_dir.join("shakelong.json"), serde_json::to_string_pretty(&vlong).unwrap()).unwrap();
         println!("shake: {} vectors (256/128/long)", n);
+    }
+
+    if mode == "sample" || mode == "all" {
+        let mut ntt = Vec::new();
+        for i in 0..n {
+            let mut seed = [0u8; 34];
+            shake(&mut seed[..32], b"sample-rho", i);
+            seed[32] = (i % 3) as u8;
+            seed[33] = (i / 3 % 3) as u8;
+            let coeffs = sample_ntt(&seed);
+            ntt.push(json!({
+                "index": i,
+                "seed": hex::encode(seed),
+                "coeffs": coeffs,
+            }));
+        }
+        std::fs::write(out_dir.join("sample_ntt.json"), serde_json::to_string_pretty(&ntt).unwrap()).unwrap();
+
+        let mut cbd = Vec::new();
+        for i in 0..n {
+            let mut seed = [0u8; 33];
+            shake(&mut seed[..32], b"sample-cbd", i);
+            seed[32] = (i % 3) as u8;
+            let coeffs = sample_cbd(&seed);
+            cbd.push(json!({
+                "index": i,
+                "seed": hex::encode(seed),
+                "coeffs": coeffs,
+            }));
+        }
+        std::fs::write(out_dir.join("sample_cbd.json"), serde_json::to_string_pretty(&cbd).unwrap()).unwrap();
+        println!("sample: {} ntt + {} cbd vectors", n, n);
     }
 
     if mode == "cipher" || mode == "all" {
