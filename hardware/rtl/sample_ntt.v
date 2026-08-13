@@ -36,6 +36,8 @@ module sample_ntt (
         .len(8'd34),
         .msg({rho, i, j, 1072'b0}),
         .out_blocks(4'd5),
+        .msg_valid(1'b0),
+        .need_msg(),
         .busy(shake_busy), .done(shake_done),
         .out(shake_out)
     );

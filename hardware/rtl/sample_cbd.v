@@ -26,6 +26,8 @@ module sample_cbd (
         .len(8'd33),
         .msg({rho, i, 824'b0}),
         .out_blocks(4'd1),
+        .msg_valid(1'b0),
+        .need_msg(),
         .busy(),
         .done(shake_done),
         .out(shake_out)

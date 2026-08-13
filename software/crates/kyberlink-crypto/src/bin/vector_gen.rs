@@ -80,6 +80,22 @@ fn sample_cbd(seed: &[u8; 33]) -> Vec<i16> {
     coeffs
 }
 
+fn sample_cbd3(seed: &[u8; 33]) -> Vec<i16> {
+    let mut stream = vec![0u8; 192];
+    shake256_stream(&mut stream, seed);
+    let mut coeffs = Vec::with_capacity(256);
+    for w in stream.chunks(3) {
+        let d = w[0] as u32 | ((w[1] as u32) << 8) | ((w[2] as u32) << 16);
+        for k in 0..4 {
+            let bits = (d >> (6 * k)) & 0x3F;
+            let pos = (bits & 0b111).count_ones() as i16;
+            let neg = ((bits >> 3) & 0b111).count_ones() as i16;
+            coeffs.push(pos - neg);
+        }
+    }
+    coeffs
+}
+
 fn coeffs256(label: &[u8], i: u64) -> [u16; 256] {
     let mut stream = [0u8; 512];
     shake(&mut stream, label, i);
@@ -256,6 +272,19 @@ fn gen_sample(n: u64, out_dir: &Path) {
         }));
     }
     write_vectors(out_dir, "sample_cbd", &cbd_v);
+
+    let mut cbd3_v = Vec::new();
+    for i in 0..n {
+        let mut seed = [0u8; 33];
+        shake(&mut seed[..32], b"sample-cbd3", i);
+        seed[32] = (i % 3) as u8;
+        cbd3_v.push(json!({
+            "index": i,
+            "seed": hex::encode(seed),
+            "coeffs": sample_cbd3(&seed),
+        }));
+    }
+    write_vectors(out_dir, "sample_cbd3", &cbd3_v);
 }
 
 fn gen_aes(n: u64, out_dir: &Path) {

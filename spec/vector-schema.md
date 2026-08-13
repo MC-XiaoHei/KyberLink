@@ -49,6 +49,14 @@
 | seed   | hex | 33B，前 32B 为 rho，末 1B 为 i |
 | coeffs | int[] | 256 个，CBD2 采样结果，范围 −2..2 |
 
+## sample_cbd3.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index  | u64 | 序号 |
+| seed   | hex | 33B，前 32B 为 rho，末 1B 为 i |
+| coeffs | int[] | 256 个，CBD3 采样结果（192B SHAKE256 展开，每 3B 小端拼 24 位、4 个 6 位段、popcount 低 3 位减高 3 位），范围 −3..3 |
+
 ## ntt.json
 
 | 字段 | 类型 | 说明 |
