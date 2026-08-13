@@ -56,3 +56,11 @@
 | index      | u64 | 序号 |
 | coeffs_in  | int[] | 256 个标准序系数，均小于 3329 |
 | coeffs_out | int[] | 256 个 NTT 结果系数（bitreversed 序），均小于 3329 |
+
+## invntt.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index      | u64 | 序号 |
+| coeffs_in  | int[] | 256 个 NTT 域系数（bitreversed 序），均小于 3329 |
+| coeffs_out | int[] | 256 个逆 NTT 结果系数（标准序），均小于 3329 |

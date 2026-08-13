@@ -214,6 +214,27 @@ fn main() {
         println!("ntt: {} vectors", n);
     }
 
+    if mode == "invntt" || mode == "all" {
+        let mut v = Vec::new();
+        for i in 0..n {
+            let mut stream = [0u8; 512];
+            shake(&mut stream, b"invntt-in", i);
+            let mut f = [0u16; 256];
+            for k in 0..256 {
+                f[k] = u16::from_le_bytes([stream[2 * k], stream[2 * k + 1]]) % Q;
+            }
+            let mut g = f;
+            ntt::invntt(&mut g);
+            v.push(json!({
+                "index": i,
+                "coeffs_in": f.to_vec(),
+                "coeffs_out": g.to_vec(),
+            }));
+        }
+        std::fs::write(out_dir.join("invntt.json"), serde_json::to_string_pretty(&v).unwrap()).unwrap();
+        println!("invntt: {} vectors", n);
+    }
+
     if mode == "sample" || mode == "all" {
         let mut ntt = Vec::new();
         for i in 0..n {

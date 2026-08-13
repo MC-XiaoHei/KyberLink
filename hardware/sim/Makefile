@@ -22,6 +22,8 @@ TOP_sample_cbd = sample_cbd
 SRC_sample_cbd = $(CORE) $(RTL)/sample_cbd.v
 TOP_ntt = ntt
 SRC_ntt = $(RTL)/ntt.v
+TOP_invntt = invntt
+SRC_invntt = $(RTL)/invntt.v
 
 TOPLEVEL = $(TOP_$(MOD))
 VERILOG_SOURCES = $(SRC_$(MOD))
