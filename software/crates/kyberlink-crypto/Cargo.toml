@@ -14,5 +14,6 @@ ghash = "0.5"
 hex.workspace = true
 serde_json.workspace = true
 sha3 = "0.10"
+sha2 = "0.10"
 
 [dev-dependencies]
