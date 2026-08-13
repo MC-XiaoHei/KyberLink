@@ -6,10 +6,11 @@ module gcm (
     input  wire [95:0]   nonce,
     input  wire [127:0]  aad,
     input  wire [4:0]    aad_len,
-    input  wire [1023:0] plaintext_in,
+    input  wire [7:0]    pt_len,
+    input  wire [2047:0] plaintext_in,
     output reg           busy,
     output reg           done,
-    output wire [1023:0] ciphertext_out,
+    output wire [2047:0] ciphertext_out,
     output reg  [127:0]  tag
 );
 
@@ -23,10 +24,10 @@ module gcm (
     reg [2:0] phase;
     reg [127:0] h_reg;
     reg [127:0] tag_mask;
-    reg [127:0] ct_reg [0:7];
-    reg [3:0] cblk;
+    reg [127:0] ct_reg [0:15];
+    reg [4:0] cblk;
     reg [8:0] ghcnt;
-    reg [3:0] ghblk;
+    reg [4:0] ghblk;
     reg aes_start;
     reg gh_start;
     reg gh_data_valid;
@@ -46,20 +47,22 @@ module gcm (
         .busy(aes_busy), .done(aes_done), .block_out(aes_block_out)
     );
 
+    wire [4:0] nct = {1'b0, pt_len[7:4]} + {4'd0, |pt_len[3:0]};
+
     ghash u_ghash (
         .clk(clk), .rst_n(rst_n),
         .start(gh_start), .h(h_reg), .data_in(gh_data_in),
-        .data_valid(gh_data_valid), .nblocks(8'd10),
+        .data_valid(gh_data_valid), .nblocks(8'd2 + {3'd0, nct}),
         .busy(gh_busy), .done(gh_done), .tag(gh_tag)
     );
 
-    wire [127:0] len_block = { {56'd0, aad_len, 3'd0}, 64'h0000000000000400 };
+    wire [127:0] len_block = { {56'd0, aad_len, 3'd0}, {53'd0, pt_len, 3'd0} };
     wire [127:0] aad_pad = aad & (128'hFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF << (128 - {3'd0, aad_len, 3'd0}));
 
     genvar gk;
     generate
-        for (gk = 0; gk < 8; gk = gk + 1) begin : gct
-            assign ciphertext_out[1023-128*gk -: 128] = ct_reg[gk];
+        for (gk = 0; gk < 16; gk = gk + 1) begin : gct
+            assign ciphertext_out[2047-128*gk -: 128] = ct_reg[gk];
         end
     endgenerate
 
@@ -72,8 +75,8 @@ module gcm (
             gh_start <= 1'b0;
             gh_data_valid <= 1'b0;
             ghcnt <= 9'd0;
-            cblk <= 4'd0;
-            ghblk <= 4'd0;
+            cblk <= 5'd0;
+            ghblk <= 5'd0;
             h_reg <= 128'd0;
             tag_mask <= 128'd0;
         end else begin
@@ -100,24 +103,30 @@ module gcm (
                     aes_start <= 1'b0;
                     if (aes_done) begin
                         tag_mask <= aes_block_out;
-                        aes_block_in <= {nonce, 32'd2};
-                        aes_start <= 1'b1;
-                        cblk <= 4'd0;
-                        phase <= PHASE_AES_CB;
+                        if (nct == 5'd0) begin
+                            ghcnt <= 9'd0;
+                            ghblk <= 5'd0;
+                            phase <= PHASE_GH_INIT;
+                        end else begin
+                            aes_block_in <= {nonce, 32'd2};
+                            aes_start <= 1'b1;
+                            cblk <= 5'd0;
+                            phase <= PHASE_AES_CB;
+                        end
                     end
                 end
                 PHASE_AES_CB: begin
                     aes_start <= 1'b0;
                     if (aes_done) begin
-                        ct_reg[cblk[2:0]] <= aes_block_out ^ plaintext_in[1023-128*cblk -: 128];
-                        if (cblk == 4'd7) begin
+                        ct_reg[cblk[3:0]] <= aes_block_out ^ plaintext_in[2047-128*cblk -: 128];
+                        if (cblk == nct - 5'd1) begin
                             ghcnt <= 9'd0;
-                            ghblk <= 4'd0;
+                            ghblk <= 5'd0;
                             phase <= PHASE_GH_INIT;
                         end else begin
-                            aes_block_in <= {nonce, {28'd0, cblk} + 32'd3};
+                            aes_block_in <= {nonce, {27'd0, cblk} + 32'd3};
                             aes_start <= 1'b1;
-                            cblk <= cblk + 4'd1;
+                            cblk <= cblk + 5'd1;
                         end
                     end
                 end
@@ -132,13 +141,13 @@ module gcm (
                         ghcnt <= 9'd1;
                     end else if (ghcnt == 9'd130) begin
                         gh_data_valid <= 1'b0;
-                        if (ghblk == 4'd9) begin
+                        if ({3'd0, ghblk} == 8'd2 + {3'd0, nct} - 8'd1) begin
                             tag <= gh_tag ^ tag_mask;
                             busy <= 1'b0;
                             done <= 1'b1;
                             phase <= PHASE_IDLE;
                         end else begin
-                            ghblk <= ghblk + 4'd1;
+                            ghblk <= ghblk + 5'd1;
                             ghcnt <= 9'd0;
                         end
                     end else begin
@@ -151,19 +160,18 @@ module gcm (
         end
     end
 
+    wire [4:0] ck = ghblk - 5'd1;
+    wire [8:0] rem9 = {1'b0, pt_len} - {ck, 4'd0};
+    wire [4:0] cnb = (rem9[8]) ? 5'd0 : ((rem9[7:0] > 8'd16) ? 5'd16 : rem9[4:0]);
+    wire [127:0] ct_gh = ct_reg[ghblk[3:0] - 4'd1] & (128'hFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF << (128 - {2'd0, cnb, 3'd0}));
+
     always @(*) begin
-        case (ghblk)
-            4'd0: gh_data_in = aad_pad;
-            4'd1: gh_data_in = ct_reg[0];
-            4'd2: gh_data_in = ct_reg[1];
-            4'd3: gh_data_in = ct_reg[2];
-            4'd4: gh_data_in = ct_reg[3];
-            4'd5: gh_data_in = ct_reg[4];
-            4'd6: gh_data_in = ct_reg[5];
-            4'd7: gh_data_in = ct_reg[6];
-            4'd8: gh_data_in = ct_reg[7];
-            default: gh_data_in = len_block;
-        endcase
+        if (ghblk == 5'd0)
+            gh_data_in = aad_pad;
+        else if (ghblk <= nct)
+            gh_data_in = ct_gh;
+        else
+            gh_data_in = len_block;
     end
 
 endmodule

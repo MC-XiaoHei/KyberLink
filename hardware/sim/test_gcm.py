@@ -27,7 +27,8 @@ async def test_gcm_vectors(dut):
         dut.nonce.value = int(v["nonce"], 16)
         dut.aad.value = int(v["aad"], 16)
         dut.aad_len.value = 16
-        dut.plaintext_in.value = int(v["plaintext"], 16)
+        dut.pt_len.value = 128
+        dut.plaintext_in.value = int(v["plaintext"], 16) << 1024
         await Timer(2, units="ns")
         dut.start.value = 1
         await RisingEdge(dut.clk)
@@ -38,7 +39,7 @@ async def test_gcm_vectors(dut):
         await Timer(1, units="ns")
         ct = int(v["ciphertext_tag"][:256], 16)
         tg = int(v["ciphertext_tag"][256:], 16)
-        got_ct = int(dut.ciphertext_out.value)
+        got_ct = int.from_bytes(b"".join(int(dut.ct_reg[k].value).to_bytes(16, "big") for k in range(8)), "big")
         got_tag = int(dut.tag.value)
         assert got_ct == ct, f"index {v['index']} ct mismatch"
         assert got_tag == tg, f"index {v['index']} tag mismatch"

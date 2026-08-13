@@ -101,5 +101,6 @@
 | spi       | hex | 4B SPI 字段 |
 | seq       | hex | 4B 序号字段 |
 | iv        | hex | 12B 初始向量 |
-| plaintext | hex | 128B 明文（IP 包） |
-| frame     | hex | 166B ESP 帧 = SPI(4)\|Seq(4)\|IV(12)\|CT(128)\|PadLen(1)\|NextHeader(1)\|ICV(16)，AAD=SPI\|Seq |
+| plaintext_len | u64 | 明文字节数（0..255，覆盖 0/1/15/16/17/127/128/255 边界） |
+| plaintext | hex | 动态长度明文（IP 包） |
+| frame     | hex | 38+len 字节 ESP 帧 = SPI(4)\|Seq(4)\|IV(12)\|CT(len)\|PadLen(1)\|NextHeader(1)\|ICV(16)，AAD=SPI\|Seq |

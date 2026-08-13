@@ -344,14 +344,20 @@ fn gen_esp(n: u64, out_dir: &Path) {
         shake(&mut seq, b"esp-seq", i);
         let mut iv = [0u8; 12];
         shake(&mut iv, b"esp-iv", i);
-        let mut pt = vec![0u8; 128];
+        let boundary = [0usize, 1, 15, 16, 17, 127, 128, 255];
+        let pt_len = if (i as usize) < boundary.len() {
+            boundary[i as usize]
+        } else {
+            ((i as usize) % 253) + 1
+        };
+        let mut pt = vec![0u8; pt_len];
         shake(&mut pt, b"esp-pt", i);
         let mut buffer = pt.clone();
         let mut tag = [0u8; 16];
         let aad = [spi, seq].concat();
         let c = GcmCipher::new(&key);
         c.encrypt_in_place(&iv, &aad, &mut buffer, &mut tag).unwrap();
-        let mut frame = Vec::with_capacity(166);
+        let mut frame = Vec::with_capacity(38 + pt_len);
         frame.extend_from_slice(&spi);
         frame.extend_from_slice(&seq);
         frame.extend_from_slice(&iv);
@@ -365,6 +371,7 @@ fn gen_esp(n: u64, out_dir: &Path) {
             "seq": hex::encode(seq),
             "iv": hex::encode(iv),
             "plaintext": hex::encode(pt),
+            "plaintext_len": pt_len,
             "frame": hex::encode(frame),
         }));
     }

@@ -23,11 +23,14 @@ async def test_esp_vectors(dut):
     with open(VECTORS) as f:
         vecs = json.load(f)
     for v in vecs:
+        pt_len = v["plaintext_len"]
+        pt = bytes.fromhex(v["plaintext"])
         dut.key.value = int(v["key"], 16)
         dut.spi.value = int(v["spi"], 16)
         dut.seq.value = int(v["seq"], 16)
         dut.iv.value = int(v["iv"], 16)
-        dut.plaintext_in.value = int(v["plaintext"], 16)
+        dut.plaintext_len.value = pt_len
+        dut.plaintext_in.value = int.from_bytes(pt.ljust(255, b"\x00"), "big") << 8
         await Timer(2, units="ns")
         dut.start.value = 1
         await RisingEdge(dut.clk)
@@ -36,7 +39,7 @@ async def test_esp_vectors(dut):
         while not int(dut.done.value):
             await RisingEdge(dut.clk)
         await Timer(1, units="ns")
-        got = int(dut.frame_out.value)
-        expect = int(v["frame"], 16)
-        assert got == expect, f"index {v['index']} frame mismatch"
+        got = bytes(int(dut.frame_byte[k].value) for k in range(38 + pt_len))
+        frame = bytes.fromhex(v["frame"])
+        assert got == frame, f"index {v['index']} frame mismatch"
         dut._log.info(f"index {v['index']} ok")
