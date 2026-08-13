@@ -7,6 +7,7 @@ use serde_json::json;
 
 use kyberlink_crypto::cipher::GcmCipher;
 use kyberlink_crypto::kem;
+use kyberlink_crypto::ntt;
 use kyberlink_crypto::sign;
 
 const BASE: &[u8] = b"KyberLink vector generator v1";
@@ -190,6 +191,27 @@ fn main() {
         std::fs::write(out_dir.join("shake128.json"), serde_json::to_string_pretty(&v128).unwrap()).unwrap();
         std::fs::write(out_dir.join("shakelong.json"), serde_json::to_string_pretty(&vlong).unwrap()).unwrap();
         println!("shake: {} vectors (256/128/long)", n);
+    }
+
+    if mode == "ntt" || mode == "all" {
+        let mut v = Vec::new();
+        for i in 0..n {
+            let mut stream = [0u8; 512];
+            shake(&mut stream, b"ntt-in", i);
+            let mut f = [0u16; 256];
+            for k in 0..256 {
+                f[k] = u16::from_le_bytes([stream[2 * k], stream[2 * k + 1]]) % Q;
+            }
+            let mut g = f;
+            ntt::ntt(&mut g);
+            v.push(json!({
+                "index": i,
+                "coeffs_in": f.to_vec(),
+                "coeffs_out": g.to_vec(),
+            }));
+        }
+        std::fs::write(out_dir.join("ntt.json"), serde_json::to_string_pretty(&v).unwrap()).unwrap();
+        println!("ntt: {} vectors", n);
     }
 
     if mode == "sample" || mode == "all" {

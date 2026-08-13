@@ -1,0 +1,7 @@
+SIM ?= verilator
+TOPLEVEL_LANG ?= verilog
+VERILOG_SOURCES = $(PWD)/../rtl/keccak_f1600_round.v $(PWD)/../rtl/shake.v $(PWD)/../rtl/ntt.v
+TOPLEVEL = ntt
+MODULE = test_ntt
+
+include $(shell cocotb-config --makefiles)/Makefile.sim
