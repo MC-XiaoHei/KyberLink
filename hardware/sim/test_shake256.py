@@ -5,7 +5,8 @@ import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, Timer
 
-VECTORS = os.path.join(os.path.dirname(__file__), "..", "..", "vectors", "generated", "shake.json")
+VECDIR = os.path.join(os.path.dirname(__file__), "..", "..", "vectors", "generated")
+VECTORS = os.path.join(VECDIR, "shake.json")
 
 
 async def run_one(dut, msg_hex, digest_hex):

@@ -5,7 +5,8 @@ import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, Timer
 
-VECTORS = os.path.join(os.path.dirname(__file__), "..", "..", "vectors", "generated", "sample_cbd.json")
+VECDIR = os.path.join(os.path.dirname(__file__), "..", "..", "vectors", "generated")
+VECTORS = os.path.join(VECDIR, "sample_cbd.json")
 
 
 async def run_one(dut, seed_hex, coeffs_exp):

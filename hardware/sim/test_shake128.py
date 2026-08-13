@@ -6,6 +6,8 @@ from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, Timer
 
 VECDIR = os.path.join(os.path.dirname(__file__), "..", "..", "vectors", "generated")
+VECTORS_SHAKE = os.path.join(VECDIR, "shake128.json")
+VECTORS_LONG = os.path.join(VECDIR, "shakelong.json")
 
 
 async def run_one(dut, msg_hex, out_hex):
@@ -43,9 +45,9 @@ async def test_shake128_vectors(dut):
     await Timer(25, units="ns")
     dut.rst_n.value = 1
     await Timer(27, units="ns")
-    with open(os.path.join(VECDIR, "shake128.json")) as f:
+    with open(VECTORS_SHAKE) as f:
         for v in json.load(f):
             await run_one(dut, v["msg"], v["digest"])
-    with open(os.path.join(VECDIR, "shakelong.json")) as f:
+    with open(VECTORS_LONG) as f:
         for v in json.load(f):
             await run_one(dut, v["msg"], v["shake128_336"])
