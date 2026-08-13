@@ -151,3 +151,32 @@
 | d       | u64  | 1/4/10 |
 | coeffs_in  | int[] | 256 个输入系数（compress：<3329；decompress：<2^d） |
 | coeffs_out | int[] | 256 个输出系数（compress：<2^d；decompress：<3329） |
+
+## kem_keygen.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index | u64 | 序号 |
+| d | hex | 32B 随机种子（K-PKE.KeyGen 输入） |
+| z | hex | 32B 随机种子（dk 展开用） |
+| ek | hex | 1184B 封装密钥 = encode12(t̂)×3 \|\| rho |
+| dk | hex | 2400B 解封装密钥 = dkPKE \|\| ekPKE \|\| H(ekPKE) \|\| z |
+
+## kem_encaps.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index | u64 | 序号 |
+| ek | hex | 1184B 封装密钥 |
+| m | hex | 32B 随机消息 |
+| c | hex | 1088B 密文 = encode10(compress10(u))×3 \|\| encode4(compress4(v)) |
+| K | hex | 32B 会话密钥（G(m\|\|H(ek)) 前 32B） |
+
+## kem_decap.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index | u64 | 序号 |
+| dk | hex | 2400B 解封装密钥 |
+| c | hex | 1088B 密文 |
+| K | hex | 32B 会话密钥（与 kem_encaps 同 index 一致） |

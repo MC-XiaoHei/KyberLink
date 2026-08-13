@@ -8,6 +8,7 @@ use sha3::{Shake128, Shake256};
 
 use kyberlink_crypto::cipher::GcmCipher;
 use kyberlink_crypto::kem;
+use kyberlink_crypto::kem_internal;
 use kyberlink_crypto::ntt;
 use kyberlink_crypto::sign;
 
@@ -170,6 +171,47 @@ fn gen_kem(n: u64, out_dir: &Path) {
         }));
     }
     write_vectors(out_dir, "kem", &v);
+}
+
+fn gen_kem_internal(n: u64, out_dir: &Path) {
+    let mut kg = Vec::new();
+    let mut enc = Vec::new();
+    let mut dec = Vec::new();
+    for i in 0..n {
+        let mut d = [0u8; 32];
+        let mut z = [0u8; 32];
+        let mut m = [0u8; 32];
+        shake(&mut d, b"kem-in-d", i);
+        shake(&mut z, b"kem-in-z", i);
+        shake(&mut m, b"kem-in-m", i);
+        let (ek, dk) = kem_internal::keygen_internal(&d, &z);
+        let (k, c) = kem_internal::encaps_internal(&ek, &m);
+        let k2 = kem_internal::decaps_internal(&dk, &c);
+        assert_eq!(k, k2, "index {} decaps mismatch", i);
+        kg.push(json!({
+            "index": i,
+            "d": hex::encode(d),
+            "z": hex::encode(z),
+            "ek": hex::encode(ek),
+            "dk": hex::encode(dk),
+        }));
+        enc.push(json!({
+            "index": i,
+            "ek": hex::encode(ek),
+            "m": hex::encode(m),
+            "c": hex::encode(&c),
+            "K": hex::encode(k),
+        }));
+        dec.push(json!({
+            "index": i,
+            "dk": hex::encode(dk),
+            "c": hex::encode(&c),
+            "K": hex::encode(k2),
+        }));
+    }
+    write_vectors(out_dir, "kem_keygen", &kg);
+    write_vectors(out_dir, "kem_encaps", &enc);
+    write_vectors(out_dir, "kem_decap", &dec);
 }
 
 fn gen_sign(n: u64, out_dir: &Path) {
@@ -578,6 +620,7 @@ fn main() {
 
     match mode {
         "kem" => gen_kem(n, &out_dir),
+        "kem_internal" => gen_kem_internal(n, &out_dir),
         "sign" => gen_sign(n, &out_dir),
         "shake" => gen_shake(n, &out_dir),
         "ntt" => gen_ntt(n, &out_dir),
@@ -593,6 +636,7 @@ fn main() {
         "compress" => gen_compress(n, &out_dir),
         _ => {
             gen_kem(n, &out_dir);
+            gen_kem_internal(n, &out_dir);
             gen_sign(n, &out_dir);
             gen_shake(n, &out_dir);
             gen_ntt(n, &out_dir);
