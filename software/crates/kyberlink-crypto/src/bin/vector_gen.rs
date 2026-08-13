@@ -13,6 +13,8 @@ use kyberlink_crypto::sign;
 
 const BASE: &[u8] = b"KyberLink vector generator v1";
 const Q: u16 = 3329;
+const DIV_MUL: u64 = (1u64 << 34) / 3329;
+const Q_HALF: u64 = 1665;
 
 fn shake(out: &mut [u8], label: &[u8], i: u64) {
     let mut x = Shake256::default();
@@ -104,6 +106,44 @@ fn coeffs256(label: &[u8], i: u64) -> [u16; 256] {
         f[k] = u16::from_le_bytes([stream[2 * k], stream[2 * k + 1]]) % Q;
     }
     f
+}
+
+fn byte_encode(d: usize, coeffs: &[u16; 256]) -> Vec<u8> {
+    let mut bytes = vec![0u8; 32 * d];
+    for i in 0..256 {
+        let mut a = coeffs[i];
+        for j in 0..d {
+            let idx = i * d + j;
+            bytes[idx / 8] |= ((a & 1) as u8) << (idx % 8);
+            a >>= 1;
+        }
+    }
+    bytes
+}
+
+fn byte_decode(d: usize, bytes: &[u8]) -> [u16; 256] {
+    let mut f = [0u16; 256];
+    for i in 0..256 {
+        let mut v = 0u16;
+        for j in 0..d {
+            let idx = i * d + j;
+            v |= (((bytes[idx / 8] >> (idx % 8)) & 1) as u16) << j;
+        }
+        if d == 12 {
+            v %= Q;
+        }
+        f[i] = v;
+    }
+    f
+}
+
+fn compress(d: usize, x: u16) -> u16 {
+    let a = ((x as u64) << d) + Q_HALF;
+    ((a * DIV_MUL >> 34) & ((1u64 << d) - 1)) as u16
+}
+
+fn decompress(d: usize, y: u16) -> u16 {
+    (((y as u64) * Q as u64 + (1u64 << (d - 1))) >> d) as u16
 }
 
 fn write_vectors(out_dir: &Path, name: &str, v: &[Value]) {
@@ -435,6 +475,64 @@ fn gen_sha3(n: u64, out_dir: &Path) {
     write_vectors(out_dir, "sha3_512", &v512);
 }
 
+fn gen_compress(n: u64, out_dir: &Path) {
+    let ds = [1usize, 4, 10, 12];
+    let mut pv = Vec::new();
+    let mut cv = Vec::new();
+    for i in 0..n {
+        let d = ds[(i / 4 % 4) as usize];
+        let coeffs = coeffs256(b"pack-in", i);
+        if i % 2 == 0 {
+            let bytes = byte_encode(d, &coeffs);
+            pv.push(json!({
+                "index": i,
+                "mode": "encode",
+                "d": d,
+                "coeffs": coeffs.to_vec(),
+                "bytes": hex::encode(bytes),
+            }));
+        } else {
+            let mut rb = vec![0u8; 32 * d];
+            shake(&mut rb, b"pack-bytes", i);
+            pv.push(json!({
+                "index": i,
+                "mode": "decode",
+                "d": d,
+                "coeffs": byte_decode(d, &rb).to_vec(),
+                "bytes": hex::encode(rb),
+            }));
+        }
+        if i % 2 == 0 {
+            let cin = coeffs256(b"compress-in", i);
+            let cout: Vec<u16> = cin.iter().map(|&x| compress(d, x)).collect();
+            cv.push(json!({
+                "index": i,
+                "mode": "compress",
+                "d": d,
+                "coeffs_in": cin.to_vec(),
+                "coeffs_out": cout,
+            }));
+        } else {
+            let mut stream = [0u8; 512];
+            shake(&mut stream, b"decompress-in", i);
+            let cin: Vec<u16> = stream
+                .chunks(2)
+                .map(|w| u16::from_le_bytes([w[0], w[1]]) & ((1 << d) - 1))
+                .collect();
+            let cout: Vec<u16> = cin.iter().map(|&y| decompress(d, y)).collect();
+            cv.push(json!({
+                "index": i,
+                "mode": "decompress",
+                "d": d,
+                "coeffs_in": cin,
+                "coeffs_out": cout,
+            }));
+        }
+    }
+    write_vectors(out_dir, "pack", &pv);
+    write_vectors(out_dir, "compress", &cv);
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mode = args.get(1).map(String::as_str).unwrap_or("all");
@@ -455,6 +553,7 @@ fn main() {
         "cipher" => gen_cipher(n, &out_dir),
         "esp" => gen_esp(n, &out_dir),
         "sha3" => gen_sha3(n, &out_dir),
+        "compress" => gen_compress(n, &out_dir),
         _ => {
             gen_kem(n, &out_dir);
             gen_sign(n, &out_dir);
@@ -468,6 +567,7 @@ fn main() {
             gen_cipher(n, &out_dir);
             gen_esp(n, &out_dir);
             gen_sha3(n, &out_dir);
+            gen_compress(n, &out_dir);
         }
     }
 }

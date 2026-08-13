@@ -39,6 +39,12 @@ SRC_gcm = $(RTL)/aes256_core.v $(RTL)/ghash.v $(RTL)/gcm.v
 TOP_esp = esp
 SRC_esp = $(RTL)/aes256_core.v $(RTL)/ghash.v $(RTL)/gcm.v $(RTL)/esp.v
 
+TOP_pack = pack
+SRC_pack = $(RTL)/pack.v
+
+TOP_compress = compress
+SRC_compress = $(RTL)/compress.v
+
 TOP_sha3_256 = shake
 SRC_sha3_256 = $(CORE)
 ARGS_sha3_256 = -GRATE_BYTES=136 -GDOMAIN_BYTE=0x06

@@ -121,3 +121,23 @@
 | msg_len | u64  | 消息字节数（sha3_256 覆盖 0/1/32/33/64/135/136/137/255/512/1184；sha3_512 覆盖 0/1/32/33/63/64/71/72/73/136，含满块/边界） |
 | msg     | hex  | 消息（右补零，长度=msg_len） |
 | hash    | hex  | 32B(SHA3-256)/64B(SHA3-512) 摘要 |
+
+## pack.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index   | u64  | 序号 |
+| mode    | str  | encode / decode |
+| d       | u64  | 1/4/10/12 |
+| coeffs  | int[] | 256 个 d 位系数（decode 时是输出，d=12 时 <3329） |
+| bytes   | hex  | 32d 字节打包结果（encode 输出 / decode 输入） |
+
+## compress.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index   | u64  | 序号 |
+| mode    | str  | compress / decompress |
+| d       | u64  | 1/4/10 |
+| coeffs_in  | int[] | 256 个输入系数（compress：<3329；decompress：<2^d） |
+| coeffs_out | int[] | 256 个输出系数（compress：<2^d；decompress：<3329） |
