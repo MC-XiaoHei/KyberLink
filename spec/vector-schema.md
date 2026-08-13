@@ -64,3 +64,12 @@
 | index      | u64 | 序号 |
 | coeffs_in  | int[] | 256 个 NTT 域系数（bitreversed 序），均小于 3329 |
 | coeffs_out | int[] | 256 个逆 NTT 结果系数（标准序），均小于 3329 |
+
+## basemul.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index      | u64 | 序号 |
+| coeffs_a   | int[] | 256 个系数（NTT 域，bitreversed 序），均小于 3329 |
+| coeffs_b   | int[] | 256 个系数（NTT 域，bitreversed 序），均小于 3329 |
+| coeffs_out | int[] | 256 个乘积系数，第 2k/2k+1 个为第 k 对系数按 γ_k 的 BaseCaseMultiply 结果 |

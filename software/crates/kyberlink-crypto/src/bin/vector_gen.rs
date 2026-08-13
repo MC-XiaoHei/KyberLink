@@ -235,6 +235,36 @@ fn main() {
         println!("invntt: {} vectors", n);
     }
 
+    if mode == "basemul" || mode == "all" {
+        let mut v = Vec::new();
+        for i in 0..n {
+            let mut sa = [0u8; 512];
+            let mut sb = [0u8; 512];
+            shake(&mut sa, b"basemul-a", i);
+            shake(&mut sb, b"basemul-b", i);
+            let mut a = [0u16; 256];
+            let mut b = [0u16; 256];
+            for k in 0..256 {
+                a[k] = u16::from_le_bytes([sa[2 * k], sa[2 * k + 1]]) % Q;
+                b[k] = u16::from_le_bytes([sb[2 * k], sb[2 * k + 1]]) % Q;
+            }
+            let mut c = [0u16; 256];
+            for k in 0..128 {
+                let r = ntt::basemul(&[a[2 * k], a[2 * k + 1]], &[b[2 * k], b[2 * k + 1]], ntt::GAMMAS[k]);
+                c[2 * k] = r[0];
+                c[2 * k + 1] = r[1];
+            }
+            v.push(json!({
+                "index": i,
+                "coeffs_a": a.to_vec(),
+                "coeffs_b": b.to_vec(),
+                "coeffs_out": c.to_vec(),
+            }));
+        }
+        std::fs::write(out_dir.join("basemul.json"), serde_json::to_string_pretty(&v).unwrap()).unwrap();
+        println!("basemul: {} vectors", n);
+    }
+
     if mode == "sample" || mode == "all" {
         let mut ntt = Vec::new();
         for i in 0..n {

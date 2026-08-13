@@ -24,6 +24,8 @@ TOP_ntt = ntt
 SRC_ntt = $(RTL)/ntt.v
 TOP_invntt = invntt
 SRC_invntt = $(RTL)/invntt.v
+TOP_basemul = basemul
+SRC_basemul = $(RTL)/basemul.v
 
 TOPLEVEL = $(TOP_$(MOD))
 VERILOG_SOURCES = $(SRC_$(MOD))
