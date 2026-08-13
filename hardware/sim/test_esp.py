@@ -1,0 +1,42 @@
+import os
+import json
+import cocotb
+from cocotb.clock import Clock
+from cocotb.triggers import RisingEdge, Timer
+
+VECDIR = os.path.join(os.path.dirname(__file__), "..", "..", "vectors", "generated")
+VECTORS = os.path.join(VECDIR, "esp.json")
+
+
+async def reset_dut(dut):
+    dut.rst_n.value = 0
+    await Timer(25, units="ns")
+    dut.rst_n.value = 1
+    await Timer(27, units="ns")
+
+
+@cocotb.test()
+async def test_esp_vectors(dut):
+    cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    dut.start.value = 0
+    await reset_dut(dut)
+    with open(VECTORS) as f:
+        vecs = json.load(f)
+    for v in vecs:
+        dut.key.value = int(v["key"], 16)
+        dut.spi.value = int(v["spi"], 16)
+        dut.seq.value = int(v["seq"], 16)
+        dut.iv.value = int(v["iv"], 16)
+        dut.plaintext_in.value = int(v["plaintext"], 16)
+        await Timer(2, units="ns")
+        dut.start.value = 1
+        await RisingEdge(dut.clk)
+        await Timer(1, units="ns")
+        dut.start.value = 0
+        while not int(dut.done.value):
+            await RisingEdge(dut.clk)
+        await Timer(1, units="ns")
+        got = int(dut.frame_out.value)
+        expect = int(v["frame"], 16)
+        assert got == expect, f"index {v['index']} frame mismatch"
+        dut._log.info(f"index {v['index']} ok")

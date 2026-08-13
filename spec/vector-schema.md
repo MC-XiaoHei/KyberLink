@@ -89,5 +89,17 @@
 |------|------|------|
 | index  | u64 | 序号 |
 | h      | hex | 16B 子密钥 H |
-| blocks | hex[] | 各 16B 的输入块序列 |
+| blocks | hex[] | 若干 16B 输入块序列 |
 | tag    | hex | 16B GHASH 累乘结果 |
+
+## esp.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index     | u64 | 序号 |
+| key       | hex | 32B AES-256 密钥 |
+| spi       | hex | 4B SPI 字段 |
+| seq       | hex | 4B 序号字段 |
+| iv        | hex | 12B 初始向量 |
+| plaintext | hex | 128B 明文（IP 包） |
+| frame     | hex | 166B ESP 帧 = SPI(4)\|Seq(4)\|IV(12)\|CT(128)\|PadLen(1)\|NextHeader(1)\|ICV(16)，AAD=SPI\|Seq |

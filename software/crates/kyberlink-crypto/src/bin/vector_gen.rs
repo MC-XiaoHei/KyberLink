@@ -333,6 +333,44 @@ fn gen_cipher(n: u64, out_dir: &Path) {
     write_vectors(out_dir, "cipher", &v);
 }
 
+fn gen_esp(n: u64, out_dir: &Path) {
+    let mut v = Vec::new();
+    for i in 0..n {
+        let mut key = [0u8; 32];
+        shake(&mut key, b"esp-key", i);
+        let mut spi = [0u8; 4];
+        shake(&mut spi, b"esp-spi", i);
+        let mut seq = [0u8; 4];
+        shake(&mut seq, b"esp-seq", i);
+        let mut iv = [0u8; 12];
+        shake(&mut iv, b"esp-iv", i);
+        let mut pt = vec![0u8; 128];
+        shake(&mut pt, b"esp-pt", i);
+        let mut buffer = pt.clone();
+        let mut tag = [0u8; 16];
+        let aad = [spi, seq].concat();
+        let c = GcmCipher::new(&key);
+        c.encrypt_in_place(&iv, &aad, &mut buffer, &mut tag).unwrap();
+        let mut frame = Vec::with_capacity(166);
+        frame.extend_from_slice(&spi);
+        frame.extend_from_slice(&seq);
+        frame.extend_from_slice(&iv);
+        frame.extend_from_slice(&buffer);
+        frame.extend_from_slice(&[0x00, 0x04]);
+        frame.extend_from_slice(&tag);
+        v.push(json!({
+            "index": i,
+            "key": hex::encode(key),
+            "spi": hex::encode(spi),
+            "seq": hex::encode(seq),
+            "iv": hex::encode(iv),
+            "plaintext": hex::encode(pt),
+            "frame": hex::encode(frame),
+        }));
+    }
+    write_vectors(out_dir, "esp", &v);
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mode = args.get(1).map(String::as_str).unwrap_or("all");
@@ -351,6 +389,7 @@ fn main() {
         "aes" => gen_aes(n, &out_dir),
         "ghash" => gen_ghash(n, &out_dir),
         "cipher" => gen_cipher(n, &out_dir),
+        "esp" => gen_esp(n, &out_dir),
         _ => {
             gen_kem(n, &out_dir);
             gen_sign(n, &out_dir);
@@ -362,6 +401,7 @@ fn main() {
             gen_aes(n, &out_dir);
             gen_ghash(n, &out_dir);
             gen_cipher(n, &out_dir);
+            gen_esp(n, &out_dir);
         }
     }
 }
