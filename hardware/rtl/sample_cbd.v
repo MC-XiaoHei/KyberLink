@@ -37,14 +37,14 @@ module sample_cbd (
     wire [7:0] b3 = blk[1063 - 32*grp -: 8];
     wire [31:0] d = {b3, b2, b1, b0};
 
-    wire signed [2:0] c0 = $signed(3'b0 + d[0] + d[1]) - $signed(3'b0 + d[2] + d[3]);
-    wire signed [2:0] c1 = $signed(3'b0 + d[4] + d[5]) - $signed(3'b0 + d[6] + d[7]);
-    wire signed [2:0] c2 = $signed(3'b0 + d[8] + d[9]) - $signed(3'b0 + d[10] + d[11]);
-    wire signed [2:0] c3 = $signed(3'b0 + d[12] + d[13]) - $signed(3'b0 + d[14] + d[15]);
-    wire signed [2:0] c4 = $signed(3'b0 + d[16] + d[17]) - $signed(3'b0 + d[18] + d[19]);
-    wire signed [2:0] c5 = $signed(3'b0 + d[20] + d[21]) - $signed(3'b0 + d[22] + d[23]);
-    wire signed [2:0] c6 = $signed(3'b0 + d[24] + d[25]) - $signed(3'b0 + d[26] + d[27]);
-    wire signed [2:0] c7 = $signed(3'b0 + d[28] + d[29]) - $signed(3'b0 + d[30] + d[31]);
+    wire signed [2:0] c0 = $signed(3'b0 + {2'b0, d[0]} + {2'b0, d[1]}) - $signed(3'b0 + {2'b0, d[2]} + {2'b0, d[3]});
+    wire signed [2:0] c1 = $signed(3'b0 + {2'b0, d[4]} + {2'b0, d[5]}) - $signed(3'b0 + {2'b0, d[6]} + {2'b0, d[7]});
+    wire signed [2:0] c2 = $signed(3'b0 + {2'b0, d[8]} + {2'b0, d[9]}) - $signed(3'b0 + {2'b0, d[10]} + {2'b0, d[11]});
+    wire signed [2:0] c3 = $signed(3'b0 + {2'b0, d[12]} + {2'b0, d[13]}) - $signed(3'b0 + {2'b0, d[14]} + {2'b0, d[15]});
+    wire signed [2:0] c4 = $signed(3'b0 + {2'b0, d[16]} + {2'b0, d[17]}) - $signed(3'b0 + {2'b0, d[18]} + {2'b0, d[19]});
+    wire signed [2:0] c5 = $signed(3'b0 + {2'b0, d[20]} + {2'b0, d[21]}) - $signed(3'b0 + {2'b0, d[22]} + {2'b0, d[23]});
+    wire signed [2:0] c6 = $signed(3'b0 + {2'b0, d[24]} + {2'b0, d[25]}) - $signed(3'b0 + {2'b0, d[26]} + {2'b0, d[27]});
+    wire signed [2:0] c7 = $signed(3'b0 + {2'b0, d[28]} + {2'b0, d[29]}) - $signed(3'b0 + {2'b0, d[30]} + {2'b0, d[31]});
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
