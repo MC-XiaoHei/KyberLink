@@ -297,6 +297,29 @@ fn main() {
         println!("sample: {} ntt + {} cbd vectors", n, n);
     }
 
+    if mode == "aes" || mode == "all" {
+        use aes::cipher::generic_array::GenericArray;
+        use aes::cipher::{BlockEncrypt, KeyInit};
+        let mut v = Vec::new();
+        for i in 0..n {
+            let mut key = [0u8; 32];
+            shake(&mut key, b"aes-key", i);
+            let mut block = [0u8; 16];
+            shake(&mut block, b"aes-block", i);
+            let cipher = aes::Aes256::new_from_slice(&key).unwrap();
+            let mut gb = GenericArray::from_slice(&block).clone();
+            cipher.encrypt_block(&mut gb);
+            v.push(json!({
+                "index": i,
+                "key": hex::encode(key),
+                "block": hex::encode(block),
+                "ciphertext": hex::encode(gb.as_slice()),
+            }));
+        }
+        std::fs::write(out_dir.join("aes.json"), serde_json::to_string_pretty(&v).unwrap()).unwrap();
+        println!("aes: {} vectors", n);
+    }
+
     if mode == "cipher" || mode == "all" {
         let mut v = Vec::new();
         for i in 0..n {

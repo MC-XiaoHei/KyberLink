@@ -73,3 +73,12 @@
 | coeffs_a   | int[] | 256 个系数（NTT 域，bitreversed 序），均小于 3329 |
 | coeffs_b   | int[] | 256 个系数（NTT 域，bitreversed 序），均小于 3329 |
 | coeffs_out | int[] | 256 个乘积系数，第 2k/2k+1 个为第 k 对系数按 γ_k 的 BaseCaseMultiply 结果 |
+
+## aes.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index      | u64 | 序号 |
+| key        | hex | 32B AES-256 密钥 |
+| block      | hex | 16B 明文块 |
+| ciphertext | hex | 16B 加密结果 |

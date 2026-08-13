@@ -290,6 +290,7 @@ dependencies = [
 name = "kyberlink-crypto"
 version = "0.1.0"
 dependencies = [
+ "aes",
  "aes-gcm",
  "hex",
  "ml-dsa",

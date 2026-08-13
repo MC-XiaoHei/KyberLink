@@ -26,6 +26,8 @@ TOP_invntt = invntt
 SRC_invntt = $(RTL)/invntt.v
 TOP_basemul = basemul
 SRC_basemul = $(RTL)/basemul.v
+TOP_aes = aes256_core
+SRC_aes = $(RTL)/aes256_core.v
 
 TOPLEVEL = $(TOP_$(MOD))
 VERILOG_SOURCES = $(SRC_$(MOD))
