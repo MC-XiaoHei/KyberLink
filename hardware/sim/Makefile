@@ -29,6 +29,9 @@ SRC_basemul = $(RTL)/basemul.v
 TOP_aes = aes256_core
 SRC_aes = $(RTL)/aes256_core.v
 
+TOP_ghash = ghash
+SRC_ghash = $(RTL)/ghash.v
+
 TOPLEVEL = $(TOP_$(MOD))
 VERILOG_SOURCES = $(SRC_$(MOD))
 EXTRA_ARGS = $(ARGS_$(MOD))

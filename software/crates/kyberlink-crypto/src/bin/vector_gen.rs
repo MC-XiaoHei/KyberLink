@@ -280,6 +280,32 @@ fn gen_aes(n: u64, out_dir: &Path) {
     write_vectors(out_dir, "aes", &v);
 }
 
+fn gen_ghash(n: u64, out_dir: &Path) {
+    use ghash::universal_hash::{KeyInit, UniversalHash};
+    let mut v = Vec::new();
+    for i in 0..n {
+        let mut h = [0u8; 16];
+        shake(&mut h, b"ghash-h", i);
+        let nb = (i % 8 + 1) as usize;
+        let mut blocks = Vec::new();
+        let mut g = ghash::GHash::new_from_slice(&h).unwrap();
+        for k in 0..nb {
+            let mut blk = [0u8; 16];
+            shake(&mut blk, b"ghash-b", i * 16 + k as u64);
+            blocks.push(blk);
+            g.update_padded(&blk);
+        }
+        let tag = g.finalize();
+        v.push(json!({
+            "index": i,
+            "h": hex::encode(h),
+            "blocks": blocks.iter().map(|b| hex::encode(b)).collect::<Vec<_>>(),
+            "tag": hex::encode(tag.as_slice()),
+        }));
+    }
+    write_vectors(out_dir, "ghash", &v);
+}
+
 fn gen_cipher(n: u64, out_dir: &Path) {
     let mut v = Vec::new();
     for i in 0..n {
@@ -323,6 +349,7 @@ fn main() {
         "basemul" => gen_basemul(n, &out_dir),
         "sample" => gen_sample(n, &out_dir),
         "aes" => gen_aes(n, &out_dir),
+        "ghash" => gen_ghash(n, &out_dir),
         "cipher" => gen_cipher(n, &out_dir),
         _ => {
             gen_kem(n, &out_dir);
@@ -333,6 +360,7 @@ fn main() {
             gen_basemul(n, &out_dir);
             gen_sample(n, &out_dir);
             gen_aes(n, &out_dir);
+            gen_ghash(n, &out_dir);
             gen_cipher(n, &out_dir);
         }
     }

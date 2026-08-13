@@ -82,3 +82,12 @@
 | key        | hex | 32B AES-256 密钥 |
 | block      | hex | 16B 明文块 |
 | ciphertext | hex | 16B 加密结果 |
+
+## ghash.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index  | u64 | 序号 |
+| h      | hex | 16B 子密钥 H |
+| blocks | hex[] | 各 16B 的输入块序列 |
+| tag    | hex | 16B GHASH 累乘结果 |
