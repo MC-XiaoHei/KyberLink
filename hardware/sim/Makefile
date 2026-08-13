@@ -3,7 +3,6 @@ TOPLEVEL_LANG ?= verilog
 RTL = $(PWD)/../rtl
 
 MOD ?= ntt
-MODULE = test_$(MOD)
 SIM_BUILD = sim_build/$(MOD)
 .DEFAULT_GOAL = sim
 
@@ -37,6 +36,21 @@ SRC_gcm = $(RTL)/aes256_core.v $(RTL)/ghash.v $(RTL)/gcm.v
 
 TOP_esp = esp
 SRC_esp = $(RTL)/aes256_core.v $(RTL)/ghash.v $(RTL)/gcm.v $(RTL)/esp.v
+
+TOP_sha3_256 = shake
+SRC_sha3_256 = $(CORE)
+ARGS_sha3_256 = -GRATE_BYTES=136 -GDOMAIN_BYTE=0x06
+MODULE_sha3_256 = test_sha3
+
+TOP_sha3_512 = shake
+SRC_sha3_512 = $(CORE)
+ARGS_sha3_512 = -GRATE_BYTES=72 -GDOMAIN_BYTE=0x06
+MODULE_sha3_512 = test_sha3
+
+MODULE = $(MODULE_$(MOD))
+ifeq ($(MODULE),)
+MODULE = test_$(MOD)
+endif
 
 TOPLEVEL = $(TOP_$(MOD))
 VERILOG_SOURCES = $(SRC_$(MOD))

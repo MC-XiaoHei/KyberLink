@@ -378,6 +378,34 @@ fn gen_esp(n: u64, out_dir: &Path) {
     write_vectors(out_dir, "esp", &v);
 }
 
+fn gen_sha3(n: u64, out_dir: &Path) {
+    use sha3::{Digest, Sha3_256, Sha3_512};
+    let mut v256 = Vec::new();
+    let mut v512 = Vec::new();
+    for i in 0..n {
+        let mut msg = [0u8; 1184];
+        shake(&mut msg, b"sha3-msg", i);
+        let l256 = [0usize, 1, 32, 33, 64, 135, 136, 137, 255, 512, 1184][(i as usize) % 11];
+        let h = Sha3_256::digest(&msg[..l256]);
+        v256.push(json!({
+            "index": i,
+            "msg_len": l256,
+            "msg": hex::encode(&msg[..l256]),
+            "hash": hex::encode(h),
+        }));
+        let l512 = [0usize, 1, 32, 33, 63, 64, 71, 72, 73, 136][(i as usize) % 10];
+        let h = Sha3_512::digest(&msg[..l512]);
+        v512.push(json!({
+            "index": i,
+            "msg_len": l512,
+            "msg": hex::encode(&msg[..l512]),
+            "hash": hex::encode(h),
+        }));
+    }
+    write_vectors(out_dir, "sha3_256", &v256);
+    write_vectors(out_dir, "sha3_512", &v512);
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mode = args.get(1).map(String::as_str).unwrap_or("all");
@@ -397,6 +425,7 @@ fn main() {
         "ghash" => gen_ghash(n, &out_dir),
         "cipher" => gen_cipher(n, &out_dir),
         "esp" => gen_esp(n, &out_dir),
+        "sha3" => gen_sha3(n, &out_dir),
         _ => {
             gen_kem(n, &out_dir);
             gen_sign(n, &out_dir);
@@ -409,6 +438,7 @@ fn main() {
             gen_ghash(n, &out_dir);
             gen_cipher(n, &out_dir);
             gen_esp(n, &out_dir);
+            gen_sha3(n, &out_dir);
         }
     }
 }

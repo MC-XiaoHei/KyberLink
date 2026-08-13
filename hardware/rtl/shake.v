@@ -1,10 +1,12 @@
-module shake #(parameter RATE_BYTES = 136) (
+module shake #(parameter RATE_BYTES = 136, parameter DOMAIN_BYTE = 8'h1F) (
     input  wire        clk,
     input  wire        rst_n,
     input  wire        start,
-    input  wire [7:0]  len,
+    input  wire [11:0] len,
     input  wire [3:0]  out_blocks,
     input  wire [RATE_BYTES*8-1:0] msg,
+    input  wire        msg_valid,
+    output wire        need_msg,
     output reg         busy,
     output reg         done,
     output wire [RATE_BYTES*8-1:0] out
@@ -15,15 +17,20 @@ module shake #(parameter RATE_BYTES = 136) (
     localparam PHASE_PAD = 3'd3;
     localparam PHASE_PADX = 3'd4;
     localparam PHASE_SQUEEZE = 3'd5;
+    localparam PHASE_ABSORB_WAIT = 3'd6;
 
     localparam HIGH_ZERO = 1600 - RATE_BYTES*8;
 
     reg [1599:0] state;
     reg [4:0]    round;
     reg [2:0]    phase;
-    reg [7:0]    msg_len;
+    reg [11:0]   msg_len;
     reg [3:0]    blk_cnt;
     reg [3:0]    blk_total;
+    reg [11:0]   rem_bytes;
+    reg          last_full;
+
+    assign need_msg = (phase == PHASE_ABSORB_WAIT);
 
     wire [1599:0] round_out;
     keccak_f1600_round u_round (.state_in(state), .round(round), .state_out(round_out));
@@ -36,10 +43,11 @@ module shake #(parameter RATE_BYTES = 136) (
         end
     endgenerate
 
-    wire [1599:0] pad_const = {{HIGH_ZERO{1'b0}}, 8'h80, {(RATE_BYTES*8-16){1'b0}}, 8'h1F};
-    wire [1599:0] pad_xor = ((1600'h1F) << (8*msg_len)) ^ (1600'h80 << (8*(RATE_BYTES-1)));
+    wire [1599:0] pad_const = {{HIGH_ZERO{1'b0}}, 8'h80, {(RATE_BYTES*8-16){1'b0}}, DOMAIN_BYTE[7:0]};
+    wire [1599:0] pad_xor = (({1592'd0, DOMAIN_BYTE[7:0]}) << (8*(msg_len % RATE_W))) ^ (1600'h80 << (8*(RATE_W-1)));
 
     wire [RATE_BYTES*8-1:0] out_w;
+    localparam [11:0] RATE_W = RATE_BYTES[11:0];
     genvar oj;
     generate
         for (oj = 0; oj < RATE_BYTES; oj = oj + 1) begin: orev
@@ -56,6 +64,7 @@ module shake #(parameter RATE_BYTES = 136) (
             busy <= 1'b0;
             done <= 1'b0;
             blk_cnt <= 4'd0;
+            last_full <= 1'b0;
         end else begin
             done <= 1'b0;
             case (phase)
@@ -66,12 +75,16 @@ module shake #(parameter RATE_BYTES = 136) (
                         blk_cnt <= 4'd1;
                         busy <= 1'b1;
                         round <= 5'd0;
-                        if (len == 8'd0) begin
+                        if (len == 12'd0) begin
                             state <= pad_const;
                             phase <= PHASE_PAD;
                         end else begin
                             state <= {{HIGH_ZERO{1'b0}}, msg_rev};
-                            if (len == RATE_BYTES[7:0]) begin
+                            if (len > RATE_W) begin
+                                rem_bytes <= len - RATE_W;
+                                phase <= PHASE_ABSORB;
+                            end else if (len == RATE_W) begin
+                                rem_bytes <= 12'd0;
                                 phase <= PHASE_ABSORB;
                             end else begin
                                 phase <= PHASE_PREP;
@@ -83,17 +96,39 @@ module shake #(parameter RATE_BYTES = 136) (
                     state <= round_out;
                     if (round == 5'd23) begin
                         round <= 5'd0;
-                        phase <= PHASE_PREP;
+                        if (rem_bytes > 12'd0) begin
+                            phase <= PHASE_ABSORB_WAIT;
+                        end else begin
+                            phase <= PHASE_PREP;
+                        end
                     end else begin
                         round <= round + 1;
                     end
                 end
+                PHASE_ABSORB_WAIT: begin
+                    if (msg_valid) begin
+                        state <= state ^ {{HIGH_ZERO{1'b0}}, msg_rev};
+                        if (rem_bytes > RATE_W) begin
+                            rem_bytes <= rem_bytes - RATE_W;
+                            phase <= PHASE_ABSORB;
+                        end else begin
+                            if (rem_bytes == RATE_W) begin
+                                last_full <= 1'b1;
+                                phase <= PHASE_ABSORB;
+                            end else begin
+                                phase <= PHASE_PREP;
+                            end
+                            rem_bytes <= 12'd0;
+                        end
+                    end
+                end
                 PHASE_PREP: begin
-                    if (msg_len == RATE_BYTES[7:0]) begin
-                        state <= pad_const;
+                    if ((msg_len == RATE_W) || last_full) begin
+                        state <= state ^ pad_const;
                     end else begin
                         state <= state ^ pad_xor;
                     end
+                    last_full <= 1'b0;
                     phase <= PHASE_PAD;
                 end
                 PHASE_PAD, PHASE_SQUEEZE: begin
