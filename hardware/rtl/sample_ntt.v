@@ -14,6 +14,9 @@ module sample_ntt (
     localparam PHASE_IDLE = 2'd0;
     localparam PHASE_WAIT = 2'd1;
     localparam PHASE_PROC = 2'd2;
+    localparam PHASE_FLUSH = 2'd3;
+
+    reg [11:0] coeffs_arr [0:255];
 
     reg [1:0]    phase;
     reg          shake_start;
@@ -68,13 +71,6 @@ module sample_ntt (
     wire a2c = c_ok && d2c < Q && n1c < 9'd256;
     wire [8:0] n2c = n1c + (a2c ? 9'd1 : 9'd0);
 
-    wire [31:0] idx32 = {24'b0, idx};
-    wire [31:0] n1a32 = {23'b0, n1a};
-    wire [31:0] n2a32 = {23'b0, n2a};
-    wire [31:0] n1b32 = {23'b0, n1b};
-    wire [31:0] n2b32 = {23'b0, n2b};
-    wire [31:0] n1c32 = {23'b0, n1c};
-
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             phase <= PHASE_IDLE;
@@ -110,17 +106,21 @@ module sample_ntt (
                         blk_next <= shake_out;
                         has_next <= 1'b1;
                     end
-                    if (a1a) coeffs[12*idx32 +: 12] <= d1a;
-                    if (a2a) coeffs[12*n1a32 +: 12] <= d2a;
-                    if (a1b) coeffs[12*n2a32 +: 12] <= d1b;
-                    if (a2b) coeffs[12*n1b32 +: 12] <= d2b;
-                    if (a1c) coeffs[12*n2b32 +: 12] <= d1c;
-                    if (a2c) coeffs[12*n1c32 +: 12] <= d2c;
+                    if (a1a) coeffs_arr[idx[7:0]] <= d1a;
+                    if (a2a) coeffs_arr[n1a[7:0]] <= d2a;
+                    if (a1b) coeffs_arr[n2a[7:0]] <= d1b;
+                    if (a2b) coeffs_arr[n1b[7:0]] <= d2b;
+                    if (a1c) coeffs_arr[n2b[7:0]] <= d1c;
+                    if (a2c) coeffs_arr[n1c[7:0]] <= d2c;
                     idx <= n2c[7:0];
                     if (n2c >= 9'd256) begin
-                        busy <= 1'b0;
-                        done <= 1'b1;
-                        phase <= PHASE_IDLE;
+                        if (shake_busy) begin
+                            phase <= PHASE_FLUSH;
+                        end else begin
+                            busy <= 1'b0;
+                            done <= 1'b1;
+                            phase <= PHASE_IDLE;
+                        end
                     end else if (grp == 9'd54) begin
                         if (has_next) begin
                             blk <= blk_next;
@@ -134,8 +134,22 @@ module sample_ntt (
                         grp <= grp + 9'd3;
                     end
                 end
+                PHASE_FLUSH: begin
+                    if (!shake_busy) begin
+                        busy <= 1'b0;
+                        done <= 1'b1;
+                        phase <= PHASE_IDLE;
+                    end
+                end
                 default: phase <= PHASE_IDLE;
             endcase
         end
     end
+
+    genvar g;
+    generate
+        for (g = 0; g < 256; g = g + 1) begin : out_map
+            assign coeffs[12*g +: 12] = coeffs_arr[g];
+        end
+    endgenerate
 endmodule
