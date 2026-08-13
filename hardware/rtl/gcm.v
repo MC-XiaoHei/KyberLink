@@ -5,6 +5,7 @@ module gcm (
     input  wire [255:0]  key,
     input  wire [95:0]   nonce,
     input  wire [127:0]  aad,
+    input  wire [4:0]    aad_len,
     input  wire [1023:0] plaintext_in,
     output reg           busy,
     output reg           done,
@@ -52,7 +53,8 @@ module gcm (
         .busy(gh_busy), .done(gh_done), .tag(gh_tag)
     );
 
-    wire [127:0] len_block = {64'h0000000000000080, 64'h0000000000000400};
+    wire [127:0] len_block = { {56'd0, aad_len, 3'd0}, 64'h0000000000000400 };
+    wire [127:0] aad_pad = aad & (128'hFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF << (128 - {3'd0, aad_len, 3'd0}));
 
     genvar gk;
     generate
@@ -151,7 +153,7 @@ module gcm (
 
     always @(*) begin
         case (ghblk)
-            4'd0: gh_data_in = aad;
+            4'd0: gh_data_in = aad_pad;
             4'd1: gh_data_in = ct_reg[0];
             4'd2: gh_data_in = ct_reg[1];
             4'd3: gh_data_in = ct_reg[2];

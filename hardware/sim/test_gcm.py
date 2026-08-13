@@ -26,6 +26,7 @@ async def test_gcm_vectors(dut):
         dut.key.value = int(v["key"], 16)
         dut.nonce.value = int(v["nonce"], 16)
         dut.aad.value = int(v["aad"], 16)
+        dut.aad_len.value = 16
         dut.plaintext_in.value = int(v["plaintext"], 16)
         await Timer(2, units="ns")
         dut.start.value = 1
