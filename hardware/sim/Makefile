@@ -32,6 +32,9 @@ SRC_aes = $(RTL)/aes256_core.v
 TOP_ghash = ghash
 SRC_ghash = $(RTL)/ghash.v
 
+TOP_gcm = gcm
+SRC_gcm = $(RTL)/aes256_core.v $(RTL)/ghash.v $(RTL)/gcm.v
+
 TOPLEVEL = $(TOP_$(MOD))
 VERILOG_SOURCES = $(SRC_$(MOD))
 EXTRA_ARGS = $(ARGS_$(MOD))
