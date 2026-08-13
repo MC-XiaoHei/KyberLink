@@ -94,6 +94,29 @@ pub fn basemul(a: &[u16; 2], b: &[u16; 2], gamma: i16) -> [u16; 2] {
     [c0, c1]
 }
 
+pub fn matmul(a: &[[u16; 256]; 9], b: &[[u16; 256]; 3], transpose: bool) -> [[u16; 256]; 3] {
+    let mut c = [[0u16; 256]; 3];
+    for i in 0..3 {
+        for k in 0..128 {
+            let mut acc0 = 0u16;
+            let mut acc1 = 0u16;
+            for j in 0..3 {
+                let aj = if transpose { &a[j * 3 + i] } else { &a[i * 3 + j] };
+                let pair = basemul(
+                    &[aj[2 * k], aj[2 * k + 1]],
+                    &[b[j][2 * k], b[j][2 * k + 1]],
+                    GAMMAS[k],
+                );
+                acc0 = (acc0 + pair[0]) % Q;
+                acc1 = (acc1 + pair[1]) % Q;
+            }
+            c[i][2 * k] = acc0;
+            c[i][2 * k + 1] = acc1;
+        }
+    }
+    c
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,5 +185,42 @@ mod tests {
         let mut f = [0u16; 256];
         ntt(&mut f);
         assert_eq!(f, [0u16; 256]);
+    }
+
+    #[test]
+    fn matmul_matches_pointwise() {
+        for s in 0..20u64 {
+            let mut a = [[0u16; 256]; 9];
+            let mut b = [[0u16; 256]; 3];
+            for (idx, row) in a.iter_mut().enumerate() {
+                *row = rand_poly(s * 10 + idx as u64);
+            }
+            for (idx, v) in b.iter_mut().enumerate() {
+                *v = rand_poly(s * 10 + 20 + idx as u64);
+            }
+            for transpose in [false, true] {
+                let c = matmul(&a, &b, transpose);
+                for i in 0..3 {
+                    let mut ci = [0u16; 256];
+                    for j in 0..3 {
+                        let aj = if transpose { &a[j * 3 + i] } else { &a[i * 3 + j] };
+                        let mut t = [0u16; 256];
+                        for k in 0..128 {
+                            let r = basemul(
+                                &[aj[2 * k], aj[2 * k + 1]],
+                                &[b[j][2 * k], b[j][2 * k + 1]],
+                                GAMMAS[k],
+                            );
+                            t[2 * k] = r[0];
+                            t[2 * k + 1] = r[1];
+                        }
+                        for k in 0..256 {
+                            ci[k] = (ci[k] as i64 + t[k] as i64).rem_euclid(Q as i64) as u16;
+                        }
+                    }
+                    assert_eq!(c[i], ci, "s={s} transpose={transpose} i={i}");
+                }
+            }
+        }
     }
 }

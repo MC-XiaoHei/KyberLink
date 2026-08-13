@@ -285,6 +285,42 @@ fn gen_basemul(n: u64, out_dir: &Path) {
     write_vectors(out_dir, "basemul", &v);
 }
 
+fn gen_matmul(n: u64, out_dir: &Path) {
+    let mut v = Vec::new();
+    for i in 0..n {
+        let mut a = [[0u16; 256]; 9];
+        let mut b = [[0u16; 256]; 3];
+        for j in 0..9 {
+            a[j] = coeffs256(b"matmul-a", i * 9 + j as u64);
+        }
+        for j in 0..3 {
+            b[j] = coeffs256(b"matmul-b", i * 3 + j as u64);
+        }
+        let transpose = i % 2 == 1;
+        let c = ntt::matmul(&a, &b, transpose);
+        let mut flat_a = Vec::new();
+        let mut flat_c = Vec::new();
+        for j in 0..9 {
+            flat_a.extend_from_slice(&a[j]);
+        }
+        let mut flat_b = Vec::new();
+        for j in 0..3 {
+            flat_b.extend_from_slice(&b[j]);
+        }
+        for j in 0..3 {
+            flat_c.extend_from_slice(&c[j]);
+        }
+        v.push(json!({
+            "index": i,
+            "transpose": transpose,
+            "coeffs_a": flat_a,
+            "coeffs_b": flat_b,
+            "coeffs_c": flat_c,
+        }));
+    }
+    write_vectors(out_dir, "matmul", &v);
+}
+
 fn gen_sample(n: u64, out_dir: &Path) {
     let mut ntt_v = Vec::new();
     for i in 0..n {
@@ -547,6 +583,7 @@ fn main() {
         "ntt" => gen_ntt(n, &out_dir),
         "invntt" => gen_invntt(n, &out_dir),
         "basemul" => gen_basemul(n, &out_dir),
+        "matmul" => gen_matmul(n, &out_dir),
         "sample" => gen_sample(n, &out_dir),
         "aes" => gen_aes(n, &out_dir),
         "ghash" => gen_ghash(n, &out_dir),
@@ -561,6 +598,7 @@ fn main() {
             gen_ntt(n, &out_dir);
             gen_invntt(n, &out_dir);
             gen_basemul(n, &out_dir);
+            gen_matmul(n, &out_dir);
             gen_sample(n, &out_dir);
             gen_aes(n, &out_dir);
             gen_ghash(n, &out_dir);

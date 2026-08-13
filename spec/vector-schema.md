@@ -82,6 +82,16 @@
 | coeffs_b   | int[] | 256 个系数（NTT 域，bitreversed 序），均小于 3329 |
 | coeffs_out | int[] | 256 个乘积系数，第 2k/2k+1 个为第 k 对系数按 γ_k 的 BaseCaseMultiply 结果 |
 
+## matmul.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index     | u64 | 序号 |
+| transpose | bool | 是否转置（true 时 C[i]=Σ_j A[j,i]∘B[j]） |
+| coeffs_a  | int[] | 2304 个系数（9 多项式×256，NTT 域 bitreversed 序），均小于 3329 |
+| coeffs_b  | int[] | 768 个系数（3 多项式×256），均小于 3329 |
+| coeffs_c  | int[] | 768 个乘积系数（3 多项式×256），第 i 个多项式为 C[i]=Σ_j A[i,j]∘B[j]（MultiplyNTTs 逐对 BaseCaseMultiply 累加） |
+
 ## aes.json
 
 | 字段 | 类型 | 说明 |
