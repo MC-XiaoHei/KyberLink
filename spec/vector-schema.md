@@ -221,6 +221,67 @@
 | seed | hex | 48B c~（SHAKE256 先 8B 符号位，后 τ 轮拒绝采样） |
 | coeffs | int[] | 256 个 ∈ {0,1,Q−1}，汉明重量恰为 τ=49 |
 
+## mldsa_keygen_mid.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index | u64 | 序号 |
+| seed | hex | 32B（H(seed‖[K]‖[L])→rho‖rho2‖kk） |
+| rho/rho2/kk | hex | 32B/64B/32B（A 矩阵/expand_s 种子） |
+| a_hat | int[] | 30 多项式×256 NTT 域（K×L 矩阵，ρ‖j‖i 逐行） |
+| s1/s2 | int[] | 5/6 多项式×256（CBD η=4） |
+| s1_hat | int[] | 5×256 NTT 域 |
+| t_std | int[] | 6×256（INTT(A·ŝ1)+s2，标准域） |
+| t1/t0 | int[] | 6×256（power2round(t)） |
+| tr | hex | 64B H(vk) |
+| vk | hex | 1952B = rho‖encode_t1(t1) |
+| sk | hex | 4032B = rho‖kk‖tr‖s1‖s2‖t0 |
+
+## mldsa_sign_mid.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index | u64 | 序号 |
+| sk | hex | 4032B |
+| mu_b | hex | 64B μ |
+| rho/kk | hex | 32B 各 |
+| s1/s2/t0 | int[] | 解码自 sk |
+| s1_hat/s2_hat/t0_hat | int[] | NTT 域 |
+| a_hat | int[] | 30×256 |
+| rhopp | hex | 64B（H(kk‖rnd‖μ)，rnd=0） |
+| kappa | u64 | 成功轮起始 |
+| y/y_hat | int[] | 5×256（ExpandMask 输出/NTT） |
+| w/w1 | int[] | 6×256（INTT(A·ŷ)、HighBits） |
+| w1_tilde | hex | 编码 w1 |
+| c_tilde | hex | 48B（H(μ‖w1_tilde)） |
+| c/c_hat | int[] | 256（SampleInBall/NTT） |
+| cs1/cs2 | int[] | 5/6×256 标准域（INTT(c·ŝ)） |
+| zz | int[] | 5×256（z=y+cs1） |
+| r0/w_minus_cs2 | int[] | 6×256 |
+| ct0 | int[] | 6×256（INTT(c·t̂0)） |
+| hh | int[] | 6×256（0/1 hint 布尔矩阵） |
+| sig | hex | 3309B |
+
+## mldsa_verify_mid.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index | u64 | 序号 |
+| vk | hex | 1952B |
+| mu_b/sig | hex | 64B/3309B |
+| rho | hex | 32B |
+| t1 | int[] | 6×256（解码自 vk） |
+| a_hat | int[] | 30×256 |
+| t1_2d_hat | int[] | 6×256（NTT(2^13·t1)） |
+| c_tilde | hex | 48B（sig 前段） |
+| c/c_hat | int[] | 256（SampleInBall/NTT） |
+| z_hat | int[] | 5×256（NTT(z)） |
+| w_hat | int[] | 6×256（A·z_hat − c⊙t1_2d NTT 域） |
+| w_approx | int[] | 6×256（INTT(w_hat)） |
+| w1 | int[] | 6×256（UseHint） |
+| ctil | hex | 48B（H(μ‖w1_tilde)） |
+| ok | bool | ctil==c_tilde |
+
 ## pack_dsa.json
 
 | 字段 | 类型 | 说明 |

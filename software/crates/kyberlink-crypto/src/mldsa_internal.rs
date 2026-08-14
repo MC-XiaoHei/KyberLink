@@ -851,6 +851,439 @@ fn verify_core(vk: &[u8; VK_LEN], mu_b: &[u8; 64], sig: &[u8; SIG_LEN]) -> bool 
     ctil == *c_tilde
 }
 
+pub struct KeygenMid {
+    pub rho: [u8; 32],
+    pub rho2: [u8; 64],
+    pub kk: [u8; 32],
+    pub a_hat: Vec<[u64; 256]>,
+    pub s1: Vec<[u64; 256]>,
+    pub s2: Vec<[u64; 256]>,
+    pub s1_hat: Vec<[u64; 256]>,
+    pub t_std: Vec<[u64; 256]>,
+    pub t1: Vec<[u64; 256]>,
+    pub t0: Vec<[u64; 256]>,
+    pub tr: [u8; 64],
+}
+
+pub struct SignMid {
+    pub rho: [u8; 32],
+    pub kk: [u8; 32],
+    pub s1: Vec<[u64; 256]>,
+    pub s2: Vec<[u64; 256]>,
+    pub t0: Vec<[u64; 256]>,
+    pub s1_hat: Vec<[u64; 256]>,
+    pub s2_hat: Vec<[u64; 256]>,
+    pub t0_hat: Vec<[u64; 256]>,
+    pub a_hat: Vec<[u64; 256]>,
+    pub rhopp: [u8; 64],
+    pub kappa: u16,
+    pub y: Vec<[u64; 256]>,
+    pub y_hat: Vec<[u64; 256]>,
+    pub w: Vec<[u64; 256]>,
+    pub w1: Vec<[u64; 256]>,
+    pub w1_tilde: Vec<u8>,
+    pub c_tilde: [u8; LAMBDA],
+    pub c: [u64; 256],
+    pub c_hat: [u64; 256],
+    pub cs1: Vec<[u64; 256]>,
+    pub cs2: Vec<[u64; 256]>,
+    pub zz: Vec<[u64; 256]>,
+    pub r0: Vec<[u64; 256]>,
+    pub w_minus_cs2: Vec<[u64; 256]>,
+    pub ct0: Vec<[u64; 256]>,
+    pub hh: Vec<[bool; 256]>,
+}
+
+pub struct VerifyMid {
+    pub rho: [u8; 32],
+    pub t1: Vec<[u64; 256]>,
+    pub tr: [u8; 64],
+    pub a_hat: Vec<[u64; 256]>,
+    pub t1_2d_hat: Vec<[u64; 256]>,
+    pub c_tilde: [u8; LAMBDA],
+    pub c: [u64; 256],
+    pub c_hat: [u64; 256],
+    pub z_hat: Vec<[u64; 256]>,
+    pub w_hat: Vec<[u64; 256]>,
+    pub w_approx: Vec<[u64; 256]>,
+    pub w1: Vec<[u64; 256]>,
+    pub ctil: [u8; LAMBDA],
+}
+
+pub fn keygen_mid(seed: &[u8; 32]) -> (([u8; VK_LEN], [u8; SK_LEN]), KeygenMid) {
+    let mut gd = Vec::with_capacity(34);
+    gd.extend_from_slice(seed);
+    gd.push(K as u8);
+    gd.push(L as u8);
+    let mut gout = [0u8; 128];
+    let mut s = Shake256::default();
+    s.update(&gd);
+    s.finalize_xof().read(&mut gout);
+    let mut rho = [0u8; 32];
+    let mut rho2 = [0u8; 64];
+    let mut kk = [0u8; 32];
+    rho.copy_from_slice(&gout[..32]);
+    rho2.copy_from_slice(&gout[32..96]);
+    kk.copy_from_slice(&gout[96..128]);
+
+    let mut a_hat = vec![[0u64; 256]; K * L];
+    for i in 0..K {
+        for j in 0..L {
+            a_hat[i * L + j] = rej_ntt_poly(&rho, i as u8, j as u8);
+        }
+    }
+
+    let mut s1 = Vec::with_capacity(L);
+    let mut s2 = Vec::with_capacity(K);
+    for i in 0..L {
+        s1.push(rej_bounded_poly(&rho2, i as u16));
+    }
+    for i in 0..K {
+        s2.push(rej_bounded_poly(&rho2, (L + i) as u16));
+    }
+
+    let s1_hat = ntt_vec(&s1);
+    let t = mat_mul_vec(&a_hat, &s1_hat, K, L);
+    let t = invntt_vec(&t);
+    let mut t_std = t;
+    for i in 0..K {
+        for k in 0..256 {
+            t_std[i][k] = (t_std[i][k] + s2[i][k]) % Q;
+        }
+    }
+
+    let mut t1 = Vec::with_capacity(K);
+    let mut t0 = Vec::with_capacity(K);
+    for i in 0..K {
+        let mut p1 = [0u64; 256];
+        let mut p0 = [0u64; 256];
+        for k in 0..256 {
+            let (r1, r0) = power2round(t_std[i][k]);
+            p1[k] = r1;
+            p0[k] = r0;
+        }
+        t1.push(p1);
+        t0.push(p0);
+    }
+
+    let mut vk = Vec::with_capacity(VK_LEN);
+    vk.extend_from_slice(&rho);
+    vk.extend_from_slice(&encode_t1(&t1));
+    let mut tr = [0u8; 64];
+    tr.copy_from_slice(&h(&vk)[..64]);
+
+    let mut sk = Vec::with_capacity(SK_LEN);
+    sk.extend_from_slice(&rho);
+    sk.extend_from_slice(&kk);
+    sk.extend_from_slice(&tr);
+    sk.extend_from_slice(&encode_s(&s1));
+    sk.extend_from_slice(&encode_s(&s2));
+    sk.extend_from_slice(&encode_t0(&t0));
+
+    let mid = KeygenMid {
+        rho,
+        rho2,
+        kk,
+        a_hat,
+        s1,
+        s2,
+        s1_hat,
+        t_std,
+        t1,
+        t0,
+        tr,
+    };
+    ((vk.try_into().unwrap(), sk.try_into().unwrap()), mid)
+}
+
+pub fn sign_mu_mid(sk: &[u8; SK_LEN], mu_b: &[u8; 64]) -> ([u8; SIG_LEN], SignMid) {
+    let rho: [u8; 32] = sk[..32].try_into().unwrap();
+    let kk: [u8; 32] = sk[32..64].try_into().unwrap();
+    let s1 = decode_s(&sk[128..128 + L * 128], L);
+    let s2 = decode_s(&sk[128 + L * 128..128 + L * 128 + K * 128], K);
+    let t0 = decode_t0(&sk[128 + L * 128 + K * 128..], K);
+    let s1_hat = ntt_vec(&s1);
+    let s2_hat = ntt_vec(&s2);
+    let t0_hat = ntt_vec(&t0);
+
+    let mut a_hat = vec![[0u64; 256]; K * L];
+    for i in 0..K {
+        for j in 0..L {
+            a_hat[i * L + j] = rej_ntt_poly(&rho, i as u8, j as u8);
+        }
+    }
+
+    let rnd = [0u8; 32];
+    let mut rhop = Shake256::default();
+    rhop.update(&kk);
+    rhop.update(&rnd);
+    rhop.update(mu_b);
+    let mut rhopp = [0u8; 64];
+    let mut rx = rhop.finalize_xof();
+    rx.read(&mut rhopp);
+
+    let mut kappa = 0u16;
+    loop {
+        let mut y = Vec::with_capacity(L);
+        for i in 0..L {
+            y.push(expand_mask_poly(&rhopp, kappa + i as u16));
+        }
+        let y_hat = ntt_vec(&y);
+        let w = invntt_vec(&mat_mul_vec(&a_hat, &y_hat, K, L));
+
+        let mut w1 = Vec::with_capacity(K);
+        for i in 0..K {
+            let mut p = [0u64; 256];
+            for k in 0..256 {
+                p[k] = high_bits(w[i][k]);
+            }
+            w1.push(p);
+        }
+        let w1_tilde = encode_w1(&w1);
+
+        let mut mh = Shake256::default();
+        mh.update(mu_b);
+        mh.update(&w1_tilde);
+        let mut ctil = [0u8; LAMBDA];
+        let mut mxx = mh.finalize_xof();
+        mxx.read(&mut ctil);
+
+        let mut c = [0u64; 256];
+        c.copy_from_slice(&sample_in_ball(&ctil, TAU));
+        let mut c_hat = [0u64; 256];
+        c_hat.copy_from_slice(&c);
+        ntt(&mut c_hat);
+
+        let mut cs1 = Vec::with_capacity(L);
+        let mut cs2 = Vec::with_capacity(K);
+        for i in 0..L {
+            cs1.push(poly_mul_ntt(&c_hat, &s1_hat[i]));
+        }
+        for i in 0..K {
+            cs2.push(poly_mul_ntt(&c_hat, &s2_hat[i]));
+        }
+        let cs1 = invntt_vec(&cs1);
+        let cs2 = invntt_vec(&cs2);
+
+        let mut zz = y.clone();
+        let y_saved = y;
+        let mut ok = true;
+        let mut w_minus_cs2 = vec![[0u64; 256]; K];
+        for i in 0..L {
+            for k in 0..256 {
+                zz[i][k] = (zz[i][k] + cs1[i][k]) % Q;
+            }
+            if infinity_norm(&zz[i]) >= GAMMA1_MINUS_BETA {
+                ok = false;
+            }
+        }
+        let mut r0 = vec![[0u64; 256]; K];
+        for i in 0..K {
+            for k in 0..256 {
+                w_minus_cs2[i][k] = (w[i][k] + Q - cs2[i][k]) % Q;
+                r0[i][k] = low_bits(w_minus_cs2[i][k]);
+            }
+            if infinity_norm(&r0[i]) >= GAMMA2_MINUS_BETA {
+                ok = false;
+            }
+        }
+        if !ok {
+            kappa = kappa.wrapping_add(L as u16);
+            continue;
+        }
+
+        let mut ct0 = Vec::with_capacity(K);
+        for i in 0..K {
+            ct0.push(poly_mul_ntt(&c_hat, &t0_hat[i]));
+        }
+        let ct0 = invntt_vec(&ct0);
+
+        let mut hh = vec![[false; 256]; K];
+        let mut wgt = 0usize;
+        ok = true;
+        for i in 0..K {
+            for k in 0..256 {
+                let nct0 = (Q - ct0[i][k]) % Q;
+                let wcc = (w_minus_cs2[i][k] + ct0[i][k]) % Q;
+                hh[i][k] = make_hint(nct0, wcc);
+                if hh[i][k] {
+                    wgt += 1;
+                }
+            }
+            if infinity_norm(&ct0[i]) >= GAMMA2 {
+                ok = false;
+            }
+        }
+        if wgt > OMEGA {
+            ok = false;
+        }
+        if !ok {
+            kappa = kappa.wrapping_add(L as u16);
+            continue;
+        }
+
+        let mut sig = Vec::with_capacity(SIG_LEN);
+        sig.extend_from_slice(&ctil);
+        sig.extend_from_slice(&encode_z(&zz));
+        sig.extend_from_slice(&pack_h(&hh));
+        let out: [u8; SIG_LEN] = sig.try_into().unwrap();
+        let mid = SignMid {
+            rho,
+            kk,
+            s1,
+            s2,
+            t0,
+            s1_hat,
+            s2_hat,
+            t0_hat,
+            a_hat,
+            rhopp,
+            kappa,
+            y: y_saved,
+            y_hat,
+            w,
+            w1,
+            w1_tilde,
+            c_tilde: ctil,
+            c,
+            c_hat,
+            cs1,
+            cs2,
+            zz,
+            r0,
+            w_minus_cs2,
+            ct0,
+            hh,
+        };
+        return (out, mid);
+    }
+}
+
+pub fn verify_mid(vk: &[u8; VK_LEN], mu_b: &[u8; 64], sig: &[u8; SIG_LEN]) -> (bool, VerifyMid) {
+    let rho: [u8; 32] = vk[..32].try_into().unwrap();
+    let t1 = decode_t1(&vk[32..], K);
+
+    let mut a_hat = vec![[0u64; 256]; K * L];
+    for i in 0..K {
+        for j in 0..L {
+            a_hat[i * L + j] = rej_ntt_poly(&rho, i as u8, j as u8);
+        }
+    }
+
+    let mut t1_2d = Vec::with_capacity(K);
+    for i in 0..K {
+        let mut p = [0u64; 256];
+        for k in 0..256 {
+            p[k] = t1[i][k] * (1u64 << D) % Q;
+        }
+        t1_2d.push(p);
+    }
+    let t1_2d_hat = ntt_vec(&t1_2d);
+
+    let mut c_tilde = [0u8; LAMBDA];
+    c_tilde.copy_from_slice(&sig[..LAMBDA]);
+    let z = decode_z(&sig[LAMBDA..LAMBDA + L * 640], L);
+    let h = match unpack_h(&sig[LAMBDA + L * 640..]) {
+        Some(h) => h,
+        None => return (false, finish_verify_mid(rho, t1, a_hat, t1_2d_hat, c_tilde, mu_b)),
+    };
+    for i in 0..L {
+        if infinity_norm(&z[i]) >= GAMMA1_MINUS_BETA {
+            return (false, finish_verify_mid(rho, t1, a_hat, t1_2d_hat, c_tilde, mu_b));
+        }
+    }
+
+    let mut c = [0u64; 256];
+    c.copy_from_slice(&sample_in_ball(&c_tilde, TAU));
+    let mut c_hat = [0u64; 256];
+    c_hat.copy_from_slice(&c);
+    ntt(&mut c_hat);
+    let z_hat = ntt_vec(&z);
+
+    let mut w_hat = vec![[0u64; 256]; K];
+    for i in 0..K {
+        for k in 0..256 {
+            let mut acc = 0u64;
+            for j in 0..L {
+                acc = (acc + a_hat[i * L + j][k] * z_hat[j][k]) % Q;
+            }
+            let ct1 = c_hat[k] * t1_2d_hat[i][k] % Q;
+            w_hat[i][k] = (acc + Q - ct1) % Q;
+        }
+    }
+    let w_approx = invntt_vec(&w_hat);
+
+    let mut w1 = Vec::with_capacity(K);
+    for i in 0..K {
+        let mut p = [0u64; 256];
+        for k in 0..256 {
+            p[k] = use_hint(h[i][k], w_approx[i][k]);
+        }
+        w1.push(p);
+    }
+    let w1_tilde = encode_w1(&w1);
+
+    let mut mh = Shake256::default();
+    mh.update(mu_b);
+    mh.update(&w1_tilde);
+    let mut ctil = [0u8; LAMBDA];
+    let mut mxx = mh.finalize_xof();
+    mxx.read(&mut ctil);
+
+    let mid = VerifyMid {
+        rho,
+        t1,
+        tr: [0u8; 64],
+        a_hat,
+        t1_2d_hat,
+        c_tilde,
+        c,
+        c_hat,
+        z_hat,
+        w_hat,
+        w_approx,
+        w1,
+        ctil,
+    };
+    (ctil == c_tilde, mid)
+}
+
+fn finish_verify_mid(
+    rho: [u8; 32],
+    t1: Vec<[u64; 256]>,
+    a_hat: Vec<[u64; 256]>,
+    t1_2d_hat: Vec<[u64; 256]>,
+    c_tilde: [u8; LAMBDA],
+    mu_b: &[u8; 64],
+) -> VerifyMid {
+    let c = sample_in_ball(&c_tilde, TAU);
+    let mut c_hat = [0u64; 256];
+    c_hat.copy_from_slice(&c);
+    ntt(&mut c_hat);
+    let w1 = vec![[0u64; 256]; K];
+    let mut mh = Shake256::default();
+    mh.update(mu_b);
+    mh.update(&encode_w1(&w1));
+    let mut ctil = [0u8; LAMBDA];
+    let mut mxx = mh.finalize_xof();
+    mxx.read(&mut ctil);
+    VerifyMid {
+        rho,
+        t1,
+        tr: [0u8; 64],
+        a_hat,
+        t1_2d_hat,
+        c_tilde,
+        c,
+        c_hat,
+        z_hat: vec![[0u64; 256]; L],
+        w_hat: vec![[0u64; 256]; K],
+        w_approx: vec![[0u64; 256]; K],
+        w1,
+        ctil,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

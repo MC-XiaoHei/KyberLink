@@ -831,6 +831,99 @@ fn gen_pack_dsa(n: u64, out_dir: &Path) {
     write_vectors(out_dir, "pack_dsa", &pv);
 }
 
+fn polys_json(v: &[[u64; 256]]) -> Vec<u64> {
+    v.iter().flatten().copied().collect()
+}
+
+fn gen_mldsa_mid(n: u64, out_dir: &Path) {
+    let mut kgv = Vec::new();
+    let mut sgv = Vec::new();
+    let mut vgv = Vec::new();
+    for i in 0..n {
+        let mut seed = [0u8; 32];
+        shake(&mut seed, b"mldsa-mid-seed", i);
+        let ((vk, sk), kg) = mldsa_internal::keygen_mid(&seed);
+
+        let mut mu_b = [0u8; 64];
+        shake(&mut mu_b, b"mldsa-mid-mu", i);
+
+        let (sig, sg) = mldsa_internal::sign_mu_mid(&sk, &mu_b);
+        let (ok, vg) = mldsa_internal::verify_mid(&vk, &mu_b, &sig);
+
+        kgv.push(json!({
+            "index": i,
+            "seed": hex::encode(seed),
+            "rho": hex::encode(kg.rho),
+            "rho2": hex::encode(kg.rho2),
+            "kk": hex::encode(kg.kk),
+            "a_hat": polys_json(&kg.a_hat),
+            "s1": polys_json(&kg.s1),
+            "s2": polys_json(&kg.s2),
+            "s1_hat": polys_json(&kg.s1_hat),
+            "t_std": polys_json(&kg.t_std),
+            "t1": polys_json(&kg.t1),
+            "t0": polys_json(&kg.t0),
+            "tr": hex::encode(kg.tr),
+            "vk": hex::encode(vk),
+            "sk": hex::encode(sk),
+        }));
+        sgv.push(json!({
+            "index": i,
+            "sk": hex::encode(sk),
+            "mu_b": hex::encode(mu_b),
+            "rho": hex::encode(sg.rho),
+            "kk": hex::encode(sg.kk),
+            "s1": polys_json(&sg.s1),
+            "s2": polys_json(&sg.s2),
+            "t0": polys_json(&sg.t0),
+            "s1_hat": polys_json(&sg.s1_hat),
+            "s2_hat": polys_json(&sg.s2_hat),
+            "t0_hat": polys_json(&sg.t0_hat),
+            "a_hat": polys_json(&sg.a_hat),
+            "rhopp": hex::encode(sg.rhopp),
+            "kappa": sg.kappa,
+            "y": polys_json(&sg.y),
+            "y_hat": polys_json(&sg.y_hat),
+            "w": polys_json(&sg.w),
+            "w1": polys_json(&sg.w1),
+            "w1_tilde": hex::encode(sg.w1_tilde),
+            "c_tilde": hex::encode(sg.c_tilde),
+            "c": sg.c.to_vec(),
+            "c_hat": sg.c_hat.to_vec(),
+            "cs1": polys_json(&sg.cs1),
+            "cs2": polys_json(&sg.cs2),
+            "zz": polys_json(&sg.zz),
+            "r0": polys_json(&sg.r0),
+            "w_minus_cs2": polys_json(&sg.w_minus_cs2),
+            "ct0": polys_json(&sg.ct0),
+            "hh": sg.hh.iter().flatten().map(|&b| b as u8).collect::<Vec<_>>(),
+            "sig": hex::encode(sig),
+        }));
+        vgv.push(json!({
+            "index": i,
+            "vk": hex::encode(vk),
+            "mu_b": hex::encode(mu_b),
+            "sig": hex::encode(sig),
+            "rho": hex::encode(vg.rho),
+            "t1": polys_json(&vg.t1),
+            "a_hat": polys_json(&vg.a_hat),
+            "t1_2d_hat": polys_json(&vg.t1_2d_hat),
+            "c_tilde": hex::encode(vg.c_tilde),
+            "c": vg.c.to_vec(),
+            "c_hat": vg.c_hat.to_vec(),
+            "z_hat": polys_json(&vg.z_hat),
+            "w_hat": polys_json(&vg.w_hat),
+            "w_approx": polys_json(&vg.w_approx),
+            "w1": polys_json(&vg.w1),
+            "ctil": hex::encode(vg.ctil),
+            "ok": ok,
+        }));
+    }
+    write_vectors(out_dir, "mldsa_keygen_mid", &kgv);
+    write_vectors(out_dir, "mldsa_sign_mid", &sgv);
+    write_vectors(out_dir, "mldsa_verify_mid", &vgv);
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mode = args.get(1).map(String::as_str).unwrap_or("all");
@@ -862,6 +955,7 @@ fn main() {
         "rej_bounded" => gen_rej_bounded(n, &out_dir),
         "expand_mask" => gen_expand_mask(n, &out_dir),
         "sample_in_ball" => gen_sample_in_ball(n, &out_dir),
+        "mldsa_mid" => gen_mldsa_mid(n, &out_dir),
         _ => {
             gen_kem(n, &out_dir);
             gen_kem_internal(n, &out_dir);
@@ -886,6 +980,7 @@ fn main() {
             gen_sha3(n, &out_dir);
             gen_compress(n, &out_dir);
             gen_pack_dsa(n, &out_dir);
+            gen_mldsa_mid(n, &out_dir);
         }
     }
 }
