@@ -16,6 +16,8 @@ TOP_invntt_dsa = invntt_dsa
 SRC_invntt_dsa = $(RTL)/invntt_dsa.v
 TOP_matmul_dsa = matmul_dsa
 SRC_matmul_dsa = $(RTL)/matmul_dsa.v
+TOP_mldsa_keygen = mldsa_keygen
+SRC_mldsa_keygen = $(RTL)/keccak_f1600_round.v $(RTL)/shake.v $(RTL)/rej_ntt.v $(RTL)/rej_bounded.v $(RTL)/ntt_dsa.v $(RTL)/invntt_dsa.v $(RTL)/matmul_dsa.v $(RTL)/pack_dsa.v $(RTL)/mldsa_keygen.v
 TOP_rej_ntt = rej_ntt
 SRC_rej_ntt = $(CORE) $(RTL)/rej_ntt.v
 TOP_rej_bounded = rej_bounded
@@ -29,6 +31,7 @@ SRC_shake = $(CORE)
 TOP_shake128 = shake
 SRC_shake128 = $(CORE)
 ARGS_shake128 = -GRATE_BYTES=168
+COMPILE_ARGS_mldsa_keygen = --unroll-count 2048
 TOP_sample_ntt = sample_ntt
 SRC_sample_ntt = $(CORE) $(RTL)/sample_ntt.v
 TOP_sample_cbd = sample_cbd
@@ -89,6 +92,7 @@ endif
 TOPLEVEL = $(TOP_$(MOD))
 VERILOG_SOURCES = $(SRC_$(MOD))
 EXTRA_ARGS = $(ARGS_$(MOD))
+COMPILE_ARGS = $(COMPILE_ARGS_$(MOD))
 
 .PHONY: clean
 clean::
