@@ -214,6 +214,81 @@ fn gen_kem_internal(n: u64, out_dir: &Path) {
     write_vectors(out_dir, "kem_decap", &dec);
 }
 
+fn u16_to_json(v: &[u16]) -> Value {
+    v.iter().map(|&x| x as u64).collect()
+}
+
+fn gen_kem_mid(n: u64, out_dir: &Path) {
+    let mut kg = Vec::new();
+    let mut enc = Vec::new();
+    let mut dec = Vec::new();
+    for i in 0..n {
+        let mut d = [0u8; 32];
+        let mut z = [0u8; 32];
+        let mut m = [0u8; 32];
+        shake(&mut d, b"kem-in-d", i);
+        shake(&mut z, b"kem-in-z", i);
+        shake(&mut m, b"kem-in-m", i);
+        let ((ek, dk), kmid) = kem_internal::keygen_mid(&d, &z);
+        let ((k, c), emid) = kem_internal::encaps_mid(&ek, &m);
+        let (k2, dmid) = kem_internal::decaps_mid(&dk, &c);
+        assert_eq!(k, k2, "index {} decaps mismatch", i);
+        kg.push(json!({
+            "index": i,
+            "d": hex::encode(d),
+            "z": hex::encode(z),
+            "rho": hex::encode(kmid.rho),
+            "sigma": hex::encode(kmid.sigma),
+            "a": u16_to_json(&kmid.a),
+            "s": u16_to_json(&kmid.s),
+            "e": u16_to_json(&kmid.e),
+            "sh": u16_to_json(&kmid.sh),
+            "eh": u16_to_json(&kmid.eh),
+            "th": u16_to_json(&kmid.th),
+            "ek": hex::encode(ek),
+            "dk": hex::encode(dk),
+        }));
+        enc.push(json!({
+            "index": i,
+            "ek": hex::encode(ek),
+            "m": hex::encode(m),
+            "hek": hex::encode(emid.hek),
+            "K": hex::encode(emid.k),
+            "r": hex::encode(emid.r),
+            "th": u16_to_json(&emid.th),
+            "rho": hex::encode(emid.rho),
+            "a": u16_to_json(&emid.a),
+            "y": u16_to_json(&emid.y),
+            "e1": u16_to_json(&emid.e1),
+            "e2": u16_to_json(&emid.e2),
+            "yh": u16_to_json(&emid.yh),
+            "u": u16_to_json(&emid.u),
+            "mu": u16_to_json(&emid.mu),
+            "v": u16_to_json(&emid.v),
+            "c": hex::encode(&c),
+        }));
+        dec.push(json!({
+            "index": i,
+            "dk": hex::encode(dk),
+            "c": hex::encode(&c),
+            "m_prime": hex::encode(dmid.m),
+            "u": u16_to_json(&dmid.u),
+            "v": u16_to_json(&dmid.v),
+            "sh": u16_to_json(&dmid.sh),
+            "uh": u16_to_json(&dmid.uh),
+            "w": u16_to_json(&dmid.w),
+            "Kp": hex::encode(dmid.kp),
+            "rp": hex::encode(dmid.rp),
+            "kbar": hex::encode(dmid.kbar),
+            "cp": hex::encode(&dmid.cp),
+            "K": hex::encode(k2),
+        }));
+    }
+    write_vectors(out_dir, "kem_keygen_mid", &kg);
+    write_vectors(out_dir, "kem_encaps_mid", &enc);
+    write_vectors(out_dir, "kem_decap_mid", &dec);
+}
+
 fn gen_sign(n: u64, out_dir: &Path) {
     let mut v = Vec::new();
     for i in 0..n {
@@ -621,6 +696,7 @@ fn main() {
     match mode {
         "kem" => gen_kem(n, &out_dir),
         "kem_internal" => gen_kem_internal(n, &out_dir),
+        "kem_mid" => gen_kem_mid(n, &out_dir),
         "sign" => gen_sign(n, &out_dir),
         "shake" => gen_shake(n, &out_dir),
         "ntt" => gen_ntt(n, &out_dir),
@@ -637,6 +713,7 @@ fn main() {
         _ => {
             gen_kem(n, &out_dir);
             gen_kem_internal(n, &out_dir);
+            gen_kem_mid(n, &out_dir);
             gen_sign(n, &out_dir);
             gen_shake(n, &out_dir);
             gen_ntt(n, &out_dir);

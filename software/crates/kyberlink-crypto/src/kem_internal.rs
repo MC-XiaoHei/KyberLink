@@ -15,6 +15,49 @@ pub const DK_PKE_LEN: usize = 384 * K;
 pub const DK_LEN: usize = DK_PKE_LEN + EK_LEN + 32 + 32;
 pub const CT_LEN: usize = 32 * DU * K + 32 * DV;
 
+#[derive(Clone, Debug)]
+pub struct KeygenMid {
+    pub rho: [u8; 32],
+    pub sigma: [u8; 32],
+    pub a: Vec<u16>,
+    pub s: Vec<u16>,
+    pub e: Vec<u16>,
+    pub sh: Vec<u16>,
+    pub eh: Vec<u16>,
+    pub th: Vec<u16>,
+}
+
+#[derive(Clone, Debug)]
+pub struct EncapsMid {
+    pub hek: [u8; 32],
+    pub k: [u8; 32],
+    pub r: [u8; 32],
+    pub th: Vec<u16>,
+    pub rho: [u8; 32],
+    pub a: Vec<u16>,
+    pub y: Vec<u16>,
+    pub e1: Vec<u16>,
+    pub e2: Vec<u16>,
+    pub yh: Vec<u16>,
+    pub u: Vec<u16>,
+    pub mu: Vec<u16>,
+    pub v: Vec<u16>,
+}
+
+#[derive(Clone, Debug)]
+pub struct DecapsMid {
+    pub m: [u8; 32],
+    pub u: Vec<u16>,
+    pub v: Vec<u16>,
+    pub sh: Vec<u16>,
+    pub uh: Vec<u16>,
+    pub w: Vec<u16>,
+    pub kp: [u8; 32],
+    pub rp: [u8; 32],
+    pub kbar: [u8; 32],
+    pub cp: Vec<u8>,
+}
+
 fn h(x: &[u8]) -> [u8; 32] {
     Sha3_256::digest(x).into()
 }
@@ -141,7 +184,7 @@ fn decompress(d: usize, y: u16) -> u16 {
     (((y as u64) * 3329 + (1u64 << (d - 1))) >> d) as u16
 }
 
-fn kpke_keygen(d: &[u8; 32]) -> (Vec<u8>, Vec<u8>) {
+fn kpke_keygen(d: &[u8; 32]) -> (Vec<u8>, Vec<u8>, KeygenMid) {
     let mut gd = [0u8; 33];
     gd[..32].copy_from_slice(d);
     gd[32] = K as u8;
@@ -193,7 +236,24 @@ fn kpke_keygen(d: &[u8; 32]) -> (Vec<u8>, Vec<u8>) {
     for i in 0..3 {
         dk.extend_from_slice(&byte_encode(12, &sh[i]));
     }
-    (ek, dk)
+    (
+        ek,
+        dk,
+        KeygenMid {
+            rho,
+            sigma,
+            a: a.concat().to_vec(),
+            s: s.concat().to_vec(),
+            e: e.concat().to_vec(),
+            sh: sh.concat().to_vec(),
+            eh: eh.concat().to_vec(),
+            th: th.concat().to_vec(),
+        },
+    )
+}
+
+pub fn kpke_keygen_mid(d: &[u8; 32]) -> (Vec<u8>, Vec<u8>, KeygenMid) {
+    kpke_keygen(d)
 }
 
 fn dot3(a: &[[u16; 256]; 3], b: &[[u16; 256]; 3]) -> [u16; 256] {
@@ -216,7 +276,7 @@ fn dot3(a: &[[u16; 256]; 3], b: &[[u16; 256]; 3]) -> [u16; 256] {
     c
 }
 
-fn kpke_encrypt(ek: &[u8], m: &[u8; 32], r: &[u8; 32]) -> Vec<u8> {
+fn kpke_encrypt(ek: &[u8], m: &[u8; 32], r: &[u8; 32]) -> (Vec<u8>, EncapsMid) {
     let mut th = [[0u16; 256]; 3];
     for i in 0..3 {
         th[i] = byte_decode(12, &ek[384 * i..384 * i + 384]);
@@ -275,10 +335,27 @@ fn kpke_encrypt(ek: &[u8], m: &[u8; 32], r: &[u8; 32]) -> Vec<u8> {
     }
     let cv: Vec<u16> = v.iter().map(|&x| compress(DV, x)).collect();
     c.extend_from_slice(&byte_encode(DV, &cv.try_into().unwrap()));
-    c
+    (
+        c,
+        EncapsMid {
+            hek: [0; 32],
+            k: [0; 32],
+            r: *r,
+            th: th.concat().to_vec(),
+            rho,
+            a: a.concat().to_vec(),
+            y: y.concat().to_vec(),
+            e1: e1.concat().to_vec(),
+            e2: e2.to_vec(),
+            yh: yh.concat().to_vec(),
+            u: u.concat().to_vec(),
+            mu: mu.to_vec(),
+            v: v.to_vec(),
+        },
+    )
 }
 
-fn kpke_decrypt(dk: &[u8], c: &[u8]) -> [u8; 32] {
+fn kpke_decrypt(dk: &[u8], c: &[u8]) -> ([u8; 32], DecapsMid) {
     let mut u = [[0u16; 256]; 3];
     for i in 0..3 {
         let mut cu = byte_decode(DU, &c[32 * DU * i..32 * DU * (i + 1)]);
@@ -308,11 +385,30 @@ fn kpke_decrypt(dk: &[u8], c: &[u8]) -> [u8; 32] {
     }
 
     let cw: Vec<u16> = w.iter().map(|&x| compress(1, x)).collect();
-    byte_encode(1, &cw.try_into().unwrap()).try_into().unwrap()
+    let m = byte_encode(1, &cw.try_into().unwrap()).try_into().unwrap();
+    (
+        m,
+        DecapsMid {
+            m,
+            u: u.concat().to_vec(),
+            v: cv.to_vec(),
+            sh: sh.concat().to_vec(),
+            uh: uh.concat().to_vec(),
+            w: w.to_vec(),
+            kp: [0; 32],
+            rp: [0; 32],
+            kbar: [0; 32],
+            cp: Vec::new(),
+        },
+    )
+}
+
+pub fn kpke_decrypt_mid(dk: &[u8], c: &[u8]) -> ([u8; 32], DecapsMid) {
+    kpke_decrypt(dk, c)
 }
 
 pub fn keygen_internal(d: &[u8; 32], z: &[u8; 32]) -> ([u8; EK_LEN], [u8; DK_LEN]) {
-    let (ek_pke, dk_pke) = kpke_keygen(d);
+    let (ek_pke, dk_pke, _mid) = kpke_keygen(d);
     let hek = h(&ek_pke);
     let mut dk = Vec::with_capacity(DK_LEN);
     dk.extend_from_slice(&dk_pke);
@@ -332,7 +428,7 @@ pub fn encaps_internal(ek: &[u8; EK_LEN], m: &[u8; 32]) -> ([u8; 32], Vec<u8>) {
     let mut r = [0u8; 32];
     k.copy_from_slice(&gout[..32]);
     r.copy_from_slice(&gout[32..]);
-    let c = kpke_encrypt(ek, m, &r);
+    let (c, _mid) = kpke_encrypt(ek, m, &r);
     (k, c)
 }
 
@@ -341,7 +437,7 @@ pub fn decaps_internal(dk: &[u8; DK_LEN], c: &[u8]) -> [u8; 32] {
     let ek_pke = &dk[DK_PKE_LEN..DK_PKE_LEN + EK_LEN];
     let h_ek = &dk[DK_PKE_LEN + EK_LEN..DK_PKE_LEN + EK_LEN + 32];
     let z = &dk[DK_PKE_LEN + EK_LEN + 32..];
-    let m = kpke_decrypt(dk_pke, c);
+    let m = kpke_decrypt(dk_pke, c).0;
     let mut ginput = Vec::with_capacity(64);
     ginput.extend_from_slice(&m);
     ginput.extend_from_slice(h_ek);
@@ -354,8 +450,65 @@ pub fn decaps_internal(dk: &[u8; DK_LEN], c: &[u8]) -> [u8; 32] {
     jz.extend_from_slice(z);
     jz.extend_from_slice(c);
     let kbar = j(&jz);
-    let cp = kpke_encrypt(ek_pke, &m, &rp);
+    let (cp, _mid) = kpke_encrypt(ek_pke, &m, &rp);
     if cp == c { kp } else { kbar }
+}
+
+pub fn keygen_mid(d: &[u8; 32], z: &[u8; 32]) -> (([u8; EK_LEN], [u8; DK_LEN]), KeygenMid) {
+    let (ek_pke, dk_pke, mid) = kpke_keygen(d);
+    let hek = h(&ek_pke);
+    let mut dk = Vec::with_capacity(DK_LEN);
+    dk.extend_from_slice(&dk_pke);
+    dk.extend_from_slice(&ek_pke);
+    dk.extend_from_slice(&hek);
+    dk.extend_from_slice(z);
+    ((ek_pke.try_into().unwrap(), dk.try_into().unwrap()), mid)
+}
+
+pub fn encaps_mid(
+    ek: &[u8; EK_LEN],
+    m: &[u8; 32],
+) -> (([u8; 32], Vec<u8>), EncapsMid) {
+    let hek = h(ek);
+    let mut ginput = Vec::with_capacity(64);
+    ginput.extend_from_slice(m);
+    ginput.extend_from_slice(&hek);
+    let gout = g(&ginput);
+    let mut k = [0u8; 32];
+    let mut r = [0u8; 32];
+    k.copy_from_slice(&gout[..32]);
+    r.copy_from_slice(&gout[32..]);
+    let (c, mut mid) = kpke_encrypt(ek, m, &r);
+    mid.hek = hek;
+    mid.k = k;
+    ((k, c), mid)
+}
+
+pub fn decaps_mid(dk: &[u8; DK_LEN], c: &[u8]) -> ([u8; 32], DecapsMid) {
+    let dk_pke = &dk[..DK_PKE_LEN];
+    let ek_pke = &dk[DK_PKE_LEN..DK_PKE_LEN + EK_LEN];
+    let h_ek = &dk[DK_PKE_LEN + EK_LEN..DK_PKE_LEN + EK_LEN + 32];
+    let z = &dk[DK_PKE_LEN + EK_LEN + 32..];
+    let (m, mut mid) = kpke_decrypt(dk_pke, c);
+    let mut ginput = Vec::with_capacity(64);
+    ginput.extend_from_slice(&m);
+    ginput.extend_from_slice(h_ek);
+    let gout = g(&ginput);
+    let mut kp = [0u8; 32];
+    let mut rp = [0u8; 32];
+    kp.copy_from_slice(&gout[..32]);
+    rp.copy_from_slice(&gout[32..]);
+    let mut jz = Vec::with_capacity(32 + 1088);
+    jz.extend_from_slice(z);
+    jz.extend_from_slice(c);
+    let kbar = j(&jz);
+    let (cp, _enc_mid) = kpke_encrypt(ek_pke, &m, &rp);
+    mid.kp = kp;
+    mid.rp = rp;
+    mid.kbar = kbar;
+    mid.cp = cp.clone();
+    let out = if cp == c { kp } else { kbar };
+    (out, mid)
 }
 
 #[cfg(test)]

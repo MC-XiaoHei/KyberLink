@@ -180,3 +180,56 @@
 | dk | hex | 2400B 解封装密钥 |
 | c | hex | 1088B 密文 |
 | K | hex | 32B 会话密钥（与 kem_encaps 同 index 一致） |
+
+## kem_keygen_mid.json
+
+中间量向量，供硬件核逐阶段比对。同一 index 下 d/z/m 与 kem_keygen/kem_encaps/kem_decap 一致。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index | u64 | 序号 |
+| d, z | hex | 32B 种子（与 kem_keygen 一致） |
+| rho | hex | 32B，G(d\|\|0x03) 前 32B |
+| sigma | hex | 32B，G(d\|\|0x03) 后 32B |
+| a | int[] | 2304 = 9 多项式 × 256 系数（Â，NTT 域 bitreversed） |
+| s, e | int[] | 768 = 3 × 256 系数（多项式域，±2..0 经 mod q） |
+| sh, eh | int[] | 768，NTT(s)/NTT(e) |
+| th | int[] | 768，Â∘ŝ + ê（NTT 域） |
+| ek | hex | 1184B 封装密钥 |
+| dk | hex | 2400B 解封装密钥 |
+
+## kem_encaps_mid.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index | u64 | 序号 |
+| ek | hex | 1184B |
+| m | hex | 32B 消息（与 kem_encaps 一致） |
+| hek | hex | 32B，H(ek) |
+| K, r | hex | 32B，G(m\|\|hek) 前/后 32B |
+| th | int[] | 768，ek 解包（decode12） |
+| rho | hex | 32B，ek 尾部 |
+| a | int[] | 2304，Â 再生 |
+| y, e1, e2 | int[] | 768/768/256 系数（e2 单多项式） |
+| yh | int[] | 768，NTT(y) |
+| u | int[] | 768，NTT⁻¹(Âᵀ∘ŷ)+e1（多项式域） |
+| mu | int[] | 256，Decompress1(Decode1(m)) |
+| v | int[] | 256，NTT⁻¹(t̂ᵀ∘ŷ)+e2+μ |
+| c | hex | 1088B 密文 |
+
+## kem_decap_mid.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index | u64 | 序号 |
+| dk, c | hex | 2400B/1088B |
+| m_prime | hex | 32B，K-PKE.Decrypt 结果 |
+| u | int[] | 768，Decompress10(Decode10(c1)) |
+| v | int[] | 256，Decompress4(Decode4(c2)) |
+| sh | int[] | 768，dk 前 1152B 解包（decode12） |
+| uh | int[] | 768，NTT(u) |
+| w | int[] | 256，v' − NTT⁻¹(ŝᵀ∘NTT(u')) |
+| Kp, rp | hex | 32B，G(m'\|\|h_ek) 前/后 32B |
+| kbar | hex | 32B，J(z\|\|c) |
+| cp | hex | 1088B，重加密密文 |
+| K | hex | 32B，cp==c ? Kp : kbar |
