@@ -221,6 +221,16 @@
 | seed | hex | 48B c~（SHAKE256 先 8B 符号位，后 τ 轮拒绝采样） |
 | coeffs | int[] | 256 个 ∈ {0,1,Q−1}，汉明重量恰为 τ=49 |
 
+## pack_dsa.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index | u64 | 序号 |
+| mode | str | encode / decode |
+| d | u64 | 13 / 20 |
+| coeffs | int[] | 256 个 d 位系数（decode 时是输出，值 <2^d） |
+| bytes | hex | 32d 字节打包结果（encode 输出 / decode 输入） |
+
 ## kem_keygen_mid.json
 
 中间量向量，供硬件核逐阶段比对。同一 index 下 d/z/m 与 kem_keygen/kem_encaps/kem_decap 一致。

@@ -792,6 +792,45 @@ fn gen_compress(n: u64, out_dir: &Path) {
     write_vectors(out_dir, "compress", &cv);
 }
 
+fn gen_pack_dsa(n: u64, out_dir: &Path) {
+    let ds = [13usize, 20];
+    let mut pv = Vec::new();
+    for i in 0..n {
+        let d = ds[(i % 2) as usize];
+        if i % 4 < 2 {
+            let coeffs = coeffs256(b"pack-dsa-in", i);
+            let bytes = byte_encode(d, &coeffs);
+            pv.push(json!({
+                "index": i,
+                "mode": "encode",
+                "d": d,
+                "coeffs": coeffs.to_vec(),
+                "bytes": hex::encode(bytes),
+            }));
+        } else {
+            let mut rb = vec![0u8; 32 * d];
+            shake(&mut rb, b"pack-dsa-bytes", i);
+            let mut cf = vec![0u32; 256];
+            for k in 0..256 {
+                let mut v = 0u32;
+                for j in 0..d {
+                    let idx = k * d + j;
+                    v |= (((rb[idx / 8] >> (idx % 8)) & 1) as u32) << j;
+                }
+                cf[k] = v;
+            }
+            pv.push(json!({
+                "index": i,
+                "mode": "decode",
+                "d": d,
+                "coeffs": cf,
+                "bytes": hex::encode(rb),
+            }));
+        }
+    }
+    write_vectors(out_dir, "pack_dsa", &pv);
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mode = args.get(1).map(String::as_str).unwrap_or("all");
@@ -816,6 +855,7 @@ fn main() {
         "esp" => gen_esp(n, &out_dir),
         "sha3" => gen_sha3(n, &out_dir),
         "compress" => gen_compress(n, &out_dir),
+        "pack_dsa" => gen_pack_dsa(n, &out_dir),
         "ntt_dsa" => gen_ntt_dsa(n, &out_dir),
         "invntt_dsa" => gen_invntt_dsa(n, &out_dir),
         "rej_ntt" => gen_rej_ntt(n, &out_dir),
@@ -845,6 +885,7 @@ fn main() {
             gen_esp(n, &out_dir);
             gen_sha3(n, &out_dir);
             gen_compress(n, &out_dir);
+            gen_pack_dsa(n, &out_dir);
         }
     }
 }

@@ -63,6 +63,8 @@ SRC_esp = $(RTL)/aes256_core.v $(RTL)/ghash.v $(RTL)/gcm.v $(RTL)/esp.v
 
 TOP_pack = pack
 SRC_pack = $(RTL)/pack.v
+TOP_pack_dsa = pack_dsa
+SRC_pack_dsa = $(RTL)/pack_dsa.v
 
 TOP_compress = compress
 SRC_compress = $(RTL)/compress.v
