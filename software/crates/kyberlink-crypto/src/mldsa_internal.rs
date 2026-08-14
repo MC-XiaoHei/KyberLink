@@ -5,7 +5,7 @@ const Q: u64 = 8380417;
 const K: usize = 6;
 const L: usize = 5;
 const ETA: u64 = 4;
-const TAU: usize = 49;
+pub const TAU: usize = 49;
 const GAMMA1: u64 = 524288;
 const GAMMA2: u64 = 261888;
 const TWO_GAMMA2: u64 = 523776;
@@ -92,7 +92,7 @@ pub fn invntt(a: &mut [u64; 256]) {
     }
 }
 
-fn rej_ntt_poly(rho: &[u8], r: u8, s: u8) -> [u64; 256] {
+pub fn rej_ntt_poly(rho: &[u8], r: u8, s: u8) -> [u64; 256] {
     let mut seed = [0u8; 34];
     seed[..32].copy_from_slice(rho);
     seed[32] = s;
@@ -115,7 +115,7 @@ fn rej_ntt_poly(rho: &[u8], r: u8, s: u8) -> [u64; 256] {
     f
 }
 
-fn rej_bounded_poly(rho: &[u8], r: u16) -> [u64; 256] {
+pub fn rej_bounded_poly(rho: &[u8], r: u16) -> [u64; 256] {
     let mut seed = [0u8; 66];
     seed[..64].copy_from_slice(rho);
     seed[64] = (r & 0xff) as u8;
@@ -145,7 +145,7 @@ fn rej_bounded_poly(rho: &[u8], r: u16) -> [u64; 256] {
     f
 }
 
-fn expand_mask_poly(rho: &[u8], mu: u16) -> [u64; 256] {
+pub fn expand_mask_poly(rho: &[u8], mu: u16) -> [u64; 256] {
     let mut seed = [0u8; 66];
     seed[..64].copy_from_slice(rho);
     seed[64] = (mu & 0xff) as u8;
@@ -166,7 +166,7 @@ fn expand_mask_poly(rho: &[u8], mu: u16) -> [u64; 256] {
     y
 }
 
-fn sample_in_ball(rho: &[u8], tau: usize) -> [u64; 256] {
+pub fn sample_in_ball(rho: &[u8], tau: usize) -> [u64; 256] {
     let mut c = [0u64; 256];
     let mut ctx = Shake256::default();
     ctx.update(rho);

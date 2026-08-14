@@ -181,6 +181,46 @@
 | c | hex | 1088B 密文 |
 | K | hex | 32B 会话密钥（与 kem_encaps 同 index 一致） |
 
+## ntt_dsa.json / invntt_dsa.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index | u64 | 序号 |
+| coeffs_in | int[] | 256 个 <8380417（标准序） |
+| coeffs_out | int[] | 256 个，NTT（bitreversed 序）/ INTT（标准序）结果 |
+
+## rej_ntt.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index | u64 | 序号 |
+| seed | hex | 34B = rho(32)\|\|s\|r，SHAKE128 每 3 字节 1 个 23 位系数（b2'=b2−128，z<q 接受） |
+| coeffs | int[] | 256 个 <8380417 |
+
+## rej_bounded.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index | u64 | 序号 |
+| seed | hex | 66B = rho'(64)\|\|r_le16，SHAKE256 每字节 2 半字节（<9 接受，η=4） |
+| coeffs | int[] | 256 个 ∈ {0..4, Q−4..Q−1} |
+
+## expand_mask.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index | u64 | 序号 |
+| seed | hex | 66B = rho''(64)\|\|mu_le16，SHAKE256 640B 每系数 20 位 LSB-first |
+| coeffs | int[] | 256 个 y=γ1−w'（模 q） |
+
+## sample_in_ball.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index | u64 | 序号 |
+| seed | hex | 48B c~（SHAKE256 先 8B 符号位，后 τ 轮拒绝采样） |
+| coeffs | int[] | 256 个 ∈ {0,1,Q−1}，汉明重量恰为 τ=49 |
+
 ## kem_keygen_mid.json
 
 中间量向量，供硬件核逐阶段比对。同一 index 下 d/z/m 与 kem_keygen/kem_encaps/kem_decap 一致。

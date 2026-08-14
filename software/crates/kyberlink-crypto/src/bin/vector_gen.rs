@@ -395,6 +395,68 @@ fn gen_invntt_dsa(n: u64, out_dir: &Path) {
     write_vectors(out_dir, "invntt_dsa", &v);
 }
 
+fn gen_rej_ntt(n: u64, out_dir: &Path) {
+    let mut v = Vec::new();
+    for i in 0..n {
+        let mut seed = [0u8; 34];
+        shake(&mut seed, b"rej-ntt-seed", i);
+        let f = mldsa_internal::rej_ntt_poly(&seed[..32], seed[33], seed[32]);
+        v.push(json!({
+            "index": i,
+            "seed": hex::encode(seed),
+            "coeffs": f.to_vec(),
+        }));
+    }
+    write_vectors(out_dir, "rej_ntt", &v);
+}
+
+fn gen_rej_bounded(n: u64, out_dir: &Path) {
+    let mut v = Vec::new();
+    for i in 0..n {
+        let mut seed = [0u8; 66];
+        shake(&mut seed, b"rej-bounded-seed", i);
+        let r = u16::from_le_bytes([seed[64], seed[65]]);
+        let f = mldsa_internal::rej_bounded_poly(&seed[..64], r);
+        v.push(json!({
+            "index": i,
+            "seed": hex::encode(seed),
+            "coeffs": f.to_vec(),
+        }));
+    }
+    write_vectors(out_dir, "rej_bounded", &v);
+}
+
+fn gen_expand_mask(n: u64, out_dir: &Path) {
+    let mut v = Vec::new();
+    for i in 0..n {
+        let mut seed = [0u8; 66];
+        shake(&mut seed, b"expand-mask-seed", i);
+        let mu = u16::from_le_bytes([seed[64], seed[65]]);
+        let f = mldsa_internal::expand_mask_poly(&seed[..64], mu);
+        v.push(json!({
+            "index": i,
+            "seed": hex::encode(seed),
+            "coeffs": f.to_vec(),
+        }));
+    }
+    write_vectors(out_dir, "expand_mask", &v);
+}
+
+fn gen_sample_in_ball(n: u64, out_dir: &Path) {
+    let mut v = Vec::new();
+    for i in 0..n {
+        let mut seed = [0u8; 48];
+        shake(&mut seed, b"sample-in-ball-seed", i);
+        let f = mldsa_internal::sample_in_ball(&seed, mldsa_internal::TAU);
+        v.push(json!({
+            "index": i,
+            "seed": hex::encode(seed),
+            "coeffs": f.to_vec(),
+        }));
+    }
+    write_vectors(out_dir, "sample_in_ball", &v);
+}
+
 fn gen_ntt(n: u64, out_dir: &Path) {
     let mut v = Vec::new();
     for i in 0..n {
@@ -756,6 +818,10 @@ fn main() {
         "compress" => gen_compress(n, &out_dir),
         "ntt_dsa" => gen_ntt_dsa(n, &out_dir),
         "invntt_dsa" => gen_invntt_dsa(n, &out_dir),
+        "rej_ntt" => gen_rej_ntt(n, &out_dir),
+        "rej_bounded" => gen_rej_bounded(n, &out_dir),
+        "expand_mask" => gen_expand_mask(n, &out_dir),
+        "sample_in_ball" => gen_sample_in_ball(n, &out_dir),
         _ => {
             gen_kem(n, &out_dir);
             gen_kem_internal(n, &out_dir);
@@ -766,6 +832,10 @@ fn main() {
             gen_invntt(n, &out_dir);
             gen_ntt_dsa(n, &out_dir);
             gen_invntt_dsa(n, &out_dir);
+            gen_rej_ntt(n, &out_dir);
+            gen_rej_bounded(n, &out_dir);
+            gen_expand_mask(n, &out_dir);
+            gen_sample_in_ball(n, &out_dir);
             gen_basemul(n, &out_dir);
             gen_matmul(n, &out_dir);
             gen_sample(n, &out_dir);
