@@ -23,7 +23,7 @@ module sample_cbd (
     shake #(.RATE_BYTES(136)) u_shake (
         .clk(clk), .rst_n(rst_n),
         .start(shake_start),
-        .len(8'd33),
+        .len(12'd33),
         .msg({rho, i, 824'b0}),
         .out_blocks(4'd1),
         .msg_valid(1'b0),

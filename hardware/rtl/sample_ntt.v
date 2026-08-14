@@ -33,7 +33,7 @@ module sample_ntt (
     shake #(.RATE_BYTES(168)) u_shake (
         .clk(clk), .rst_n(rst_n),
         .start(shake_start),
-        .len(8'd34),
+        .len(12'd34),
         .msg({rho, i, j, 1072'b0}),
         .out_blocks(4'd5),
         .msg_valid(1'b0),

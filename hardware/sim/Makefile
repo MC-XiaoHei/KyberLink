@@ -29,6 +29,14 @@ TOP_basemul = basemul
 SRC_basemul = $(RTL)/basemul_core.v $(RTL)/gamma_rom.v $(RTL)/basemul.v
 TOP_matmul = matmul
 SRC_matmul = $(RTL)/basemul_core.v $(RTL)/gamma_rom.v $(RTL)/matmul.v
+TOP_dotmul = dotmul
+SRC_dotmul = $(RTL)/basemul_core.v $(RTL)/gamma_rom.v $(RTL)/dotmul.v
+TOP_kem_keygen = kem_keygen
+SRC_kem_keygen = $(RTL)/keccak_f1600_round.v $(RTL)/shake.v $(RTL)/sample_ntt.v $(RTL)/sample_cbd.v $(RTL)/ntt.v $(RTL)/basemul_core.v $(RTL)/gamma_rom.v $(RTL)/matmul.v $(RTL)/pack.v $(RTL)/kem_keygen.v
+TOP_kem_encaps = kem_encaps
+SRC_kem_encaps = $(RTL)/keccak_f1600_round.v $(RTL)/shake.v $(RTL)/sample_ntt.v $(RTL)/sample_cbd.v $(RTL)/ntt.v $(RTL)/invntt.v $(RTL)/basemul_core.v $(RTL)/gamma_rom.v $(RTL)/matmul.v $(RTL)/dotmul.v $(RTL)/pack.v $(RTL)/compress.v $(RTL)/kem_encaps.v
+TOP_kem_decap = kem_decap
+SRC_kem_decap = $(RTL)/keccak_f1600_round.v $(RTL)/shake.v $(RTL)/sample_ntt.v $(RTL)/sample_cbd.v $(RTL)/ntt.v $(RTL)/invntt.v $(RTL)/basemul_core.v $(RTL)/gamma_rom.v $(RTL)/matmul.v $(RTL)/dotmul.v $(RTL)/pack.v $(RTL)/compress.v $(RTL)/kem_decap.v
 TOP_aes = aes256_core
 SRC_aes = $(RTL)/aes256_core.v
 
