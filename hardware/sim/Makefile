@@ -10,6 +10,10 @@ CORE = $(RTL)/keccak_f1600_round.v $(RTL)/shake.v
 
 TOP_keccak = keccak_f1600_round
 SRC_keccak = $(RTL)/keccak_f1600_round.v
+TOP_ntt_dsa = ntt_dsa
+SRC_ntt_dsa = $(RTL)/ntt_dsa.v
+TOP_invntt_dsa = invntt_dsa
+SRC_invntt_dsa = $(RTL)/invntt_dsa.v
 TOP_shake = shake
 SRC_shake = $(CORE)
 TOP_shake128 = shake

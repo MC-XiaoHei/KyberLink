@@ -49,7 +49,7 @@ fn zetas() -> Vec<u64> {
     (0..256u64).map(|i| pow_mod(1753, bitrev8(i))).collect()
 }
 
-fn ntt(a: &mut [u64; 256]) {
+pub fn ntt(a: &mut [u64; 256]) {
     let z = zetas();
     let mut m = 0usize;
     let mut len = 128usize;
@@ -69,7 +69,7 @@ fn ntt(a: &mut [u64; 256]) {
     }
 }
 
-fn invntt(a: &mut [u64; 256]) {
+pub fn invntt(a: &mut [u64; 256]) {
     let z = zetas();
     let mut m = 256usize;
     let mut len = 1usize;

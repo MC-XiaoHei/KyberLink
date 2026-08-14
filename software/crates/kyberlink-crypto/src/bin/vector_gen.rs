@@ -9,6 +9,7 @@ use sha3::{Shake128, Shake256};
 use kyberlink_crypto::cipher::GcmCipher;
 use kyberlink_crypto::kem;
 use kyberlink_crypto::kem_internal;
+use kyberlink_crypto::mldsa_internal;
 use kyberlink_crypto::ntt;
 use kyberlink_crypto::sign;
 
@@ -105,6 +106,19 @@ fn coeffs256(label: &[u8], i: u64) -> [u16; 256] {
     let mut f = [0u16; 256];
     for k in 0..256 {
         f[k] = u16::from_le_bytes([stream[2 * k], stream[2 * k + 1]]) % Q;
+    }
+    f
+}
+
+fn coeffs256_dsa(label: &[u8], i: u64) -> [u64; 256] {
+    const DQ: u64 = 8380417;
+    let mut stream = [0u8; 768];
+    shake(&mut stream, label, i);
+    let mut f = [0u64; 256];
+    for k in 0..256 {
+        f[k] = ((stream[3 * k + 2] as u64) << 16
+            | (stream[3 * k + 1] as u64) << 8
+            | stream[3 * k] as u64) % DQ;
     }
     f
 }
@@ -349,6 +363,36 @@ fn gen_shake(n: u64, out_dir: &Path) {
     write_vectors(out_dir, "shake", &v256);
     write_vectors(out_dir, "shake128", &v128);
     write_vectors(out_dir, "shakelong", &vlong);
+}
+
+fn gen_ntt_dsa(n: u64, out_dir: &Path) {
+    let mut v = Vec::new();
+    for i in 0..n {
+        let f = coeffs256_dsa(b"ntt-dsa-in", i);
+        let mut g = f;
+        mldsa_internal::ntt(&mut g);
+        v.push(json!({
+            "index": i,
+            "coeffs_in": f.to_vec(),
+            "coeffs_out": g.to_vec(),
+        }));
+    }
+    write_vectors(out_dir, "ntt_dsa", &v);
+}
+
+fn gen_invntt_dsa(n: u64, out_dir: &Path) {
+    let mut v = Vec::new();
+    for i in 0..n {
+        let f = coeffs256_dsa(b"invntt-dsa-in", i);
+        let mut g = f;
+        mldsa_internal::invntt(&mut g);
+        v.push(json!({
+            "index": i,
+            "coeffs_in": f.to_vec(),
+            "coeffs_out": g.to_vec(),
+        }));
+    }
+    write_vectors(out_dir, "invntt_dsa", &v);
 }
 
 fn gen_ntt(n: u64, out_dir: &Path) {
@@ -710,6 +754,8 @@ fn main() {
         "esp" => gen_esp(n, &out_dir),
         "sha3" => gen_sha3(n, &out_dir),
         "compress" => gen_compress(n, &out_dir),
+        "ntt_dsa" => gen_ntt_dsa(n, &out_dir),
+        "invntt_dsa" => gen_invntt_dsa(n, &out_dir),
         _ => {
             gen_kem(n, &out_dir);
             gen_kem_internal(n, &out_dir);
@@ -718,6 +764,8 @@ fn main() {
             gen_shake(n, &out_dir);
             gen_ntt(n, &out_dir);
             gen_invntt(n, &out_dir);
+            gen_ntt_dsa(n, &out_dir);
+            gen_invntt_dsa(n, &out_dir);
             gen_basemul(n, &out_dir);
             gen_matmul(n, &out_dir);
             gen_sample(n, &out_dir);

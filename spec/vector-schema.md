@@ -233,3 +233,19 @@
 | kbar | hex | 32B，J(z\|\|c) |
 | cp | hex | 1088B，重加密密文 |
 | K | hex | 32B，cp==c ? Kp : kbar |
+
+## ntt_dsa.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index | u64 | 序号 |
+| coeffs_in | int[] | 256 个系数 <8380417（标准序输入，shake 派生 3B 小端 mod q） |
+| coeffs_out | int[] | 256 个 NTT 结果（ML-DSA 域，ZETA=1753、Barrett） |
+
+## invntt_dsa.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index | u64 | 序号 |
+| coeffs_in | int[] | 256 个 NTT 域系数 |
+| coeffs_out | int[] | 256 个逆 NTT 结果（末乘 256⁻¹=8347681） |
