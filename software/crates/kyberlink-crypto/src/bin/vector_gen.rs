@@ -395,6 +395,40 @@ fn gen_invntt_dsa(n: u64, out_dir: &Path) {
     write_vectors(out_dir, "invntt_dsa", &v);
 }
 
+fn gen_matmul_dsa(n: u64, out_dir: &Path) {
+    let mut v = Vec::new();
+    for i in 0..n {
+        let mut a = Vec::with_capacity(30);
+        for j in 0..30 {
+            a.push(coeffs256_dsa(b"matmul-dsa-a", i * 30 + j));
+        }
+        let mut b = Vec::with_capacity(5);
+        for j in 0..5 {
+            b.push(coeffs256_dsa(b"matmul-dsa-b", i * 5 + j));
+        }
+        let c = mldsa_internal::mat_mul_vec(&a, &b, 6, 5);
+        let mut flat_a = Vec::new();
+        for p in &a {
+            flat_a.extend_from_slice(&p.to_vec());
+        }
+        let mut flat_b = Vec::new();
+        for p in &b {
+            flat_b.extend_from_slice(&p.to_vec());
+        }
+        let mut flat_c = Vec::new();
+        for p in &c {
+            flat_c.extend_from_slice(&p.to_vec());
+        }
+        v.push(json!({
+            "index": i,
+            "coeffs_a": flat_a,
+            "coeffs_b": flat_b,
+            "coeffs_c": flat_c,
+        }));
+    }
+    write_vectors(out_dir, "matmul_dsa", &v);
+}
+
 fn gen_rej_ntt(n: u64, out_dir: &Path) {
     let mut v = Vec::new();
     for i in 0..n {
@@ -951,6 +985,7 @@ fn main() {
         "pack_dsa" => gen_pack_dsa(n, &out_dir),
         "ntt_dsa" => gen_ntt_dsa(n, &out_dir),
         "invntt_dsa" => gen_invntt_dsa(n, &out_dir),
+        "matmul_dsa" => gen_matmul_dsa(n, &out_dir),
         "rej_ntt" => gen_rej_ntt(n, &out_dir),
         "rej_bounded" => gen_rej_bounded(n, &out_dir),
         "expand_mask" => gen_expand_mask(n, &out_dir),
@@ -966,6 +1001,7 @@ fn main() {
             gen_invntt(n, &out_dir);
             gen_ntt_dsa(n, &out_dir);
             gen_invntt_dsa(n, &out_dir);
+            gen_matmul_dsa(n, &out_dir);
             gen_rej_ntt(n, &out_dir);
             gen_rej_bounded(n, &out_dir);
             gen_expand_mask(n, &out_dir);

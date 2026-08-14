@@ -294,7 +294,7 @@ fn poly_mul_ntt(a: &[u64; 256], b: &[u64; 256]) -> [u64; 256] {
     c
 }
 
-fn mat_mul_vec(a: &[[u64; 256]], v: &[[u64; 256]], rows: usize, cols: usize) -> Vec<[u64; 256]> {
+pub fn mat_mul_vec(a: &[[u64; 256]], v: &[[u64; 256]], rows: usize, cols: usize) -> Vec<[u64; 256]> {
     let mut out = vec![[0u64; 256]; rows];
     for i in 0..rows {
         for k in 0..256 {

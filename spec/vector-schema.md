@@ -221,6 +221,15 @@
 | seed | hex | 48B c~（SHAKE256 先 8B 符号位，后 τ 轮拒绝采样） |
 | coeffs | int[] | 256 个 ∈ {0,1,Q−1}，汉明重量恰为 τ=49 |
 
+## matmul_dsa.json
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| index | u64 | 序号 |
+| coeffs_a | int[] | 30×256（6×5 矩阵，行主序）<8380417 |
+| coeffs_b | int[] | 5×256 <8380417 |
+| coeffs_c | int[] | 6×256，C[i][k]=Σ_j A[i][j][k]·B[j][k] mod q（NTT 域逐点乘累加） |
+
 ## mldsa_keygen_mid.json
 
 | 字段 | 类型 | 说明 |
