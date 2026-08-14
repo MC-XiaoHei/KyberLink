@@ -5,10 +5,12 @@ module sample_in_ball (
     input  wire [383:0] ctilde,
     output reg          busy,
     output reg          done,
+    output reg          error,
     output wire [5887:0] coeffs
 );
     localparam Q = 23'd8380417;
     localparam TAU = 8'd49;
+    localparam JPOS_MAX = 12'd2048;
 
     localparam PHASE_IDLE = 2'd0;
     localparam PHASE_WAIT = 2'd1;
@@ -24,7 +26,7 @@ module sample_in_ball (
     reg [1087:0] blk1;
     reg [7:0]    i_idx;
     reg [7:0]    i_cnt;
-    reg [8:0]    jpos;
+    reg [11:0]   jpos;
 
     wire shake_done;
     wire shake_busy;
@@ -42,9 +44,9 @@ module sample_in_ball (
         .out(shake_out)
     );
 
-    wire [8:0]  jb_sub = jpos - 9'd136;
-    wire [7:0] jb = (jpos < 9'd136) ? blk0[1087 - 8*jpos -: 8]
-                                    : blk1[1087 - 8*jb_sub -: 8];
+    wire [11:0]  jb_sub = jpos - 12'd136;
+    wire [7:0] jb = (jpos < 12'd136) ? blk0[1087 - 8*jpos[7:0] -: 8]
+                                     : blk1[1087 - 8*jb_sub[7:0] -: 8];
     wire accept = jb <= i_idx;
     wire [7:0] sbit_off = i_idx - 8'd207;
     wire [2:0] sbyte_off = sbit_off[5:3];
@@ -60,7 +62,8 @@ module sample_in_ball (
             shake_start <= 1'b0;
             i_idx <= 8'd207;
             i_cnt <= 8'd0;
-            jpos <= 9'd0;
+            jpos <= 12'd0;
+            error <= 1'b0;
         end else begin
             done <= 1'b0;
             case (phase)
@@ -69,7 +72,8 @@ module sample_in_ball (
                         busy <= 1'b1;
                         i_idx <= 8'd207;
                         i_cnt <= 8'd0;
-                        jpos <= 9'd8;
+                        jpos <= 12'd8;
+                        error <= 1'b0;
                         for (ci = 0; ci < 256; ci = ci + 1) coeffs_arr[ci] = 23'd0;
                         shake_start <= 1'b1;
                         phase <= PHASE_WAIT;
@@ -90,8 +94,13 @@ module sample_in_ball (
                         i_idx <= i_idx + 8'd1;
                         i_cnt <= i_cnt + 8'd1;
                     end
-                    jpos <= jpos + 9'd1;
-                    if (i_cnt == TAU - 8'd1 && accept) begin
+                    jpos <= jpos + 12'd1;
+                    if (jpos == JPOS_MAX) begin
+                        error <= 1'b1;
+                        busy <= 1'b0;
+                        done <= 1'b1;
+                        phase <= PHASE_IDLE;
+                    end else if (i_cnt == TAU - 8'd1 && accept) begin
                         if (shake_busy) begin
                             phase <= PHASE_FLUSH;
                         end else begin

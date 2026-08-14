@@ -7,9 +7,11 @@ module rej_ntt (
     input  wire [7:0]   r,
     output reg          busy,
     output reg          done,
+    output reg          error,
     output wire [5887:0] coeffs
 );
     localparam Q = 23'd8380417;
+    localparam RETRY_MAX = 8'd255;
 
     localparam PHASE_IDLE = 2'd0;
     localparam PHASE_WAIT = 2'd1;
@@ -25,6 +27,7 @@ module rej_ntt (
     reg [9:0]    grp;
     reg [7:0]    idx;
     reg [2:0]    blk_cnt;
+    reg [7:0]    retry;
     integer      bb_i;
 
     wire shake_done;
@@ -61,6 +64,8 @@ module rej_ntt (
             idx <= 8'd0;
             grp <= 10'd0;
             blk_cnt <= 3'd0;
+            retry <= 8'd0;
+            error <= 1'b0;
         end else begin
             done <= 1'b0;
             case (phase)
@@ -70,6 +75,8 @@ module rej_ntt (
                         idx <= 8'd0;
                         grp <= 10'd0;
                         blk_cnt <= 3'd0;
+                        retry <= 8'd0;
+                        error <= 1'b0;
                         shake_start <= 1'b1;
                         phase <= PHASE_WAIT;
                     end
@@ -102,8 +109,16 @@ module rej_ntt (
                             phase <= PHASE_IDLE;
                         end
                     end else if (grp >= 10'd838) begin
-                        grp <= 10'd0;
-                        phase <= PHASE_WAIT;
+                        if (retry == RETRY_MAX) begin
+                            error <= 1'b1;
+                            busy <= 1'b0;
+                            done <= 1'b1;
+                            phase <= PHASE_IDLE;
+                        end else begin
+                            retry <= retry + 8'd1;
+                            grp <= 10'd0;
+                            phase <= PHASE_WAIT;
+                        end
                     end else begin
                         grp <= grp + 10'd3;
                     end

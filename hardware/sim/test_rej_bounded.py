@@ -20,6 +20,7 @@ async def run_one(dut, seed, coeffs_exp):
     while not dut.done.value:
         await RisingEdge(dut.clk)
     await Timer(1, units="ns")
+    assert not int(dut.error.value), "rej_bounded error on valid input"
     got = [int(dut.coeffs_arr[k].value) for k in range(256)]
     assert got == coeffs_exp, f"idx={next(i for i, (a, b) in enumerate(zip(got, coeffs_exp)) if a != b)}"
 

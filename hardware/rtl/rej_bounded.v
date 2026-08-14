@@ -6,9 +6,11 @@ module rej_bounded (
     input  wire [15:0]   idx_in,
     output reg           busy,
     output reg           done,
+    output reg           error,
     output wire [5887:0] coeffs
 );
     localparam Q = 23'd8380417;
+    localparam RETRY_MAX = 8'd255;
 
     localparam PHASE_IDLE = 2'd0;
     localparam PHASE_WAIT = 2'd1;
@@ -24,6 +26,7 @@ module rej_bounded (
     reg [8:0]    grp;
     reg [7:0]    idx;
     reg [1:0]    blk_cnt;
+    reg [7:0]    retry;
     integer      bb_i;
 
     wire shake_done;
@@ -62,6 +65,8 @@ module rej_bounded (
             idx <= 8'd0;
             grp <= 9'd0;
             blk_cnt <= 2'd0;
+            retry <= 8'd0;
+            error <= 1'b0;
         end else begin
             done <= 1'b0;
             case (phase)
@@ -71,6 +76,8 @@ module rej_bounded (
                         idx <= 8'd0;
                         grp <= 9'd0;
                         blk_cnt <= 2'd0;
+                        retry <= 8'd0;
+                        error <= 1'b0;
                         shake_start <= 1'b1;
                         phase <= PHASE_WAIT;
                     end
@@ -104,8 +111,16 @@ module rej_bounded (
                             phase <= PHASE_IDLE;
                         end
                     end else if (grp == 9'd407) begin
-                        grp <= 9'd0;
-                        phase <= PHASE_WAIT;
+                        if (retry == RETRY_MAX) begin
+                            error <= 1'b1;
+                            busy <= 1'b0;
+                            done <= 1'b1;
+                            phase <= PHASE_IDLE;
+                        end else begin
+                            retry <= retry + 8'd1;
+                            grp <= 9'd0;
+                            phase <= PHASE_WAIT;
+                        end
                     end else begin
                         grp <= grp + 9'd1;
                     end
