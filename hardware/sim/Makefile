@@ -20,6 +20,8 @@ TOP_mldsa_keygen = top_mldsa_keygen
 SRC_mldsa_keygen = $(RTL)/keccak_f1600_round.v $(RTL)/keccak_engine.v $(RTL)/engine_client.v $(RTL)/rej_ntt.v $(RTL)/rej_bounded.v $(RTL)/ntt_dsa.v $(RTL)/invntt_dsa.v $(RTL)/matmul_dsa.v $(RTL)/pack_dsa.v $(RTL)/mldsa_keygen.v $(PWD)/wrappers/top_mldsa_keygen.v
 TOP_mldsa_verify = top_mldsa_verify
 SRC_mldsa_verify = $(RTL)/keccak_f1600_round.v $(RTL)/keccak_engine.v $(RTL)/engine_client.v $(RTL)/rej_ntt.v $(RTL)/sample_in_ball.v $(RTL)/ntt_dsa.v $(RTL)/invntt_dsa.v $(RTL)/matmul_dsa.v $(RTL)/pack_dsa.v $(RTL)/mldsa_verify.v $(PWD)/wrappers/top_mldsa_verify.v
+TOP_mldsa_sign = top_mldsa_sign
+SRC_mldsa_sign = $(RTL)/keccak_f1600_round.v $(RTL)/keccak_engine.v $(RTL)/engine_client.v $(RTL)/rej_ntt.v $(RTL)/sample_in_ball.v $(RTL)/expand_mask.v $(RTL)/ntt_dsa.v $(RTL)/invntt_dsa.v $(RTL)/matmul_dsa.v $(RTL)/pack_dsa.v $(RTL)/mldsa_sign.v $(PWD)/wrappers/top_mldsa_sign.v
 TOP_rej_ntt = top_rej_ntt
 SRC_rej_ntt = $(RTL)/keccak_f1600_round.v $(RTL)/keccak_engine.v $(RTL)/rej_ntt.v $(PWD)/wrappers/top_rej_ntt.v
 TOP_rej_bounded = top_rej_bounded
@@ -35,6 +37,7 @@ SRC_shake128 = $(CORE)
 ARGS_shake128 = -GRATE_BYTES=168
 COMPILE_ARGS_mldsa_keygen = --unroll-count 2048
 COMPILE_ARGS_mldsa_verify = --unroll-count 4096
+COMPILE_ARGS_mldsa_sign = --unroll-count 4096
 TOP_sample_ntt = top_sample_ntt
 SRC_sample_ntt = $(RTL)/keccak_f1600_round.v $(RTL)/keccak_engine.v $(RTL)/sample_ntt.v $(PWD)/wrappers/top_sample_ntt.v
 TOP_sample_cbd = top_sample_cbd
@@ -77,10 +80,11 @@ SRC_pack_dsa = $(RTL)/pack_dsa.v
 TOP_compress = compress
 SRC_compress = $(RTL)/compress.v
 
-TOP_sha3_256 = shake
-SRC_sha3_256 = $(CORE)
-ARGS_sha3_256 = -GRATE_BYTES=136 -GDOMAIN_BYTE=0x06
-MODULE_sha3_256 = test_sha3
+TOP_sha3_256 = top_sha3_256
+SRC_sha3_256 = $(RTL)/keccak_f1600_round.v $(RTL)/keccak_engine.v $(RTL)/engine_client.v $(RTL)/sha3_256.v $(PWD)/wrappers/top_sha3_256.v
+
+TOP_hkdf_sha3_256 = top_hkdf_sha3_256
+SRC_hkdf_sha3_256 = $(RTL)/keccak_f1600_round.v $(RTL)/keccak_engine.v $(RTL)/engine_client.v $(RTL)/sha3_256.v $(RTL)/hkdf_sha3_256.v $(PWD)/wrappers/top_hkdf_sha3_256.v
 
 TOP_sha3_512 = shake
 SRC_sha3_512 = $(CORE)

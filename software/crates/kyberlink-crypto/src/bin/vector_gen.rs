@@ -740,6 +740,41 @@ fn gen_esp(n: u64, out_dir: &Path) {
     write_vectors(out_dir, "esp", &v);
 }
 
+fn gen_hkdf(n: u64, out_dir: &Path) {
+    use kyberlink_crypto::cipher::{hkdf_sha3_256_expand, hkdf_sha3_256_extract};
+    let mut v = Vec::new();
+    for i in 0..n {
+        let mut h4 = [0u8; 32];
+        let mut ss_i = [0u8; 32];
+        let mut ss_r = [0u8; 32];
+        shake(&mut h4, b"hkdf-h4", i);
+        shake(&mut ss_i, b"hkdf-ssi", i);
+        shake(&mut ss_r, b"hkdf-ssr", i);
+        let spi_i = (0x1000 + i * 0x1111) as u32;
+        let spi_r = (0x8000 + i * 0x2222) as u32;
+        let mut ikm = Vec::with_capacity(64);
+        ikm.extend_from_slice(&ss_i);
+        ikm.extend_from_slice(&ss_r);
+        let prk = hkdf_sha3_256_extract(&h4, &ikm);
+        let mut info = Vec::with_capacity(24);
+        info.extend_from_slice(b"KyberLink-v1-SA");
+        info.extend_from_slice(&spi_i.to_be_bytes());
+        info.extend_from_slice(&spi_r.to_be_bytes());
+        let okm = hkdf_sha3_256_expand(&prk, &info, 96);
+        v.push(json!({
+            "index": i,
+            "h4": hex::encode(h4),
+            "ss_i": hex::encode(ss_i),
+            "ss_r": hex::encode(ss_r),
+            "spi_i": format!("{:08x}", spi_i),
+            "spi_r": format!("{:08x}", spi_r),
+            "prk": hex::encode(prk),
+            "okm": hex::encode(okm),
+        }));
+    }
+    write_vectors(out_dir, "hkdf", &v);
+}
+
 fn gen_sha3(n: u64, out_dir: &Path) {
     use sha3::{Digest, Sha3_256, Sha3_512};
     let mut v256 = Vec::new();
@@ -981,6 +1016,7 @@ fn main() {
         "cipher" => gen_cipher(n, &out_dir),
         "esp" => gen_esp(n, &out_dir),
         "sha3" => gen_sha3(n, &out_dir),
+        "hkdf" => gen_hkdf(n, &out_dir),
         "compress" => gen_compress(n, &out_dir),
         "pack_dsa" => gen_pack_dsa(n, &out_dir),
         "ntt_dsa" => gen_ntt_dsa(n, &out_dir),
@@ -1014,6 +1050,7 @@ fn main() {
             gen_cipher(n, &out_dir);
             gen_esp(n, &out_dir);
             gen_sha3(n, &out_dir);
+            gen_hkdf(n, &out_dir);
             gen_compress(n, &out_dir);
             gen_pack_dsa(n, &out_dir);
             gen_mldsa_mid(n, &out_dir);
