@@ -135,6 +135,8 @@ module keccak_engine #(
                         first_blk <= 1'b1;
                         blk_cnt <= 4'd0;
                         last_full <= 1'b0;
+                        rem <= 12'd0;
+                        state <= 1600'b0;
                         phase <= PHASE_WAIT;
                     end
                 end

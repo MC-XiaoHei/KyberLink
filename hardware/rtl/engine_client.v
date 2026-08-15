@@ -63,9 +63,11 @@ module engine_client #(
                     phase <= PHASE_BLK2;
                 end
                 PHASE_BLK2: begin
-                    if (blk_ready) begin
+                    if (blk_ready || nblk == {NBLK_W{1'b0}}) begin
                         blk_valid <= 1'b0;
-                        if (blk_idx + 1 >= nblk) begin
+                        if (nblk == {NBLK_W{1'b0}}) begin
+                            phase <= PHASE_OUTW;
+                        end else if (blk_idx + 1 >= nblk) begin
                             phase <= PHASE_OUTW;
                         end else begin
                             blk_idx <= blk_idx + 1;
