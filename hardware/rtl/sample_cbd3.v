@@ -6,34 +6,35 @@ module sample_cbd3 (
     input  wire [7:0]   i,
     output reg          busy,
     output reg          done,
-    output reg [767:0]  coeffs
-);
-    localparam PHASE_IDLE = 2'd0;
-    localparam PHASE_WAIT = 2'd1;
-    localparam PHASE_WAIT2 = 2'd2;
-    localparam PHASE_PROC = 2'd3;
+    output reg [767:0]  coeffs,
 
-    reg [1:0]    phase;
-    reg          shake_start;
+    output reg          shk_req,
+    output wire [17:0]  shk_cfg,
+    input  wire         shk_ready,
+    input  wire         shk_done,
+    output reg          shk_blk_valid,
+    input  wire         shk_blk_ready,
+    output reg  [1343:0] shk_blk_data,
+    input  wire         shk_out_valid,
+    output reg          shk_out_ready,
+    input  wire  [1343:0] shk_out_data
+);
+    localparam PHASE_IDLE = 4'd0;
+    localparam PHASE_REQ  = 4'd1;
+    localparam PHASE_BLK  = 4'd2;
+    localparam PHASE_BLK2 = 4'd3;
+    localparam PHASE_OUT  = 4'd4;
+    localparam PHASE_OUT2 = 4'd5;
+    localparam PHASE_OUT2W = 4'd6;
+    localparam PHASE_PROC = 4'd7;
+    localparam PHASE_FLUSH = 4'd8;
+
+    reg [3:0]    phase;
     reg [1087:0] blk0;
     reg [1087:0] blk1;
     reg [5:0]    grp;
 
-    wire shake_done;
-    wire [1087:0] shake_out;
-
-    shake #(.RATE_BYTES(136)) u_shake (
-        .clk(clk), .rst_n(rst_n),
-        .start(shake_start),
-        .len(12'd33),
-        .msg({rho, i, 824'b0}),
-        .out_blocks(4'd2),
-        .msg_valid(1'b0),
-        .need_msg(),
-        .busy(),
-        .done(shake_done),
-        .out(shake_out)
-    );
+    assign shk_cfg = {4'd2, 2'd1, 12'd33};
 
     wire [2175:0] stream;
     genvar gi;
@@ -62,40 +63,68 @@ module sample_cbd3 (
             phase <= PHASE_IDLE;
             busy <= 1'b0;
             done <= 1'b0;
-            shake_start <= 1'b0;
             grp <= 6'd0;
+            shk_req <= 1'b0;
+            shk_blk_valid <= 1'b0;
+            shk_out_ready <= 1'b0;
+            shk_blk_data <= 1344'b0;
         end else begin
             done <= 1'b0;
+            shk_out_ready <= 1'b0;
             case (phase)
                 PHASE_IDLE: begin
                     if (start) begin
                         busy <= 1'b1;
                         grp <= 6'd0;
-                        shake_start <= 1'b1;
-                        phase <= PHASE_WAIT;
+                        shk_req <= 1'b1;
+                        phase <= PHASE_REQ;
                     end
                 end
-                PHASE_WAIT: begin
-                    shake_start <= 1'b0;
-                    if (shake_done) begin
-                        blk0 <= shake_out;
-                        phase <= PHASE_WAIT2;
+                PHASE_REQ: begin
+                    if (shk_ready) phase <= PHASE_BLK;
+                end
+                PHASE_BLK: begin
+                    shk_blk_valid <= 1'b1;
+                    shk_blk_data <= {256'b0, rho, i, 824'b0};
+                    phase <= PHASE_BLK2;
+                end
+                PHASE_BLK2: begin
+                    if (shk_blk_ready) begin
+                        shk_blk_valid <= 1'b0;
+                        phase <= PHASE_OUT;
                     end
                 end
-                PHASE_WAIT2: begin
-                    if (shake_done) begin
-                        blk1 <= shake_out;
+                PHASE_OUT: begin
+                    if (shk_out_valid) begin
+                        blk0 <= shk_out_data[1087:0];
+                        shk_out_ready <= 1'b1;
+                        phase <= PHASE_OUT2;
+                    end
+                end
+                PHASE_OUT2: begin
+                    if (!shk_out_valid) phase <= PHASE_OUT2W;
+                end
+                PHASE_OUT2W: begin
+                    if (shk_out_valid) begin
+                        blk1 <= shk_out_data[1087:0];
+                        shk_out_ready <= 1'b1;
                         phase <= PHASE_PROC;
                     end
                 end
                 PHASE_PROC: begin
                     coeffs[12*grp +: 12] <= {c3, c2, c1, c0};
                     if (grp == 6'd63) begin
+                        phase <= PHASE_FLUSH;
+                    end else begin
+                        grp <= grp + 6'd1;
+                    end
+                end
+                PHASE_FLUSH: begin
+                    if (shk_done) begin
+                        shk_req <= 1'b0;
                         busy <= 1'b0;
                         done <= 1'b1;
                         phase <= PHASE_IDLE;
-                    end else begin
-                        grp <= grp + 6'd1;
                     end
                 end
                 default: phase <= PHASE_IDLE;

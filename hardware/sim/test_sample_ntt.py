@@ -23,7 +23,7 @@ async def run_one(dut, v):
         await RisingEdge(dut.clk)
     await Timer(1, units="ns")
     assert not int(dut.error.value), "sample_ntt error on valid input"
-    got = [int(dut.coeffs_arr[k].value) for k in range(256)]
+    got = [int(dut.u_dut.coeffs_arr[k].value) for k in range(256)]
     assert got == v["coeffs"], f"idx={next(i for i, (a, b) in enumerate(zip(got, v['coeffs'])) if a != b)}"
 
 
