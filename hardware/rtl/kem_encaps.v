@@ -7,7 +7,18 @@ module kem_encaps (
     output reg          busy,
     output reg          done,
     output reg  [255:0]  k_out,
-    output wire [8703:0] c_out
+    output wire [8703:0] c_out,
+
+    output wire [3:0]     shk_req,
+    output wire [71:0]    shk_cfg,
+    input  wire [3:0]     shk_ready,
+    input  wire [3:0]     shk_done,
+    output wire           shk_blk_valid,
+    input  wire           shk_blk_ready,
+    output wire [1343:0]  shk_blk_data,
+    input  wire           shk_out_valid,
+    output wire           shk_out_ready,
+    input  wire  [1343:0] shk_out_data
 );
     localparam Q = 12'd3329;
 
@@ -51,19 +62,17 @@ module kem_encaps (
     reg [11:0] cu_arr[0:2][0:255];
 
     wire h_done;
-    wire h_busy;
     wire [1087:0] h_out;
     reg h_start;
-    reg [3:0] h_blk;
-    reg h_valid;
-    reg h_need_d1;
-    wire h_need;
+    wire h_req, h_bv, h_or, h_osync;
+    wire [3:0] h_idx;
+    wire [1343:0] h_bd;
 
     wire [1087:0] h_msg;
     reg [7:0] h_msg_b [0:135];
     integer hc;
     integer hidx;
-    wire [10:0] h_base = {3'b0, h_blk} * 11'd136;
+    wire [10:0] h_base = {3'b0, h_idx} * 11'd136;
     always @(*) begin
         for (hc = 0; hc < 136; hc = hc + 1) begin
             hidx = {20'd0, {1'b0, h_base[10:0]} + {4'd0, hc[7:0]}};
@@ -77,33 +86,39 @@ module kem_encaps (
         end
     endgenerate
 
-    shake #(.RATE_BYTES(136), .DOMAIN_BYTE(8'h06)) u_h (
+    engine_client #(.NBLK_W(4)) u_hc (
         .clk(clk), .rst_n(rst_n),
-        .start(h_start), .len(12'd1184),
-        .msg(h_msg), .out_blocks(4'd1),
-        .msg_valid(h_valid), .need_msg(h_need),
-        .busy(h_busy), .done(h_done),
-        .out(h_out)
+        .start(h_start), .cfg({4'd1, 2'd2, 12'd1184}), .nblk(4'd9),
+        .msg_blk({256'b0, h_msg}),
+        .req_ready(shk_ready[0]), .blk_ready(shk_blk_ready),
+        .out_valid(shk_out_valid), .done(shk_done[0]),
+        .req_valid(h_req), .blk_valid(h_bv), .blk_data(h_bd), .out_ready(h_or), .blk_idx(h_idx),
+        .out_sync(h_osync)
     );
+    assign h_done = shk_done[0];
+    assign h_out = shk_out_data[1087:0];
 
     wire g_done;
-    wire g_busy;
     wire [575:0] g_out;
     reg g_start;
+    wire g_req, g_bv, g_or, g_osync;
+    wire [1343:0] g_bd;
 
-    shake #(.RATE_BYTES(72), .DOMAIN_BYTE(8'h06)) u_g (
+    engine_client #(.NBLK_W(4)) u_gc (
         .clk(clk), .rst_n(rst_n),
-        .start(g_start), .len(12'd64),
-        .msg({m, hek[0], hek[1], hek[2], hek[3], hek[4], hek[5], hek[6], hek[7],
-              hek[8], hek[9], hek[10], hek[11], hek[12], hek[13], hek[14], hek[15],
-              hek[16], hek[17], hek[18], hek[19], hek[20], hek[21], hek[22], hek[23],
-              hek[24], hek[25], hek[26], hek[27], hek[28], hek[29], hek[30], hek[31],
-              64'b0}),
-        .out_blocks(4'd1),
-        .msg_valid(1'b0), .need_msg(),
-        .busy(g_busy), .done(g_done),
-        .out(g_out)
+        .start(g_start), .cfg({4'd1, 2'd3, 12'd64}), .nblk(4'd1),
+        .msg_blk({768'b0, m, hek[0], hek[1], hek[2], hek[3], hek[4], hek[5], hek[6], hek[7],
+                  hek[8], hek[9], hek[10], hek[11], hek[12], hek[13], hek[14], hek[15],
+                  hek[16], hek[17], hek[18], hek[19], hek[20], hek[21], hek[22], hek[23],
+                  hek[24], hek[25], hek[26], hek[27], hek[28], hek[29], hek[30], hek[31],
+                  64'b0}),
+        .req_ready(shk_ready[1]), .blk_ready(shk_blk_ready),
+        .out_valid(shk_out_valid), .done(shk_done[1]),
+        .req_valid(g_req), .blk_valid(g_bv), .blk_data(g_bd), .out_ready(g_or), .blk_idx(),
+        .out_sync(g_osync)
     );
+    assign g_done = shk_done[1];
+    assign g_out = shk_out_data[575:0];
 
     wire pk_done;
     wire [3071:0] pk_bytes;
@@ -140,6 +155,9 @@ module kem_encaps (
     wire sntt_done;
     wire [3071:0] sntt_coeffs;
     reg sntt_start;
+    wire sntt_req, sntt_bv, sntt_or;
+    wire [17:0] sntt_cfg;
+    wire [1343:0] sntt_bd;
 
     wire [3:0] a_row_w = cnt / 4'd3;
     wire [3:0] a_col_w = cnt % 4'd3;
@@ -152,12 +170,19 @@ module kem_encaps (
         .rho(rho),
         .i({6'd0, a_col}), .j({6'd0, a_row}),
         .busy(), .done(sntt_done),
-        .coeffs(sntt_coeffs)
+        .coeffs(sntt_coeffs), .error(),
+        .shk_req(sntt_req), .shk_cfg(sntt_cfg), .shk_ready(shk_ready[2]),
+        .shk_done(shk_done[2]),
+        .shk_blk_valid(sntt_bv), .shk_blk_ready(shk_blk_ready), .shk_blk_data(sntt_bd),
+        .shk_out_valid(shk_out_valid), .shk_out_ready(sntt_or), .shk_out_data(shk_out_data)
     );
 
     wire cbd_done;
     wire [767:0] cbd_coeffs;
     reg cbd_start;
+    wire cbd_req, cbd_bv, cbd_or;
+    wire [17:0] cbd_cfg;
+    wire [1343:0] cbd_bd;
 
     sample_cbd u_scbd (
         .clk(clk), .rst_n(rst_n),
@@ -165,7 +190,11 @@ module kem_encaps (
         .rho(r),
         .i({5'd0, cnt[2:0]}),
         .busy(), .done(cbd_done),
-        .coeffs(cbd_coeffs)
+        .coeffs(cbd_coeffs),
+        .shk_req(cbd_req), .shk_cfg(cbd_cfg), .shk_ready(shk_ready[3]),
+        .shk_done(shk_done[3]),
+        .shk_blk_valid(cbd_bv), .shk_blk_ready(shk_blk_ready), .shk_blk_data(cbd_bd),
+        .shk_out_valid(shk_out_valid), .shk_out_ready(cbd_or), .shk_out_data(shk_out_data)
     );
 
     wire [11:0] cbd_tmp [0:255];
@@ -330,9 +359,6 @@ module kem_encaps (
             done <= 1'b0;
             k_out <= 256'd0;
             h_start <= 1'b0;
-            h_valid <= 1'b0;
-            h_need_d1 <= 1'b0;
-            h_blk <= 4'd0;
             g_start <= 1'b0;
             pk_start <= 1'b0;
             pk_mode <= 1'b0;
@@ -351,7 +377,6 @@ module kem_encaps (
         end else begin
             done <= 1'b0;
             h_start <= 1'b0;
-            h_valid <= 1'b0;
             g_start <= 1'b0;
             pk_start <= 1'b0;
             sntt_start <= 1'b0;
@@ -362,33 +387,31 @@ module kem_encaps (
             dm_start <= 1'b0;
             comp_start <= 1'b0;
             pk2_start <= 1'b0;
-            h_need_d1 <= h_need;
             case (phase)
                 PHASE_IDLE: begin
                     if (start) begin
                         busy <= 1'b1;
                         for (bb = 0; bb < 1184; bb = bb + 1) ek_byte[bb] = ek_in[9471-8*bb -: 8];
-                        h_blk <= 4'd0;
                         h_start <= 1'b1;
                         phase <= PHASE_H;
                     end
                 end
                 PHASE_H: begin
-                    if (h_need && !h_need_d1) begin
-                        h_valid <= 1'b1;
-                        h_blk <= h_blk + 4'd1;
+                    if (h_osync) begin
+                        for (bb = 0; bb < 32; bb = bb + 1) hek[bb] = h_out[1087-8*bb -: 8];
                     end
                     if (h_done) begin
-                        for (bb = 0; bb < 32; bb = bb + 1) hek[bb] = h_out[1087-8*bb -: 8];
                         cnt <= 4'd0;
                         g_start <= 1'b1;
                         phase <= PHASE_G;
                     end
                 end
                 PHASE_G: begin
-                    if (g_done) begin
+                    if (g_osync) begin
                         k_out <= g_out[575:320];
                         r <= g_out[319:64];
+                    end
+                    if (g_done) begin
                         cnt <= 4'd0;
                         pk_mode <= 1'b1;
                         pk_d <= 4'd12;
@@ -567,6 +590,18 @@ module kem_encaps (
             endcase
         end
     end
+
+    assign shk_req[0] = h_req;
+    assign shk_req[1] = g_req;
+    assign shk_req[2] = sntt_req;
+    assign shk_req[3] = cbd_req;
+    assign shk_cfg = {cbd_cfg, sntt_cfg, {4'd1, 2'd3, 12'd64}, {4'd1, 2'd2, 12'd1184}};
+    assign shk_blk_valid = h_bv | g_bv | sntt_bv | cbd_bv;
+    assign shk_blk_data = ({1344{h_bv}} & h_bd)
+                        | ({1344{g_bv}} & g_bd)
+                        | ({1344{sntt_bv}} & sntt_bd)
+                        | ({1344{cbd_bv}} & cbd_bd);
+    assign shk_out_ready = h_or | g_or | sntt_or | cbd_or;
 
     genvar gc;
     generate

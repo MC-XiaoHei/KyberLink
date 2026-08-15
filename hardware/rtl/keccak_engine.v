@@ -63,7 +63,7 @@ module keccak_engine #(
     integer pi;
     always @(*) begin
         mod_r = msg_len;
-        for (pi = 0; pi < 12; pi = pi + 1) begin
+        for (pi = 0; pi < 30; pi = pi + 1) begin
             if (mod_r >= {4'd0, rate_w}) mod_r = mod_r - {4'd0, rate_w};
         end
         pad_const = (1600'h80 << (8*rate_w - 8)) | {1592'b0, dom_w};

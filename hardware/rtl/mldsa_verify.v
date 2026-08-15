@@ -7,7 +7,18 @@ module mldsa_verify (
     input  wire [26471:0] sig_in,
     output reg           busy,
     output reg           done,
-    output reg           valid_out
+    output reg           valid_out,
+
+    output wire [2:0]   shk_req,
+    output wire [53:0]  shk_cfg,
+    input  wire [2:0]   shk_ready,
+    input  wire [2:0]   shk_done,
+    output wire         shk_blk_valid,
+    input  wire         shk_blk_ready,
+    output wire [1343:0] shk_blk_data,
+    input  wire         shk_out_valid,
+    output wire         shk_out_ready,
+    input  wire [1343:0] shk_out_data
 );
     localparam Q = 23'd8380417;
     localparam GAMMA1 = 23'd524288;
@@ -87,6 +98,11 @@ module mldsa_verify (
     reg sib_start;
     wire sib_done;
     wire [5887:0] sib_coeffs;
+    wire sib_req;
+    wire [17:0] sib_cfg;
+    wire sib_bv;
+    wire [1343:0] sib_bd;
+    wire sib_or;
 
     reg ntt_start;
     wire ntt_done;
@@ -107,14 +123,25 @@ module mldsa_verify (
     reg rntt_start;
     wire rntt_done;
     wire [5887:0] rntt_coeffs;
+    wire rntt_req;
+    wire [17:0] rntt_cfg;
+    wire rntt_bv;
+    wire [1343:0] rntt_bd;
+    wire rntt_or;
 
     reg ct_start;
-    reg ct_valid;
     wire ct_done;
-    wire ct_need;
     wire [1087:0] ct_out;
     wire [1087:0] ct_msg;
     reg [7:0] ct_b [0:135];
+    wire ct_req;
+    wire ct_bv;
+    wire [1343:0] ct_bd;
+    wire ct_or;
+    wire [3:0] ct_idx;
+    wire ct_osync;
+    assign ct_done = shk_done[0];
+    assign ct_out = shk_out_data[1087:0];
 
     wire [255:0] rho_w;
     generate
@@ -137,7 +164,11 @@ module mldsa_verify (
 
     sample_in_ball u_sib (
         .clk(clk), .rst_n(rst_n), .start(sib_start), .ctilde(ctilde_w),
-        .busy(), .done(sib_done), .coeffs(sib_coeffs)
+        .busy(), .done(sib_done), .error(), .coeffs(sib_coeffs),
+        .shk_req(sib_req), .shk_cfg(sib_cfg),
+        .shk_ready(shk_ready[1]), .shk_done(shk_done[1]),
+        .shk_blk_valid(sib_bv), .shk_blk_ready(shk_blk_ready), .shk_blk_data(sib_bd),
+        .shk_out_valid(shk_out_valid), .shk_out_ready(sib_or), .shk_out_data(shk_out_data)
     );
 
     ntt_dsa u_ntt (
@@ -158,13 +189,19 @@ module mldsa_verify (
     rej_ntt u_rntt (
         .clk(clk), .rst_n(rst_n), .start(rntt_start), .rho(rho_w),
         .s({5'd0, a_col}), .r({5'd0, a_row}),
-        .busy(), .done(rntt_done), .coeffs(rntt_coeffs)
+        .busy(), .done(rntt_done), .error(), .coeffs(rntt_coeffs),
+        .shk_req(rntt_req), .shk_cfg(rntt_cfg),
+        .shk_ready(shk_ready[2]), .shk_done(shk_done[2]),
+        .shk_blk_valid(rntt_bv), .shk_blk_ready(shk_blk_ready), .shk_blk_data(rntt_bd),
+        .shk_out_valid(shk_out_valid), .shk_out_ready(rntt_or), .shk_out_data(shk_out_data)
     );
 
-    shake #(.RATE_BYTES(136), .DOMAIN_BYTE(8'h1F)) u_shk (
-        .clk(clk), .rst_n(rst_n), .start(ct_start), .len(12'd832),
-        .out_blocks(4'd1), .msg(ct_msg), .msg_valid(ct_valid), .need_msg(ct_need),
-        .busy(), .done(ct_done), .out(ct_out)
+    engine_client #(.NBLK_W(4)) shk_cli (
+        .clk(clk), .rst_n(rst_n),
+        .start(ct_start), .cfg({4'd1, 2'd1, 12'd832}), .nblk(4'd7),
+        .msg_blk({256'b0, ct_msg}),
+        .req_ready(shk_ready[0]), .blk_ready(shk_blk_ready), .out_valid(shk_out_valid), .done(shk_done[0]),
+        .req_valid(ct_req), .blk_valid(ct_bv), .blk_data(ct_bd), .out_ready(ct_or), .blk_idx(ct_idx), .out_sync(ct_osync)
     );
 
     wire [7:0] a_row7 = cnt / 8'd5;
@@ -257,7 +294,7 @@ module mldsa_verify (
 
     always @(*) begin
         for (cbb = 0; cbb < 136; cbb = cbb + 1) begin
-            gbv = ct_blk * 136 + cbb;
+            gbv = {4'd0, ct_idx} * 12'd136 + cbb;
             if (gbv < 64) begin
                 ct_b[cbb] = mu_b_r[8*gbv +: 8];
             end else if (gbv < 832) begin
@@ -318,8 +355,6 @@ module mldsa_verify (
             cnt <= 8'd0;
             cnt2 <= 11'd0;
             hidx <= 7'd0;
-            ct_blk <= 4'd0;
-            ct_need_d1 <= 1'b0;
             pk_start <= 1'b0;
             pk_mode <= 1'b0;
             pk_d <= 5'd0;
@@ -329,7 +364,6 @@ module mldsa_verify (
             rntt_start <= 1'b0;
             sib_start <= 1'b0;
             ct_start <= 1'b0;
-            ct_valid <= 1'b0;
         end else begin
             done <= 1'b0;
             pk_start <= 1'b0;
@@ -339,8 +373,6 @@ module mldsa_verify (
             rntt_start <= 1'b0;
             sib_start <= 1'b0;
             ct_start <= 1'b0;
-            ct_valid <= 1'b0;
-            ct_need_d1 <= ct_need;
             case (phase)
                 PHASE_IDLE: begin
                     if (start) begin
@@ -356,7 +388,6 @@ module mldsa_verify (
                         cnt <= 8'd0;
                         cnt2 <= 11'd0;
                         hidx <= 7'd0;
-                        ct_blk <= 4'd0;
                         busy <= 1'b1;
                         phase <= PHASE_PT1;
                         pk_start <= 1'b1;
@@ -541,7 +572,6 @@ module mldsa_verify (
                             w1_byte[128*cnt + bb] <= pk_bytes[5119 - 8*bb -: 8];
                         end
                         if (cnt == 8'd5) begin
-                            ct_blk <= 4'd0;
                             phase <= PHASE_CTIL;
                             ct_start <= 1'b1;
                         end else begin
@@ -551,16 +581,13 @@ module mldsa_verify (
                     end
                 end
                 PHASE_CTIL: begin
-                    if (ct_done) begin
+                    if (ct_osync) begin
                         for (bb = 0; bb < 48; bb = bb + 1) begin
                             ctil[bb] <= ct_out[1087 - 8*bb -: 8];
                         end
+                    end
+                    if (ct_done) begin
                         phase <= PHASE_CMP;
-                    end else begin
-                        if (ct_need && !ct_need_d1) begin
-                            ct_valid <= 1'b1;
-                            ct_blk <= ct_blk + 4'd1;
-                        end
                     end
                 end
                 PHASE_CMP: begin
@@ -573,4 +600,10 @@ module mldsa_verify (
             endcase
         end
     end
+
+    assign shk_req = {rntt_req, sib_req, ct_req};
+    assign shk_cfg = {rntt_cfg, sib_cfg, {4'd1, 2'd1, 12'd832}};
+    assign shk_blk_valid = ct_bv | sib_bv | rntt_bv;
+    assign shk_blk_data = ({1344{ct_bv}} & ct_bd) | ({1344{sib_bv}} & sib_bd) | ({1344{rntt_bv}} & rntt_bd);
+    assign shk_out_ready = ct_or | sib_or | rntt_or;
 endmodule

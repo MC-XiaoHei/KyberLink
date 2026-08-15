@@ -6,7 +6,18 @@ module kem_decap (
     input  wire [8703:0]  c_in,
     output reg          busy,
     output reg          done,
-    output reg  [255:0]  k_out
+    output reg  [255:0]  k_out,
+
+    output wire [3:0]   shk_req,
+    output wire [71:0]  shk_cfg,
+    input  wire [3:0]   shk_ready,
+    input  wire [3:0]   shk_done,
+    output wire         shk_blk_valid,
+    input  wire         shk_blk_ready,
+    output wire [1343:0] shk_blk_data,
+    input  wire         shk_out_valid,
+    output wire         shk_out_ready,
+    input  wire [1343:0] shk_out_data
 );
     localparam Q = 12'd3329;
 
@@ -244,6 +255,19 @@ module kem_decap (
     wire sntt_done;
     wire [3071:0] sntt_coeffs;
     reg sntt_start;
+    wire sntt_req;
+    wire [17:0] sntt_cfg;
+    wire sntt_bv;
+    wire [1343:0] sntt_bd;
+    wire sntt_or;
+    assign sntt_cfg = {4'd5, 2'd0, 12'd34};
+
+    wire cbd_req;
+    wire [17:0] cbd_cfg;
+    wire cbd_bv;
+    wire [1343:0] cbd_bd;
+    wire cbd_or;
+    assign cbd_cfg = {4'd1, 2'd1, 12'd33};
 
     wire [3:0] a_row_w = cnt / 4'd3;
     wire [3:0] a_col_w = cnt % 4'd3;
@@ -256,7 +280,12 @@ module kem_decap (
         .rho(rho),
         .i({6'd0, a_col}), .j({6'd0, a_row}),
         .busy(), .done(sntt_done),
-        .coeffs(sntt_coeffs)
+        .coeffs(sntt_coeffs),
+        .shk_req(sntt_req), .shk_cfg(sntt_cfg),
+        .shk_ready(shk_ready[2]), .shk_done(shk_done[2]),
+        .shk_blk_valid(sntt_bv), .shk_blk_ready(shk_blk_ready), .shk_blk_data(sntt_bd),
+        .shk_out_valid(shk_out_valid), .shk_out_ready(sntt_or), .shk_out_data(shk_out_data),
+        .error()
     );
 
     wire cbd_done;
@@ -269,7 +298,11 @@ module kem_decap (
         .rho(rp_reg),
         .i({5'd0, cnt[2:0]}),
         .busy(), .done(cbd_done),
-        .coeffs(cbd_coeffs)
+        .coeffs(cbd_coeffs),
+        .shk_req(cbd_req), .shk_cfg(cbd_cfg),
+        .shk_ready(shk_ready[3]), .shk_done(shk_done[3]),
+        .shk_blk_valid(cbd_bv), .shk_blk_ready(shk_blk_ready), .shk_blk_data(cbd_bd),
+        .shk_out_valid(shk_out_valid), .shk_out_ready(cbd_or), .shk_out_data(shk_out_data)
     );
 
     wire [11:0] cbd_tmp [0:255];
@@ -287,14 +320,19 @@ module kem_decap (
     wire [1:0] e1_idx = e1_idx3[1:0];
 
     wire g_done;
-    wire g_busy;
+    wire g_osync;
     wire [575:0] g_out;
+    wire [3:0] g_idx;
     reg g_start;
+    wire g_req;
+    wire g_bv;
+    wire [1343:0] g_bd;
+    wire g_or;
 
-    shake #(.RATE_BYTES(72), .DOMAIN_BYTE(8'h06)) u_g (
+    engine_client #(.NBLK_W(4)) g_cli (
         .clk(clk), .rst_n(rst_n),
-        .start(g_start), .len(12'd64),
-        .msg({m_byte[0], m_byte[1], m_byte[2], m_byte[3], m_byte[4], m_byte[5], m_byte[6], m_byte[7],
+        .start(g_start), .cfg({4'd1, 2'd3, 12'd64}), .nblk(4'd1),
+        .msg_blk({768'b0, m_byte[0], m_byte[1], m_byte[2], m_byte[3], m_byte[4], m_byte[5], m_byte[6], m_byte[7],
               m_byte[8], m_byte[9], m_byte[10], m_byte[11], m_byte[12], m_byte[13], m_byte[14], m_byte[15],
               m_byte[16], m_byte[17], m_byte[18], m_byte[19], m_byte[20], m_byte[21], m_byte[22], m_byte[23],
               m_byte[24], m_byte[25], m_byte[26], m_byte[27], m_byte[28], m_byte[29], m_byte[30], m_byte[31],
@@ -303,26 +341,27 @@ module kem_decap (
               dk_byte[2352], dk_byte[2353], dk_byte[2354], dk_byte[2355], dk_byte[2356], dk_byte[2357], dk_byte[2358], dk_byte[2359],
               dk_byte[2360], dk_byte[2361], dk_byte[2362], dk_byte[2363], dk_byte[2364], dk_byte[2365], dk_byte[2366], dk_byte[2367],
               64'b0}),
-        .out_blocks(4'd1),
-        .msg_valid(1'b0), .need_msg(),
-        .busy(g_busy), .done(g_done),
-        .out(g_out)
+        .req_ready(shk_ready[0]), .blk_ready(shk_blk_ready), .out_valid(shk_out_valid), .done(shk_done[0]),
+        .req_valid(g_req), .blk_valid(g_bv), .blk_data(g_bd), .out_ready(g_or), .blk_idx(g_idx), .out_sync(g_osync)
     );
+    assign g_done = shk_done[0];
+    assign g_out = shk_out_data[575:0];
 
     wire j_done;
-    wire j_busy;
+    wire j_osync;
     wire [1087:0] j_out;
+    wire [3:0] j_idx;
     reg j_start;
-    reg [3:0] j_blk;
-    reg j_valid;
-    reg j_need_d1;
-    wire j_need;
+    wire j_req;
+    wire j_bv;
+    wire [1343:0] j_bd;
+    wire j_or;
 
     wire [1087:0] j_msg;
     reg [7:0] j_msg_b [0:135];
     integer jc;
     integer jidx;
-    wire [10:0] j_base = {3'b0, j_blk} * 11'd136;
+    wire [10:0] j_base = {3'b0, j_idx} * 11'd136;
     always @(*) begin
         for (jc = 0; jc < 136; jc = jc + 1) begin
             jidx = {20'd0, {1'b0, j_base[10:0]} + {4'd0, jc[7:0]}};
@@ -342,14 +381,15 @@ module kem_decap (
         end
     endgenerate
 
-    shake #(.RATE_BYTES(136), .DOMAIN_BYTE(8'h1F)) u_j (
+    engine_client #(.NBLK_W(4)) j_cli (
         .clk(clk), .rst_n(rst_n),
-        .start(j_start), .len(12'd1120),
-        .msg(j_msg), .out_blocks(4'd1),
-        .msg_valid(j_valid), .need_msg(j_need),
-        .busy(j_busy), .done(j_done),
-        .out(j_out)
+        .start(j_start), .cfg({4'd1, 2'd1, 12'd1120}), .nblk(4'd9),
+        .msg_blk({256'b0, j_msg}),
+        .req_ready(shk_ready[1]), .blk_ready(shk_blk_ready), .out_valid(shk_out_valid), .done(shk_done[1]),
+        .req_valid(j_req), .blk_valid(j_bv), .blk_data(j_bd), .out_ready(j_or), .blk_idx(j_idx), .out_sync(j_osync)
     );
+    assign j_done = shk_done[1];
+    assign j_out = shk_out_data[1087:0];
 
     integer bb;
     integer ts;
@@ -376,9 +416,6 @@ module kem_decap (
             cbd_start <= 1'b0;
             g_start <= 1'b0;
             j_start <= 1'b0;
-            j_valid <= 1'b0;
-            j_need_d1 <= 1'b0;
-            j_blk <= 4'd0;
             kp_reg <= 256'd0;
             rp_reg <= 256'd0;
             cnt <= 4'd0;
@@ -394,8 +431,6 @@ module kem_decap (
             cbd_start <= 1'b0;
             g_start <= 1'b0;
             j_start <= 1'b0;
-            j_valid <= 1'b0;
-            j_need_d1 <= j_need;
             case (phase)
                 PHASE_IDLE: begin
                     if (start) begin
@@ -520,21 +555,20 @@ module kem_decap (
                     end
                 end
                 PHASE_G: begin
-                    if (g_done) begin
+                    if (g_osync) begin
                         kp_reg <= g_out[575:320];
                         rp_reg <= g_out[319:64];
-                        j_blk <= 4'd0;
+                    end
+                    if (g_done) begin
                         j_start <= 1'b1;
                         phase <= PHASE_JBAR;
                     end
                 end
                 PHASE_JBAR: begin
-                    if (j_need && !j_need_d1) begin
-                        j_valid <= 1'b1;
-                        j_blk <= j_blk + 4'd1;
+                    if (j_osync) begin
+                        for (bb = 0; bb < 32; bb = bb + 1) kbar_byte[bb] = j_out[1087-8*bb -: 8];
                     end
                     if (j_done) begin
-                        for (bb = 0; bb < 32; bb = bb + 1) kbar_byte[bb] = j_out[1087-8*bb -: 8];
                         cnt <= 4'd0;
                         pk_mode <= 1'b1;
                         pk_d <= 4'd12;
@@ -732,4 +766,10 @@ module kem_decap (
             if (cp_byte[bb] != c_byte[bb]) cmp_eq = 1'b0;
         end
     end
+
+    assign shk_req = {cbd_req, sntt_req, j_req, g_req};
+    assign shk_cfg = {cbd_cfg, sntt_cfg, {4'd1, 2'd1, 12'd1120}, {4'd1, 2'd3, 12'd64}};
+    assign shk_blk_valid = g_bv | j_bv | sntt_bv | cbd_bv;
+    assign shk_blk_data = ({1344{g_bv}} & g_bd) | ({1344{j_bv}} & j_bd) | ({1344{sntt_bv}} & sntt_bd) | ({1344{cbd_bv}} & cbd_bd);
+    assign shk_out_ready = g_or | j_or | sntt_or | cbd_or;
 endmodule

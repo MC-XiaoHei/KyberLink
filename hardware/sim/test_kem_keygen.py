@@ -38,8 +38,8 @@ async def test_kem_keygen_vectors(dut):
             await RisingEdge(dut.clk)
         await Timer(1, units="ns")
 
-        got_ek = bytes(int(dut.ek_byte[k].value) for k in range(1184))
-        got_dk = bytes(int(dut.dk_byte[k].value) for k in range(2400))
+        got_ek = bytes(int(dut.u_dut.ek_byte[k].value) for k in range(1184))
+        got_dk = bytes(int(dut.u_dut.dk_byte[k].value) for k in range(2400))
         assert got_ek == want_ek, f"idx={v['index']} ek mismatch first {next((i for i,(a,b) in enumerate(zip(got_ek,want_ek)) if a!=b), None)}"
         assert got_dk == want_dk, f"idx={v['index']} dk mismatch first {next((i for i,(a,b) in enumerate(zip(got_dk,want_dk)) if a!=b), None)}"
     dut._log.info(f"kem_keygen {len(vecs)} vectors PASS")

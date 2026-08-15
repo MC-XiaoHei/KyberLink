@@ -7,7 +7,18 @@ module kem_keygen (
     output reg         busy,
     output reg         done,
     output wire [9471:0]  ek_out,
-    output wire [19199:0] dk_out
+    output wire [19199:0] dk_out,
+
+    output wire [3:0]     shk_req,
+    output wire [71:0]    shk_cfg,
+    input  wire [3:0]     shk_ready,
+    input  wire [3:0]     shk_done,
+    output wire           shk_blk_valid,
+    input  wire           shk_blk_ready,
+    output wire [1343:0]  shk_blk_data,
+    input  wire           shk_out_valid,
+    output wire           shk_out_ready,
+    input  wire  [1343:0] shk_out_data
 );
     localparam Q = 12'd3329;
 
@@ -38,24 +49,27 @@ module kem_keygen (
     reg [7:0] dk_byte [0:2399];
     reg [7:0] h_ek    [0:31];
 
-    wire g_done;
-    wire g_busy;
-    wire [575:0] g_out;
     reg g_start;
-
-    shake #(.RATE_BYTES(72), .DOMAIN_BYTE(8'h06)) u_g (
+    wire g_req, g_bv, g_or, g_osync;
+    engine_client #(.NBLK_W(4)) u_gc (
         .clk(clk), .rst_n(rst_n),
-        .start(g_start), .len(12'd33),
-        .msg({d, 8'h03, 312'b0}),
-        .out_blocks(4'd1),
-        .msg_valid(1'b0), .need_msg(),
-        .busy(g_busy), .done(g_done),
-        .out(g_out)
+        .start(g_start), .cfg({4'd1, 2'd3, 12'd33}), .nblk(4'd1),
+        .msg_blk({768'b0, d, 8'h03, 312'b0}),
+        .req_ready(shk_ready[0]), .blk_ready(shk_blk_ready),
+        .out_valid(shk_out_valid), .done(shk_done[0]),
+        .req_valid(g_req), .blk_valid(g_bv), .blk_data(g_bd), .out_ready(g_or), .blk_idx(),
+        .out_sync(g_osync)
     );
+    wire g_done = shk_done[0];
+    wire [575:0] g_out = shk_out_data[575:0];
+    wire [1343:0] g_bd;
 
     wire sntt_done;
     wire [3071:0] sntt_coeffs;
     reg sntt_start;
+    wire sntt_req, sntt_bv, sntt_or;
+    wire [17:0] sntt_cfg;
+    wire [1343:0] sntt_bd;
 
     wire [3:0] a_row_w = cnt / 4'd3;
     wire [3:0] a_col_w = cnt % 4'd3;
@@ -68,12 +82,19 @@ module kem_keygen (
         .rho(rho),
         .i({6'd0, a_col}), .j({6'd0, a_row}),
         .busy(), .done(sntt_done),
-        .coeffs(sntt_coeffs)
+        .coeffs(sntt_coeffs), .error(),
+        .shk_req(sntt_req), .shk_cfg(sntt_cfg), .shk_ready(shk_ready[2]),
+        .shk_done(shk_done[2]),
+        .shk_blk_valid(sntt_bv), .shk_blk_ready(shk_blk_ready), .shk_blk_data(sntt_bd),
+        .shk_out_valid(shk_out_valid), .shk_out_ready(sntt_or), .shk_out_data(shk_out_data)
     );
 
     wire cbd_done;
     wire [767:0] cbd_coeffs;
     reg cbd_start;
+    wire cbd_req, cbd_bv, cbd_or;
+    wire [17:0] cbd_cfg;
+    wire [1343:0] cbd_bd;
 
     sample_cbd u_scbd (
         .clk(clk), .rst_n(rst_n),
@@ -81,7 +102,11 @@ module kem_keygen (
         .rho(sigma),
         .i({5'd0, cnt[2:0]}),
         .busy(), .done(cbd_done),
-        .coeffs(cbd_coeffs)
+        .coeffs(cbd_coeffs),
+        .shk_req(cbd_req), .shk_cfg(cbd_cfg), .shk_ready(shk_ready[3]),
+        .shk_done(shk_done[3]),
+        .shk_blk_valid(cbd_bv), .shk_blk_ready(shk_blk_ready), .shk_blk_data(cbd_bd),
+        .shk_out_valid(shk_out_valid), .shk_out_ready(cbd_or), .shk_out_data(shk_out_data)
     );
 
     wire [11:0] s12_tmp [0:255];
@@ -168,13 +193,8 @@ module kem_keygen (
     );
 
     wire h_done;
-    wire h_busy;
     wire [1087:0] h_out;
     reg h_start;
-    reg [3:0] h_blk;
-    reg h_valid;
-    reg h_need_d1;
-    wire h_need;
 
     wire [1087:0] h_msg;
     reg [7:0] h_msg_b [0:135];
@@ -187,21 +207,27 @@ module kem_keygen (
         end
     end
     genvar hj;
-    wire [10:0] h_base = {3'b0, h_blk} * 11'd136;
+    wire [10:0] h_base = {3'b0, h_idx} * 11'd136;
     generate
         for (hj = 0; hj < 136; hj = hj + 1) begin: hmsg
             assign h_msg[8*hj +: 8] = h_msg_b[135-hj];
         end
     endgenerate
 
-    shake #(.RATE_BYTES(136), .DOMAIN_BYTE(8'h06)) u_h (
+    wire h_req, h_bv, h_or, h_osync;
+    wire [3:0] h_idx;
+    wire [1343:0] h_bd;
+    engine_client #(.NBLK_W(4)) u_hc (
         .clk(clk), .rst_n(rst_n),
-        .start(h_start), .len(12'd1184),
-        .msg(h_msg), .out_blocks(4'd1),
-        .msg_valid(h_valid), .need_msg(h_need),
-        .busy(h_busy), .done(h_done),
-        .out(h_out)
+        .start(h_start), .cfg({4'd1, 2'd2, 12'd1184}), .nblk(4'd9),
+        .msg_blk({256'b0, h_msg}),
+        .req_ready(shk_ready[1]), .blk_ready(shk_blk_ready),
+        .out_valid(shk_out_valid), .done(shk_done[1]),
+        .req_valid(h_req), .blk_valid(h_bv), .blk_data(h_bd), .out_ready(h_or), .blk_idx(h_idx),
+        .out_sync(h_osync)
     );
+    assign h_done = shk_done[1];
+    assign h_out = shk_out_data[1087:0];
 
     integer bb;
     integer ths;
@@ -219,9 +245,6 @@ module kem_keygen (
             mm_start <= 1'b0;
             pk_start <= 1'b0;
             h_start <= 1'b0;
-            h_valid <= 1'b0;
-            h_need_d1 <= 1'b0;
-            h_blk <= 4'd0;
             cnt <= 4'd0;
         end else begin
             done <= 1'b0;
@@ -232,8 +255,6 @@ module kem_keygen (
             mm_start <= 1'b0;
             pk_start <= 1'b0;
             h_start <= 1'b0;
-            h_valid <= 1'b0;
-            h_need_d1 <= h_need;
             case (phase)
                 PHASE_IDLE: begin
                     if (start) begin
@@ -243,9 +264,11 @@ module kem_keygen (
                     end
                 end
                 PHASE_G: begin
-                    if (g_done) begin
+                    if (g_osync) begin
                         rho <= g_out[575:320];
                         sigma <= g_out[319:64];
+                    end
+                    if (g_done) begin
                         cnt <= 4'd0;
                         sntt_start <= 1'b1;
                         phase <= PHASE_A;
@@ -329,7 +352,6 @@ module kem_keygen (
                         for (bb = 0; bb < 384; bb = bb + 1) dk_byte[cnt*384 + bb] = pk_bytes[3071-8*bb -: 8];
                         if (cnt == 4'd2) begin
                             cnt <= 4'd0;
-                            h_blk <= 4'd0;
                             h_start <= 1'b1;
                             phase <= PHASE_H;
                         end else begin
@@ -339,12 +361,10 @@ module kem_keygen (
                     end
                 end
                 PHASE_H: begin
-                    if (h_need && !h_need_d1) begin
-                        h_valid <= 1'b1;
-                        h_blk <= h_blk + 4'd1;
+                    if (h_osync) begin
+                        for (bb = 0; bb < 32; bb = bb + 1) h_ek[bb] = h_out[1087-8*bb -: 8];
                     end
                     if (h_done) begin
-                        for (bb = 0; bb < 32; bb = bb + 1) h_ek[bb] = h_out[1087-8*bb -: 8];
                         phase <= PHASE_DONE;
                     end
                 end
@@ -360,6 +380,18 @@ module kem_keygen (
             endcase
         end
     end
+
+    assign shk_req[0] = g_req;
+    assign shk_req[1] = h_req;
+    assign shk_req[2] = sntt_req;
+    assign shk_req[3] = cbd_req;
+    assign shk_cfg = {cbd_cfg, sntt_cfg, {4'd1, 2'd2, 12'd1184}, {4'd1, 2'd3, 12'd33}};
+    assign shk_blk_valid = g_bv | h_bv | sntt_bv | cbd_bv;
+    assign shk_blk_data = ({1344{g_bv}} & g_bd)
+                        | ({1344{h_bv}} & h_bd)
+                        | ({1344{sntt_bv}} & sntt_bd)
+                        | ({1344{cbd_bv}} & cbd_bd);
+    assign shk_out_ready = g_or | h_or | sntt_or | cbd_or;
 
     genvar ge, gd;
     generate

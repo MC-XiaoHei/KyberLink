@@ -6,7 +6,18 @@ module mldsa_keygen (
     output reg          busy,
     output reg          done,
     output wire [15615:0] vk_out,
-    output wire [32255:0] sk_out
+    output wire [32255:0] sk_out,
+
+    output wire [3:0]    shk_req,
+    output wire [71:0]   shk_cfg,
+    input  wire [3:0]    shk_ready,
+    input  wire [3:0]    shk_done,
+    output wire          shk_blk_valid,
+    input  wire          shk_blk_ready,
+    output wire [1343:0] shk_blk_data,
+    input  wire          shk_out_valid,
+    output wire          shk_out_ready,
+    input  wire [1343:0] shk_out_data
 );
     localparam Q = 23'd8380417;
 
@@ -48,19 +59,28 @@ module mldsa_keygen (
     reg [7:0] tr      [0:63];
 
     wire g_done;
-    wire g_busy;
     wire [1087:0] g_out;
     reg g_start;
+    wire g_osync;
+    wire g_req;
+    wire g_bv;
+    wire [1343:0] g_bd;
+    wire g_or;
+    wire [3:0] g_idx;
 
-    shake #(.RATE_BYTES(136), .DOMAIN_BYTE(8'h1F)) u_g (
+    engine_client #(.NBLK_W(4)) g_cli (
         .clk(clk), .rst_n(rst_n),
-        .start(g_start), .len(12'd34),
-        .msg({seed, 8'd6, 8'd5, 816'b0}),
-        .out_blocks(4'd1),
-        .msg_valid(1'b0), .need_msg(),
-        .busy(g_busy), .done(g_done),
-        .out(g_out)
+        .start(g_start),
+        .cfg({4'd1, 2'd1, 12'd34}),
+        .nblk(4'd1),
+        .msg_blk({256'b0, seed, 8'd6, 8'd5, 816'b0}),
+        .req_valid(g_req), .req_ready(shk_ready[0]), .done(shk_done[0]),
+        .blk_valid(g_bv), .blk_ready(shk_blk_ready), .blk_data(g_bd),
+        .out_valid(shk_out_valid), .out_ready(g_or),
+        .blk_idx(g_idx), .out_sync(g_osync)
     );
+    assign g_done = shk_done[0];
+    assign g_out = shk_out_data[1087:0];
 
     wire rntt_done;
     wire [5887:0] rntt_coeffs;
@@ -77,8 +97,18 @@ module mldsa_keygen (
         .rho(rho),
         .s({5'd0, a_col}), .r({5'd0, a_row}),
         .busy(), .done(rntt_done),
-        .coeffs(rntt_coeffs)
+        .coeffs(rntt_coeffs),
+        .error(),
+        .shk_req(rntt_req), .shk_cfg(rntt_cfg),
+        .shk_ready(shk_ready[2]), .shk_done(shk_done[2]),
+        .shk_blk_valid(rntt_bv), .shk_blk_ready(shk_blk_ready), .shk_blk_data(rntt_bd),
+        .shk_out_valid(shk_out_valid), .shk_out_ready(rntt_or), .shk_out_data(shk_out_data)
     );
+    wire rntt_req;
+    wire [17:0] rntt_cfg;
+    wire rntt_bv;
+    wire [1343:0] rntt_bd;
+    wire rntt_or;
 
     wire rb_done;
     wire [5887:0] rb_coeffs;
@@ -90,8 +120,18 @@ module mldsa_keygen (
         .rho(rho2),
         .idx_in({11'd0, cnt}),
         .busy(), .done(rb_done),
-        .coeffs(rb_coeffs)
+        .coeffs(rb_coeffs),
+        .error(),
+        .shk_req(rb_req), .shk_cfg(rb_cfg),
+        .shk_ready(shk_ready[3]), .shk_done(shk_done[3]),
+        .shk_blk_valid(rb_bv), .shk_blk_ready(shk_blk_ready), .shk_blk_data(rb_bd),
+        .shk_out_valid(shk_out_valid), .shk_out_ready(rb_or), .shk_out_data(shk_out_data)
     );
+    wire rb_req;
+    wire [17:0] rb_cfg;
+    wire rb_bv;
+    wire [1343:0] rb_bd;
+    wire rb_or;
 
     wire nttd_done;
     wire [5887:0] nttd_out;
@@ -199,13 +239,14 @@ module mldsa_keygen (
     );
 
     wire tr_done;
-    wire tr_busy;
     wire [1087:0] tr_out;
     reg tr_start;
-    reg [3:0] tr_blk;
-    reg tr_valid;
-    reg tr_need_d1;
-    wire tr_need;
+    wire tr_osync;
+    wire tr_req;
+    wire tr_bv;
+    wire [1343:0] tr_bd;
+    wire tr_or;
+    wire [3:0] tr_idx;
 
     wire [1087:0] tr_msg;
     reg [7:0] tr_msg_b [0:135];
@@ -217,7 +258,7 @@ module mldsa_keygen (
             tr_msg_b[tc] = (tidx < 12'd1952) ? vk_byte[tidx[10:0]] : 8'd0;
         end
     end
-    wire [10:0] tr_base = {3'b0, tr_blk} * 11'd136;
+    wire [10:0] tr_base = {3'b0, tr_idx} * 11'd136;
     genvar tj;
     generate
         for (tj = 0; tj < 136; tj = tj + 1) begin: trmsg
@@ -225,14 +266,19 @@ module mldsa_keygen (
         end
     endgenerate
 
-    shake #(.RATE_BYTES(136), .DOMAIN_BYTE(8'h1F)) u_tr (
+    engine_client #(.NBLK_W(4)) tr_cli (
         .clk(clk), .rst_n(rst_n),
-        .start(tr_start), .len(12'd1952),
-        .msg(tr_msg), .out_blocks(4'd1),
-        .msg_valid(tr_valid), .need_msg(tr_need),
-        .busy(tr_busy), .done(tr_done),
-        .out(tr_out)
+        .start(tr_start),
+        .cfg({4'd1, 2'd1, 12'd1952}),
+        .nblk(4'd15),
+        .msg_blk({256'b0, tr_msg}),
+        .req_valid(tr_req), .req_ready(shk_ready[1]), .done(shk_done[1]),
+        .blk_valid(tr_bv), .blk_ready(shk_blk_ready), .blk_data(tr_bd),
+        .out_valid(shk_out_valid), .out_ready(tr_or),
+        .blk_idx(tr_idx), .out_sync(tr_osync)
     );
+    assign tr_done = shk_done[1];
+    assign tr_out = shk_out_data[1087:0];
 
     wire [10:0] p2r_r1 = (x13[12:0] > 13'd4096) ? ({1'b0, x13[22:13]} + 10'd1) : {1'b0, x13[22:13]};
     wire [22:0] p2r_r0 = (x13[12:0] > 13'd4096) ? ({10'd0, x13[12:0]} + Q - 23'd8192) : {10'd0, x13[12:0]};
@@ -258,9 +304,6 @@ module mldsa_keygen (
             invd_start <= 1'b0;
             pk_start <= 1'b0;
             tr_start <= 1'b0;
-            tr_valid <= 1'b0;
-            tr_need_d1 <= 1'b0;
-            tr_blk <= 4'd0;
             cnt <= 5'd0;
             cnt2 <= 11'd0;
         end else begin
@@ -273,8 +316,6 @@ module mldsa_keygen (
             invd_start <= 1'b0;
             pk_start <= 1'b0;
             tr_start <= 1'b0;
-            tr_valid <= 1'b0;
-            tr_need_d1 <= tr_need;
             case (phase)
                 PHASE_IDLE: begin
                     if (start) begin
@@ -284,7 +325,7 @@ module mldsa_keygen (
                     end
                 end
                 PHASE_G: begin
-                    if (g_done) begin
+                    if (g_osync) begin
                         rho <= g_out[1087:832];
                         rho2 <= g_out[831:320];
                         kk <= g_out[319:64];
@@ -293,6 +334,8 @@ module mldsa_keygen (
                             sk_byte[bb] = g_out[1087 - 8*bb -: 8];
                             sk_byte[32 + bb] = g_out[319 - 8*bb -: 8];
                         end
+                    end
+                    if (g_done) begin
                         cnt <= 5'd0;
                         rntt_start <= 1'b1;
                         phase <= PHASE_A;
@@ -422,7 +465,6 @@ module mldsa_keygen (
                         for (bb = 0; bb < 416; bb = bb + 1) sk_byte[1536 + cnt[2:0]*416 + bb] = pk_bytes[5119-8*bb -: 8];
                         if (cnt == 5'd5) begin
                             cnt <= 5'd0;
-                            tr_blk <= 4'd0;
                             tr_start <= 1'b1;
                             phase <= PHASE_TR;
                         end else begin
@@ -432,12 +474,10 @@ module mldsa_keygen (
                     end
                 end
                 PHASE_TR: begin
-                    if (tr_need && !tr_need_d1) begin
-                        tr_valid <= 1'b1;
-                        tr_blk <= tr_blk + 4'd1;
+                    if (tr_osync) begin
+                        for (bb = 0; bb < 64; bb = bb + 1) tr[bb] = tr_out[1087 - 8*bb -: 8];
                     end
                     if (tr_done) begin
-                        for (bb = 0; bb < 64; bb = bb + 1) tr[bb] = tr_out[1087 - 8*bb -: 8];
                         phase <= PHASE_DONE;
                     end
                 end
@@ -461,4 +501,16 @@ module mldsa_keygen (
             assign sk_out[32255-8*gs -: 8] = sk_byte[gs];
         end
     endgenerate
+
+    assign shk_req[0] = g_req;
+    assign shk_req[1] = tr_req;
+    assign shk_req[2] = rntt_req;
+    assign shk_req[3] = rb_req;
+    assign shk_cfg = {rb_cfg, rntt_cfg, {4'd1, 2'd1, 12'd1952}, {4'd1, 2'd1, 12'd34}};
+    assign shk_blk_valid = g_bv | tr_bv | rntt_bv | rb_bv;
+    assign shk_blk_data = ({1344{g_bv}} & g_bd)
+                        | ({1344{tr_bv}} & tr_bd)
+                        | ({1344{rntt_bv}} & rntt_bd)
+                        | ({1344{rb_bv}} & rb_bd);
+    assign shk_out_ready = g_or | tr_or | rntt_or | rb_or;
 endmodule

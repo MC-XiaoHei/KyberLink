@@ -42,7 +42,7 @@ async def test_kem_encaps_vectors(dut):
         k_exp = int(v["K"], 16)
         assert k_got == k_exp, f"K mismatch idx={v['index']}: got {k_got:064x} exp {k_exp:064x}"
 
-        c_got = bytes(int(dut.c_byte[k].value) for k in range(1088))
+        c_got = bytes(int(dut.u_dut.c_byte[k].value) for k in range(1088))
         c_exp = bytes.fromhex(v["c"])
         assert c_got == c_exp, f"c mismatch idx={v['index']}"
         await RisingEdge(dut.clk)
