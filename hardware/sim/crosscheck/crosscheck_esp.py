@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""OpenSSL（cryptography 库，OpenSSL 后端）对拍 ESP 帧 AES-256-GCM。
-用法: source .venv/bin/activate && python crosscheck_esp.py
-依赖: uv pip install cryptography
-"""
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import json
 
