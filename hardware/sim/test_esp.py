@@ -41,5 +41,15 @@ async def test_esp_vectors(dut):
         await Timer(1, units="ns")
         got = bytes(int(dut.frame_byte[k].value) for k in range(38 + pt_len))
         frame = bytes.fromhex(v["frame"])
+        if got != frame:
+            for i in range(min(len(got), len(frame))):
+                if got[i] != frame[i]:
+                    dut._log.info(
+                        f"first diff byte {i}: got={got[i]:02x} exp={frame[i]:02x} "
+                        f"ctx got={got[max(0,i-4):i+5].hex()} exp={frame[max(0,i-4):i+5].hex()}"
+                    )
+                    break
+            dut._log.info(f"got[:38]={got[:38].hex()}")
+            dut._log.info(f"exp[:38]={frame[:38].hex()}")
         assert got == frame, f"index {v['index']} frame mismatch"
         dut._log.info(f"index {v['index']} ok")

@@ -10,6 +10,10 @@ CORE = $(RTL)/keccak_f1600_round.v $(RTL)/shake.v
 
 TOP_keccak = keccak_f1600_round
 SRC_keccak = $(RTL)/keccak_f1600_round.v
+TOP_keccak_round = top_keccak_round
+SRC_keccak_round = $(RTL)/keccak_f1600_round.v $(PWD)/wrappers/top_keccak_round.v
+TOP_keccak_cycle = top_keccak_cycle
+SRC_keccak_cycle = $(RTL)/keccak_f1600_round.v $(PWD)/wrappers/top_keccak_cycle.v
 TOP_ntt_dsa = ntt_dsa
 SRC_ntt_dsa = $(RTL)/ntt_dsa.v
 TOP_invntt_dsa = invntt_dsa
@@ -35,9 +39,11 @@ SRC_shake = $(CORE)
 TOP_shake128 = shake
 SRC_shake128 = $(CORE)
 ARGS_shake128 = -GRATE_BYTES=168
-COMPILE_ARGS_mldsa_keygen = --unroll-count 2048
-COMPILE_ARGS_mldsa_verify = --unroll-count 4096
-COMPILE_ARGS_mldsa_sign = --unroll-count 4096
+COMPILE_ARGS_mldsa_keygen = --unroll-count 2048 -O3
+COMPILE_ARGS_mldsa_verify = --unroll-count 4096 -O3
+COMPILE_ARGS_mldsa_sign = --unroll-count 2048 -O3
+COMPILE_ARGS_keccak_round = --unroll-count 4096 -O3 --public-flat-rw
+COMPILE_ARGS_keccak_cycle = --unroll-count 4096 -O3 --public-flat-rw
 TOP_sample_ntt = top_sample_ntt
 SRC_sample_ntt = $(RTL)/keccak_f1600_round.v $(RTL)/keccak_engine.v $(RTL)/sample_ntt.v $(PWD)/wrappers/top_sample_ntt.v
 TOP_sample_cbd = top_sample_cbd
@@ -65,9 +71,13 @@ SRC_aes = $(RTL)/aes256_core.v
 
 TOP_ghash = ghash
 SRC_ghash = $(RTL)/ghash.v
+TOP_mulpoly = top_mulpoly
+SRC_mulpoly = $(RTL)/mul_poly.v $(PWD)/wrappers/top_mulpoly.v
 
 TOP_gcm = gcm
 SRC_gcm = $(RTL)/aes256_core.v $(RTL)/ghash.v $(RTL)/gcm.v
+TOP_eng4 = top_eng4
+SRC_eng4 = $(RTL)/keccak_f1600_round.v $(RTL)/keccak_engine.v $(RTL)/engine_client.v $(PWD)/wrappers/top_eng4.v
 
 TOP_esp = esp
 SRC_esp = $(RTL)/aes256_core.v $(RTL)/ghash.v $(RTL)/gcm.v $(RTL)/esp.v

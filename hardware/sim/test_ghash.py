@@ -34,8 +34,6 @@ async def test_ghash_vectors(dut):
             dut.data_valid.value = 1
             await RisingEdge(dut.clk)
             dut.data_valid.value = 0
-            for _ in range(128):
-                await RisingEdge(dut.clk)
         while dut.done.value == 0:
             await RisingEdge(dut.clk)
         got = int(dut.tag.value)

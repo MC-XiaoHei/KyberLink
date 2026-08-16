@@ -16,6 +16,7 @@ async def test_aes_vectors(dut):
     dut.start.value = 0
     dut.key.value = 0
     dut.block_in.value = 0
+    dut.key_mode.value = 1
     await Timer(25, units="ns")
     dut.rst_n.value = 1
     await Timer(27, units="ns")
@@ -24,6 +25,7 @@ async def test_aes_vectors(dut):
     for v in vecs:
         dut.key.value = int.from_bytes(bytes.fromhex(v["key"]), "big")
         dut.block_in.value = int.from_bytes(bytes.fromhex(v["block"]), "big")
+        dut.key_mode.value = 1
         await Timer(2, units="ns")
         dut.start.value = 1
         await RisingEdge(dut.clk)
