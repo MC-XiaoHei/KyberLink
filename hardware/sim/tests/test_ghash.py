@@ -30,9 +30,20 @@ async def test_ghash_vectors(dut):
         await RisingEdge(dut.clk)
         dut.start.value = 0
         for b in v["blocks"]:
+            n = 0
+            while int(dut.ready.value) == 0:
+                await RisingEdge(dut.clk)
+                n += 1
+                if n > 1000:
+                    raise AssertionError("ghash ready timeout")
             dut.data_in.value = int(b, 16)
             dut.data_valid.value = 1
-            await RisingEdge(dut.clk)
+            n = 0
+            while int(dut.ready.value) == 1:
+                await RisingEdge(dut.clk)
+                n += 1
+                if n > 1000:
+                    raise AssertionError("ghash accept timeout")
             dut.data_valid.value = 0
         while dut.done.value == 0:
             await RisingEdge(dut.clk)

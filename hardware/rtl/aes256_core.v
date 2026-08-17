@@ -2,6 +2,7 @@ module aes256_core (
     input  wire         clk,
     input  wire         rst_n,
     input  wire         key_mode,
+    input  wire         key_load,
     input  wire         start,
     input  wire [255:0] key,
     input  wire [1919:0] ksch_in,
@@ -15,15 +16,14 @@ module aes256_core (
     localparam PHASE_KEYEXP_A = 3'd1;
     localparam PHASE_KEYEXP_B = 3'd2;
     localparam PHASE_CRYPT0   = 3'd3;
-    localparam PHASE_CRYPT_A  = 3'd4;
-    localparam PHASE_CRYPT_B  = 3'd5;
+    localparam PHASE_CRYPT_B  = 3'd4;
 
     reg [2:0]  phase;
     reg [3:0]  rke;
     reg [3:0]  rd;
     reg [127:0] state;
     reg [127:0] ksch [0:14];
-    reg [255:0] key_stored;
+    reg ax_loaded;
 
     reg [7:0] sbox_mem [0:255];
     integer si;
@@ -103,8 +103,11 @@ module aes256_core (
         gmul3 = gmul2(x) ^ x;
     endfunction
 
-    wire [31:0] wm1 = ksch[rke - 4'd1][31:0];
-    wire [31:0] w8  = ksch[rke - 4'd2][127:96];
+    reg [127:0] st_prev;
+    reg [127:0] st_prev2;
+    reg [127:0] rkey_r;
+    wire [31:0] wm1 = st_prev[31:0];
+    wire [31:0] w8  = st_prev2[127:96];
     wire [7:0]  rcon = rke[0] ? 8'h00 :
                        (rke >> 1) == 4'd1 ? 8'h01 :
                        (rke >> 1) == 4'd2 ? 8'h02 :
@@ -113,10 +116,11 @@ module aes256_core (
                        (rke >> 1) == 4'd5 ? 8'h10 :
                        (rke >> 1) == 4'd6 ? 8'h20 : 8'h40;
 
-    wire [7:0] a0  = (phase == PHASE_KEYEXP_A) ? wm1[31:24] : state[127:120];
-    wire [7:0] a1  = (phase == PHASE_KEYEXP_A) ? wm1[23:16] : state[119:112];
-    wire [7:0] a2  = (phase == PHASE_KEYEXP_A) ? wm1[15:8]  : state[111:104];
-    wire [7:0] a3  = (phase == PHASE_KEYEXP_A) ? wm1[7:0]   : state[103:96];
+
+    wire [7:0] a0  = state[127:120];
+    wire [7:0] a1  = state[119:112];
+    wire [7:0] a2  = state[111:104];
+    wire [7:0] a3  = state[103:96];
     wire [7:0] a4  = state[95:88];
     wire [7:0] a5  = state[87:80];
     wire [7:0] a6  = state[79:72];
@@ -130,51 +134,38 @@ module aes256_core (
     wire [7:0] a14 = state[15:8];
     wire [7:0] a15 = state[7:0];
 
-    reg [7:0] sb0_r, sb1_r, sb2_r, sb3_r, sb4_r, sb5_r, sb6_r, sb7_r;
-    reg [7:0] sb8_r, sb9_r, sb10_r, sb11_r, sb12_r, sb13_r, sb14_r, sb15_r;
+    reg [7:0] sb0_r, sb1_r, sb2_r, sb3_r;
     always @(posedge clk) begin
-        sb0_r  <= sbox_mem[a0];
-        sb1_r  <= sbox_mem[a1];
-        sb2_r  <= sbox_mem[a2];
-        sb3_r  <= sbox_mem[a3];
-        sb4_r  <= sbox_mem[a4];
-        sb5_r  <= sbox_mem[a5];
-        sb6_r  <= sbox_mem[a6];
-        sb7_r  <= sbox_mem[a7];
-        sb8_r  <= sbox_mem[a8];
-        sb9_r  <= sbox_mem[a9];
-        sb10_r <= sbox_mem[a10];
-        sb11_r <= sbox_mem[a11];
-        sb12_r <= sbox_mem[a12];
-        sb13_r <= sbox_mem[a13];
-        sb14_r <= sbox_mem[a14];
-        sb15_r <= sbox_mem[a15];
+        sb0_r  <= sbox_mem[wm1[31:24]];
+        sb1_r  <= sbox_mem[wm1[23:16]];
+        sb2_r  <= sbox_mem[wm1[15:8]];
+        sb3_r  <= sbox_mem[wm1[7:0]];
     end
 
     wire [31:0] temp = rke[0]
         ? {sb0_r, sb1_r, sb2_r, sb3_r}
         : {sb1_r, sb2_r, sb3_r, sb0_r} ^ {rcon, 24'd0};
     wire [31:0] we0 = w8 ^ temp;
-    wire [31:0] we1 = ksch[rke - 4'd2][95:64] ^ we0;
-    wire [31:0] we2 = ksch[rke - 4'd2][63:32] ^ we1;
-    wire [31:0] we3 = ksch[rke - 4'd2][31:0] ^ we2;
+    wire [31:0] we1 = st_prev2[95:64] ^ we0;
+    wire [31:0] we2 = st_prev2[63:32] ^ we1;
+    wire [31:0] we3 = st_prev2[31:0] ^ we2;
 
-    wire [7:0] sr0  = sb0_r;
-    wire [7:0] sr1  = sb5_r;
-    wire [7:0] sr2  = sb10_r;
-    wire [7:0] sr3  = sb15_r;
-    wire [7:0] sr4  = sb4_r;
-    wire [7:0] sr5  = sb9_r;
-    wire [7:0] sr6  = sb14_r;
-    wire [7:0] sr7  = sb3_r;
-    wire [7:0] sr8  = sb8_r;
-    wire [7:0] sr9  = sb13_r;
-    wire [7:0] sr10 = sb2_r;
-    wire [7:0] sr11 = sb7_r;
-    wire [7:0] sr12 = sb12_r;
-    wire [7:0] sr13 = sb1_r;
-    wire [7:0] sr14 = sb6_r;
-    wire [7:0] sr15 = sb11_r;
+    wire [7:0] sr0  = sbox_mem[a0];
+    wire [7:0] sr1  = sbox_mem[a5];
+    wire [7:0] sr2  = sbox_mem[a10];
+    wire [7:0] sr3  = sbox_mem[a15];
+    wire [7:0] sr4  = sbox_mem[a4];
+    wire [7:0] sr5  = sbox_mem[a9];
+    wire [7:0] sr6  = sbox_mem[a14];
+    wire [7:0] sr7  = sbox_mem[a3];
+    wire [7:0] sr8  = sbox_mem[a8];
+    wire [7:0] sr9  = sbox_mem[a13];
+    wire [7:0] sr10 = sbox_mem[a2];
+    wire [7:0] sr11 = sbox_mem[a7];
+    wire [7:0] sr12 = sbox_mem[a12];
+    wire [7:0] sr13 = sbox_mem[a1];
+    wire [7:0] sr14 = sbox_mem[a6];
+    wire [7:0] sr15 = sbox_mem[a11];
 
     wire [7:0] mc0  = gmul2(sr0)  ^ gmul3(sr1)  ^ sr2  ^ sr3;
     wire [7:0] mc1  = sr0  ^ gmul2(sr1)  ^ gmul3(sr2)  ^ sr3;
@@ -197,7 +188,7 @@ module aes256_core (
                                       sr8, sr9, sr10, sr11, sr12, sr13, sr14, sr15}
                                   : {mc0, mc1, mc2, mc3, mc4, mc5, mc6, mc7,
                                      mc8, mc9, mc10, mc11, mc12, mc13, mc14, mc15};
-    wire [127:0] state_next = mid ^ ksch[rd];
+    wire [127:0] state_next = mid ^ rkey_r;
 
     assign block_out = state;
 
@@ -215,6 +206,10 @@ module aes256_core (
             done <= 1'b0;
             rke <= 4'd0;
             rd <= 4'd0;
+            ax_loaded <= 1'b0;
+            st_prev <= 128'd0;
+            st_prev2 <= 128'd0;
+            rkey_r <= 128'd0;
         end else begin
             done <= 1'b0;
             case (phase)
@@ -223,16 +218,17 @@ module aes256_core (
                         state <= block_in;
                         busy <= 1'b1;
                         if (key_mode) begin
-                            if (key == key_stored) begin
+                            if (key_load || !ax_loaded) begin
+                                ksch[0] <= key[255:128];
+                                ksch[1] <= key[127:0];
+                                st_prev  <= key[127:0];
+                                st_prev2 <= key[255:128];
+                                rke <= 4'd2;
+                                phase <= PHASE_KEYEXP_A;
+                            end else begin
                                 rke <= 4'd2;
                                 rd <= 4'd0;
                                 phase <= PHASE_CRYPT0;
-                            end else begin
-                                ksch[0] <= key[255:128];
-                                ksch[1] <= key[127:0];
-                                key_stored <= key;
-                                rke <= 4'd2;
-                                phase <= PHASE_KEYEXP_A;
                             end
                         end else begin
                             ksch[0] <= ksch_in[127:0];
@@ -260,7 +256,10 @@ module aes256_core (
                 end
                 PHASE_KEYEXP_B: begin
                     ksch[rke] <= {we0, we1, we2, we3};
+                    st_prev2 <= st_prev;
+                    st_prev  <= {we0, we1, we2, we3};
                     if (rke == 4'd14) begin
+                        ax_loaded <= 1'b1;
                         rd <= 4'd0;
                         phase <= PHASE_CRYPT0;
                     end else begin
@@ -270,10 +269,8 @@ module aes256_core (
                 end
                 PHASE_CRYPT0: begin
                     state <= state ^ ksch[0];
+                    rkey_r <= ksch[1];
                     rd <= 4'd1;
-                    phase <= PHASE_CRYPT_A;
-                end
-                PHASE_CRYPT_A: begin
                     phase <= PHASE_CRYPT_B;
                 end
                 PHASE_CRYPT_B: begin
@@ -283,8 +280,8 @@ module aes256_core (
                         done <= 1'b1;
                         phase <= PHASE_IDLE;
                     end else begin
+                        rkey_r <= ksch[rd + 4'd1];
                         rd <= rd + 4'd1;
-                        phase <= PHASE_CRYPT_A;
                     end
                 end
                 default: phase <= PHASE_IDLE;

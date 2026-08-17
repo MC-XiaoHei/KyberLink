@@ -8,15 +8,24 @@ module ghash (
     input  wire [7:0] nblocks,
     output reg busy,
     output reg done,
+    output reg ready,
+    output reg block_done,
+    output reg accept,
     output wire [127:0] tag
 );
 
     localparam PHASE_IDLE = 2'd0;
-    localparam PHASE_WAIT = 2'd1;
+    localparam PHASE_RUN  = 2'd1;
+    localparam PHASE_MUL  = 2'd2;
+    localparam PHASE_RED  = 2'd3;
 
     reg [1:0] phase;
     reg [127:0] yacc;
     reg [7:0] blk;
+    reg [3:0] cnt;
+    reg [255:0] prod;
+    reg [127:0] a_reg;
+    reg [127:0] b_reg;
 
     genvar gi;
     wire [127:0] h_rev;
@@ -69,34 +78,28 @@ module ghash (
         end
     endfunction
 
-    function [126:0] mul64f(input [63:0] a, input [63:0] b);
-        reg [62:0] m0, m1, m2;
-        reg [126:0] pk;
-        begin
-            m0 = mul32f(a[31:0], b[31:0]);
-            m1 = mul32f(a[63:32], b[63:32]);
-            m2 = mul32f(a[31:0] ^ a[63:32], b[31:0] ^ b[63:32]);
-            pk = {64'd0, m0} ^ {32'd0, m0 ^ m1 ^ m2, 32'b0} ^ {m1, 64'b0};
-            mul64f = pk;
-        end
-    endfunction
+    wire [31:0] a_h0 = a_reg[31:0];
+    wire [31:0] a_h1 = a_reg[63:32];
+    wire [31:0] a_h2 = a_reg[95:64];
+    wire [31:0] a_h3 = a_reg[127:96];
+    wire [31:0] b_h0 = b_reg[31:0];
+    wire [31:0] b_h1 = b_reg[63:32];
+    wire [31:0] b_h2 = b_reg[95:64];
+    wire [31:0] b_h3 = b_reg[127:96];
 
-    function [254:0] mul128f(input [127:0] a, input [127:0] b);
-        reg [126:0] m0, m1, m2;
-        reg [254:0] pk;
-        begin
-            m0 = mul64f(a[63:0], b[63:0]);
-            m1 = mul64f(a[127:64], b[127:64]);
-            m2 = mul64f(a[63:0] ^ a[127:64], b[63:0] ^ b[127:64]);
-            pk = {128'd0, m0} ^ {64'd0, m0 ^ m1 ^ m2, 64'b0} ^ {m1, 128'b0};
-            mul128f = pk;
-        end
-    endfunction
+    wire [1:0] ii = cnt[3:2];
+    wire [1:0] jj = cnt[1:0];
+    wire [31:0] ai = (ii == 2'd0) ? a_h0 : (ii == 2'd1) ? a_h1 : (ii == 2'd2) ? a_h2 : a_h3;
+    wire [31:0] bj = (jj == 2'd0) ? b_h0 : (jj == 2'd1) ? b_h1 : (jj == 2'd2) ? b_h2 : b_h3;
+    wire [62:0] mul_out = mul32f(ai, bj);
+    wire [3:0] ij = {2'd0, ii} + {2'd0, jj};
+    wire [7:0] shift_amt = {4'd0, ij} << 5;
+    wire [255:0] shifted = {193'd0, mul_out} << shift_amt;
 
-    reg [254:0] red;
+    reg [255:0] red;
     integer ri;
     always @(*) begin
-        red = mul128f(yacc ^ d_rev, h_rev);
+        red = prod;
         for (ri = 254; ri >= 128; ri = ri - 1) begin
             if (red[ri]) red[ri-128 +: 8] = red[ri-128 +: 8] ^ 8'h87;
         end
@@ -107,29 +110,60 @@ module ghash (
             phase <= PHASE_IDLE;
             busy <= 1'b0;
             done <= 1'b0;
+            ready <= 1'b1;
+            block_done <= 1'b0;
+            accept <= 1'b0;
             yacc <= 128'd0;
             blk <= 8'd0;
+            cnt <= 4'd0;
+            prod <= 256'd0;
+            a_reg <= 128'd0;
+            b_reg <= 128'd0;
         end else begin
             done <= 1'b0;
+            accept <= 1'b0;
+            block_done <= 1'b0;
             case (phase)
                 PHASE_IDLE: begin
+                    ready <= 1'b1;
                     if (start) begin
                         busy <= 1'b1;
                         yacc <= 128'd0;
                         blk <= 8'd0;
-                        phase <= PHASE_WAIT;
+                        phase <= PHASE_RUN;
                     end
                 end
-                PHASE_WAIT: begin
+                PHASE_RUN: begin
                     if (data_valid) begin
+                        ready <= 1'b0;
+                        accept <= 1'b1;
+                        a_reg <= yacc ^ d_rev;
+                        b_reg <= h_rev;
+                        prod <= 256'd0;
+                        cnt <= 4'd0;
+                        phase <= PHASE_MUL;
+                    end
+                end
+                PHASE_MUL: begin
+                    prod <= prod ^ shifted;
+                    if (cnt == 4'd15) begin
+                        phase <= PHASE_RED;
+                    end else begin
+                        cnt <= cnt + 4'd1;
+                    end
+                end
+                PHASE_RED: begin
+                    block_done <= 1'b1;
+                    if (blk + 8'd1 >= nblocks) begin
                         yacc <= red[127:0];
-                        if (blk + 8'd1 >= nblocks) begin
-                            busy <= 1'b0;
-                            done <= 1'b1;
-                            phase <= PHASE_IDLE;
-                        end else begin
-                            blk <= blk + 8'd1;
-                        end
+                        busy <= 1'b0;
+                        done <= 1'b1;
+                        phase <= PHASE_IDLE;
+                    end else begin
+                        yacc <= red[127:0];
+                        ready <= 1'b1;
+                        blk <= blk + 8'd1;
+                        phase <= PHASE_RUN;
                     end
                 end
                 default: phase <= PHASE_IDLE;
