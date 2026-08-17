@@ -5,7 +5,7 @@ from cocotb.clock import Clock
 from cocotb.triggers import Timer, RisingEdge
 from cocotb.utils import get_sim_time
 
-VECDIR = os.path.join(os.path.dirname(__file__), "..", "..", "vectors", "generated")
+VECDIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "vectors", "generated")
 VECTORS = os.path.join(VECDIR, "mldsa_keygen_mid.json")
 
 

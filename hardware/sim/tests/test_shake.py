@@ -5,7 +5,7 @@ import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, Timer
 
-VECDIR = os.path.join(os.path.dirname(__file__), "..", "..", "vectors", "generated")
+VECDIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "vectors", "generated")
 VECTORS_SHAKE = os.path.join(VECDIR, "shake.json")
 VECTORS_LONG = os.path.join(VECDIR, "shakelong.json")
 

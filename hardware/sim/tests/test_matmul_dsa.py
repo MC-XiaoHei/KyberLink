@@ -5,7 +5,7 @@ import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import Timer, RisingEdge
 
-VECDIR = os.path.join(os.path.dirname(__file__), "..", "..", "vectors", "generated")
+VECDIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "vectors", "generated")
 VECTORS = os.path.join(VECDIR, "matmul_dsa.json")
 
 

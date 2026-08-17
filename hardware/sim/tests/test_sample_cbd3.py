@@ -5,7 +5,7 @@ import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, Timer
 
-VECDIR = os.path.join(os.path.dirname(__file__), "..", "..", "vectors", "generated")
+VECDIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "vectors", "generated")
 VECTORS = os.path.join(VECDIR, "sample_cbd3.json")
 
 

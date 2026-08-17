@@ -79,7 +79,7 @@ SRC_mldsa_sign = $(RTL)/keccak_f1600_round.v $(RTL)/keccak_engine.v $(RTL)/engin
 
 COMPILE_ARGS_mldsa_keygen = --unroll-count 2048 -O3
 COMPILE_ARGS_mldsa_verify = --unroll-count 4096 -O3
-COMPILE_ARGS_mldsa_sign = --unroll-count 2048 -O3
+COMPILE_ARGS_mldsa_sign = --unroll-count 2048 -O3 --public-flat-rw
 
 
 TOP_ntt = ntt
