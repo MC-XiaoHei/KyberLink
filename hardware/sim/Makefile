@@ -1,6 +1,7 @@
 SIM ?= verilator
 TOPLEVEL_LANG ?= verilog
 RTL = $(PWD)/../rtl
+GOWIN_SIMLIB ?= /mnt/c/Gowin/Gowin_V1.9.11.03_Education_x64/IDE/simlib/gw5a
 PYTHONPATH := $(PWD)/tests:$(PWD)/crosscheck:$(PYTHONPATH)
 export PYTHONPATH
 
@@ -131,6 +132,10 @@ SRC_esp = $(RTL)/aes256_core.v $(RTL)/ghash.v $(RTL)/gcm.v $(RTL)/esp.v
 TOP_encap = ip_udp_eth_tx
 SRC_encap = $(RTL)/ip_udp_eth_tx.v
 COMPILE_ARGS_encap = -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-WIDTHCONCAT
+
+TOP_esp_mac = esp_mac_top
+SRC_esp_mac = $(RTL)/aes256_core.v $(RTL)/ghash.v $(RTL)/gcm.v $(RTL)/esp.v $(RTL)/ip_udp_eth_tx.v $(RTL)/esp_mac_top.v $(wildcard $(RTL)/mac/*.v) $(PWD)/gowin_simlib.v
+COMPILE_ARGS_esp_mac = -Wno-fatal
 
 MODULE = $(MODULE_$(MOD))
 ifeq ($(MODULE),)
