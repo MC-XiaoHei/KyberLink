@@ -128,6 +128,10 @@ SRC_gcm = $(RTL)/aes256_core.v $(RTL)/ghash.v $(RTL)/gcm.v
 TOP_esp = esp
 SRC_esp = $(RTL)/aes256_core.v $(RTL)/ghash.v $(RTL)/gcm.v $(RTL)/esp.v
 
+TOP_encap = ip_udp_eth_tx
+SRC_encap = $(RTL)/ip_udp_eth_tx.v
+COMPILE_ARGS_encap = -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-WIDTHCONCAT
+
 MODULE = $(MODULE_$(MOD))
 ifeq ($(MODULE),)
 MODULE = test_$(MOD)
