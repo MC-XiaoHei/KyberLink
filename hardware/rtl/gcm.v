@@ -15,6 +15,9 @@ module gcm (
     output wire [127:0]  ct_data,
     output reg           tag_valid,
     output reg  [127:0]  tag,
+    input  wire          decrypt,
+    input  wire [127:0]  tag_in,
+    output reg           tag_ok,
     output reg           busy,
     output reg           done
 );
@@ -79,7 +82,8 @@ module gcm (
     wire [3:0] gh_ck = ghcnt[3:0] - 4'd1;
     wire [8:0] gh_rem9 = {1'b0, pt_len} - {gh_ck, 4'd0};
     wire [4:0] gh_cnb = (gh_rem9[8]) ? 5'd0 : ((gh_rem9[7:0] > 8'd16) ? 5'd16 : gh_rem9[4:0]);
-    wire [127:0] gh_ct = ct_reg[gh_ck] & (128'hFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF << (128 - {2'd0, gh_cnb, 3'd0}));
+    wire [127:0] gh_ct = (decrypt ? pt_buf[gh_ck] : ct_reg[gh_ck])
+                       & (128'hFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF << (128 - {2'd0, gh_cnb, 3'd0}));
     wire [127:0] gh_data_in = (ghcnt == 6'd0) ? aad_pad
                              : ((ghcnt <= {1'b0, nct}) ? gh_ct : len_block);
 
@@ -94,7 +98,7 @@ module gcm (
     wire can_sa = (phase == PHASE_AES_CB) && !aes_pending && (na < nct) && (pt_cnt > na);
     assign pt_ready = (phase == PHASE_AES_CB) && (pt_cnt < nct) && (pt_cnt < 5'd16);
     assign ct_valid = (phase == PHASE_AES_CB) && ct_vld[ct_idx[3:0]];
-    assign ct_data = ct_reg[ct_idx[3:0]];
+    assign ct_data = decrypt ? (ct_reg[ct_idx[3:0]] ^ pt_buf[ct_idx[3:0]]) : ct_reg[ct_idx[3:0]];
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -102,6 +106,7 @@ module gcm (
             busy <= 1'b0;
             done <= 1'b0;
             tag_valid <= 1'b0;
+            tag_ok <= 1'b0;
             aes_start <= 1'b0;
             aes_key_load <= 1'b0;
             gh_start <= 1'b0;
@@ -181,7 +186,7 @@ module gcm (
                         na <= na + 5'd1;
                     end
                     if (aes_done) begin
-                        ct_reg[aes_blk[3:0]] <= aes_out ^ pt_buf[aes_blk[3:0]];
+                        ct_reg[aes_blk[3:0]] <= decrypt ? aes_out : (aes_out ^ pt_buf[aes_blk[3:0]]);
                         ct_vld[aes_blk[3:0]] <= 1'b1;
                         aes_pending <= 1'b0;
                     end
@@ -195,6 +200,7 @@ module gcm (
                     if (gh_done) begin
                         tag <= gh_tag ^ tag_mask;
                         tag_valid <= 1'b1;
+                        tag_ok <= (decrypt && ((gh_tag ^ tag_mask) == tag_in));
                         busy <= 1'b0;
                         done <= 1'b1;
                         phase <= PHASE_IDLE;

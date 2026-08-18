@@ -17,6 +17,13 @@ module esp_mac_top #(
     output wire          busy,
     output wire          done,
 
+    output wire [2047:0] rx_plaintext_out,
+    output wire [7:0]    rx_plaintext_len,
+    output wire          rx_plaintext_valid,
+    output wire          rx_tag_ok,
+    output wire          rx_busy,
+    output wire          rx_done,
+
     input  wire [47:0]   cfg_src_mac,
     input  wire [47:0]   cfg_dst_mac,
     input  wire [31:0]   cfg_src_ip,
@@ -41,6 +48,17 @@ module esp_mac_top #(
     wire       m_tvalid;
     wire       m_tlast;
     wire       m_tready;
+
+    wire [7:0] rx_axis_tdata;
+    wire       rx_axis_tvalid;
+    wire       rx_axis_tlast;
+    wire       rx_axis_tready;
+    wire       rx_axis_tuser;
+
+    wire [7:0] esp_rx_tdata;
+    wire       esp_rx_tvalid;
+    wire       esp_rx_tlast;
+    wire       esp_rx_tready;
 
     wire       mac_tx_error_underflow;
     wire       mac_rx_error_bad_frame;
@@ -110,12 +128,12 @@ module esp_mac_top #(
         .tx_axis_tready(m_tready),
         .tx_axis_tlast(m_tlast),
         .tx_axis_tuser(1'b0),
-        .rx_axis_tdata(),
+        .rx_axis_tdata(rx_axis_tdata),
         .rx_axis_tkeep(),
-        .rx_axis_tvalid(),
-        .rx_axis_tready(1'b0),
-        .rx_axis_tlast(),
-        .rx_axis_tuser(),
+        .rx_axis_tvalid(rx_axis_tvalid),
+        .rx_axis_tready(rx_axis_tready),
+        .rx_axis_tlast(rx_axis_tlast),
+        .rx_axis_tuser(rx_axis_tuser),
         .rgmii_rx_clk(rgmii_rx_clk),
         .rgmii_rxd(rgmii_rxd),
         .rgmii_rx_ctl(rgmii_rx_ctl),
@@ -134,7 +152,39 @@ module esp_mac_top #(
         .speed(mac_speed),
         .cfg_ifg(8'h0c),
         .cfg_tx_enable(1'b1),
-        .cfg_rx_enable(1'b0)
+        .cfg_rx_enable(1'b1)
+    );
+
+    ip_udp_eth_rx u_decap (
+        .clk(clk),
+        .rst_n(rst_n),
+        .s_tdata(rx_axis_tdata),
+        .s_tvalid(rx_axis_tvalid),
+        .s_tlast(rx_axis_tlast),
+        .s_tready(rx_axis_tready),
+        .s_tuser(rx_axis_tuser),
+        .cfg_dst_mac(cfg_dst_mac),
+        .cfg_dst_port(cfg_dst_port),
+        .m_tdata(esp_rx_tdata),
+        .m_tvalid(esp_rx_tvalid),
+        .m_tlast(esp_rx_tlast),
+        .m_tready(esp_rx_tready)
+    );
+
+    esp_rx u_esp_rx (
+        .clk(clk),
+        .rst_n(rst_n),
+        .s_tdata(esp_rx_tdata),
+        .s_tvalid(esp_rx_tvalid),
+        .s_tlast(esp_rx_tlast),
+        .s_tready(esp_rx_tready),
+        .key(key),
+        .plaintext_out(rx_plaintext_out),
+        .plaintext_len(rx_plaintext_len),
+        .plaintext_valid(rx_plaintext_valid),
+        .tag_ok(rx_tag_ok),
+        .busy(rx_busy),
+        .done(rx_done)
     );
 
 endmodule

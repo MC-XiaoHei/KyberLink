@@ -59,6 +59,7 @@ module esp (
         .pt_valid(gcm_pt_valid), .pt_ready(gcm_pt_ready), .pt_data(gcm_pt_data),
         .ct_valid(gcm_ct_valid), .ct_ready(gcm_ct_ready), .ct_data(gcm_ct_data),
         .tag_valid(gcm_tag_valid), .tag(gcm_tag),
+        .decrypt(1'b0), .tag_in(128'd0), .tag_ok(),
         .busy(gcm_busy), .done(gcm_done)
     );
 
