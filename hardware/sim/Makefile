@@ -126,6 +126,13 @@ SRC_mulpoly = $(RTL)/mul_poly.v $(PWD)/wrappers/top_mulpoly.v
 TOP_gcm = gcm
 SRC_gcm = $(RTL)/aes256_core.v $(RTL)/ghash.v $(RTL)/gcm.v
 
+TOP_gcm_stream = gcm_stream
+SRC_gcm_stream = $(RTL)/aes256_core.v $(RTL)/ghash.v $(RTL)/gcm_stream.v
+
+TOP_bridge = bridge_top
+SRC_bridge = $(RTL)/aes256_core.v $(RTL)/ghash.v $(RTL)/gcm_stream.v $(RTL)/bridge_enc_path.v $(RTL)/bridge_dec_path.v $(RTL)/ip_udp_eth_rx.v $(RTL)/bridge_top.v $(wildcard $(RTL)/mac/*.v) $(PWD)/gowin_simlib.v
+COMPILE_ARGS_bridge = -Wno-fatal
+
 TOP_esp = esp
 SRC_esp = $(RTL)/aes256_core.v $(RTL)/ghash.v $(RTL)/gcm.v $(RTL)/esp.v
 
@@ -134,7 +141,7 @@ SRC_encap = $(RTL)/ip_udp_eth_tx.v
 COMPILE_ARGS_encap = -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-WIDTHCONCAT
 
 TOP_esp_mac = esp_mac_top
-SRC_esp_mac = $(RTL)/aes256_core.v $(RTL)/ghash.v $(RTL)/gcm.v $(RTL)/esp.v $(RTL)/ip_udp_eth_tx.v $(RTL)/esp_mac_top.v $(wildcard $(RTL)/mac/*.v) $(PWD)/gowin_simlib.v
+SRC_esp_mac = $(RTL)/aes256_core.v $(RTL)/ghash.v $(RTL)/gcm.v $(RTL)/esp.v $(RTL)/esp_rx.v $(RTL)/ip_udp_eth_tx.v $(RTL)/ip_udp_eth_rx.v $(RTL)/esp_mac_top.v $(wildcard $(RTL)/mac/*.v) $(PWD)/gowin_simlib.v
 COMPILE_ARGS_esp_mac = -Wno-fatal
 
 MODULE = $(MODULE_$(MOD))
