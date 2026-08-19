@@ -39,6 +39,7 @@ async def run_crypto(dut, key, nonce, aad, pt_len, decrypt, tag_in, blks):
 
     bi = 0
     out = b""
+    prev_r = 0
     dut.pt_valid.value = 1 if blks else 0
     dut.pt_data.value = blks[0] if blks else 0
     for _ in range(300000):
@@ -46,12 +47,14 @@ async def run_crypto(dut, key, nonce, aad, pt_len, decrypt, tag_in, blks):
         await Timer(1, units="ns")
         if int(dut.ct_valid.value) and int(dut.ct_ready.value):
             out += int(dut.ct_data.value).to_bytes(16, "big")
+        cur_r = int(dut.pt_ready.value)
+        if int(dut.pt_valid.value) and prev_r:
             bi += 1
             if bi < len(blks):
-                dut.pt_valid.value = 1
                 dut.pt_data.value = blks[bi]
             else:
                 dut.pt_valid.value = 0
+        prev_r = cur_r
         if int(dut.tag_valid.value):
             tag = int(dut.tag.value).to_bytes(16, "big")
             tag_ok = int(dut.tag_ok.value)

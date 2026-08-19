@@ -32,15 +32,18 @@ module gcm_stream (
     reg [127:0] h_reg;
     reg [127:0] tag_mask;
     reg [127:0] blk_in;
+    reg [127:0] pending_pt;
     reg         got;
     reg         aes_start;
     reg         aes_key_load;
-    reg         aes_pending;
+    reg [1:0]   inflight;
     reg         gh_start;
     reg [7:0]   ghcnt;
-    reg         gh_pending;
     reg         gh_aad_pend;
-    reg [127:0] gh_data_reg;
+    reg [127:0] gh_q [0:1];
+    reg [1:0]   gh_qcnt;
+    reg         gh_qwr;
+    reg         gh_qrd;
     reg [127:0] out_blk;
     reg         out_valid;
     reg [7:0]   cntr;
@@ -78,17 +81,23 @@ module gcm_stream (
     wire [127:0] gh_feed_data = decrypt ? blk_in : (aes_out ^ blk_in);
     wire [4:0] last_nb = |pt_len[3:0] ? {1'b0, pt_len[3:0]} : 5'd16;
     wire [4:0] blk_nb = (ghcnt[7:0] == nct[7:0]) ? last_nb : 5'd16;
-    wire [127:0] gh_masked = gh_data_reg &
+    wire [127:0] gh_masked = gh_q[gh_qrd] &
         (128'hFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF << (128 - {2'd0, blk_nb, 3'd0}));
     wire [127:0] gh_data_in = (ghcnt == 8'd0) ? aad_pad :
                               ((ghcnt <= nct[7:0]) ? gh_masked : len_block);
-    wire gh_do_feed = gh_ready && gh_busy && (gh_aad_pend || gh_pending);
+    wire gh_do_feed = gh_ready && gh_busy && (gh_aad_pend || (gh_qcnt > 2'd0) ||
+                                              (phase == PHASE_GH_LEN));
     wire gh_data_valid = gh_do_feed;
 
-    assign pt_ready = (phase == PHASE_AES_CB) && !got && !aes_pending;
+    assign pt_ready = (phase == PHASE_AES_CB) && !got && (inflight < 2'd2);
     assign ct_valid = out_valid;
     assign ct_data  = out_blk;
     assign tag_ok = tag_valid && decrypt && ((gh_tag ^ tag_mask) == tag_in);
+
+    wire cb_submit = (phase == PHASE_AES_CB) && !out_valid && got &&
+        (gh_qcnt < 2'd2) &&
+        ({1'b0, cntr} + {7'd0, inflight}) < nct &&
+        ((inflight == 2'd0) || (aes_done && (inflight == 2'd1)));
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -98,17 +107,18 @@ module gcm_stream (
             tag_valid <= 1'b0;
             aes_start <= 1'b0;
             aes_key_load <= 1'b0;
-            aes_pending <= 1'b0;
+            inflight <= 2'd0;
             gh_start <= 1'b0;
             got <= 1'b0;
-            gh_pending <= 1'b0;
+            gh_qcnt <= 2'd0;
+            gh_qwr <= 1'b0;
+            gh_qrd <= 1'b0;
             gh_aad_pend <= 1'b0;
             ghcnt <= 8'd0;
             cntr <= 8'd0;
             h_reg <= 128'd0;
             tag_mask <= 128'd0;
             blk_in <= 128'd0;
-            gh_data_reg <= 128'd0;
             out_blk <= 128'd0;
             out_valid <= 1'b0;
             aes_block <= 128'd0;
@@ -124,19 +134,33 @@ module gcm_stream (
                 out_valid <= 1'b0;
             end
             if (gh_do_feed) begin
-                if (gh_aad_pend)
+                if (gh_aad_pend) begin
                     gh_aad_pend <= 1'b0;
-                else
-                    gh_pending <= 1'b0;
+                end else begin
+                    gh_qrd <= gh_qrd ^ 1'b1;
+                end
                 ghcnt <= ghcnt + 8'd1;
             end
+            if ((phase == PHASE_AES_CB) && ((!decrypt && aes_done) ||
+                                            (decrypt && pt_valid && pt_ready))) begin
+                gh_qwr <= gh_qwr ^ 1'b1;
+            end
+            gh_qcnt <= gh_qcnt + ((phase == PHASE_AES_CB) &&
+                                  ((!decrypt && aes_done) ||
+                                   (decrypt && pt_valid && pt_ready)) ? 2'd1 : 2'd0)
+                      - ((gh_do_feed && !gh_aad_pend && (phase != PHASE_GH_LEN)) ? 2'd1 : 2'd0);
+            if (phase == PHASE_AES_CB)
+                inflight <= inflight + (cb_submit && !aes_done ? 2'd1 : 2'd0)
+                          - (aes_done && !cb_submit ? 2'd1 : 2'd0);
             case (phase)
                 PHASE_IDLE: begin
                     tag_valid <= 1'b0;
                     if (start) begin
                         aes_block <= 128'd0;
+                        blk_in <= 128'd0;
                         aes_start <= 1'b1;
                         aes_key_load <= 1'b1;
+                        inflight <= 2'd1;
                         busy <= 1'b1;
                         phase <= PHASE_AES_H;
                     end
@@ -156,40 +180,36 @@ module gcm_stream (
                         gh_start <= 1'b1;
                         ghcnt <= 8'd0;
                         gh_aad_pend <= 1'b1;
-                        gh_pending <= 1'b0;
+                        gh_qcnt <= 2'd0;
+                        gh_qwr <= 1'b0;
+                        gh_qrd <= 1'b0;
                         got <= 1'b0;
-                        aes_pending <= 1'b0;
+                        inflight <= 2'd0;
                         cntr <= 8'd0;
                         out_valid <= 1'b0;
                         phase <= PHASE_AES_CB;
                     end
                 end
                 PHASE_AES_CB: begin
-                    if (!aes_pending && !gh_pending && got && (cntr < nct[7:0]) && !out_valid) begin
-                        aes_block <= {nonce, {24'd0, cntr} + 32'd2};
+                    if (cb_submit) begin
+                        aes_block <= {nonce, {24'd0, cntr} + {30'd0, inflight} + 32'd2};
+                        pending_pt <= blk_in;
                         aes_start <= 1'b1;
-                        aes_pending <= 1'b1;
+                        got <= 1'b0;
                     end
                     if (aes_done) begin
-                        got <= 1'b0;
-                        if (decrypt) begin
-                            out_blk <= aes_out ^ blk_in;
-                        end else begin
-                            out_blk <= aes_out ^ blk_in;
-                            gh_data_reg <= aes_out ^ blk_in;
-                            gh_pending <= 1'b1;
+                        out_blk <= aes_out ^ pending_pt;
+                        if (!decrypt) begin
+                            gh_q[gh_qwr] <= aes_out ^ pending_pt;
                         end
                         out_valid <= 1'b1;
-                        aes_pending <= 1'b0;
                         cntr <= cntr + 8'd1;
                     end
                     if (decrypt && pt_valid && pt_ready) begin
-                        gh_data_reg <= pt_data;
-                        gh_pending <= 1'b1;
+                        gh_q[gh_qwr] <= pt_data;
                     end
-                    if ((cntr >= nct[7:0]) && !gh_pending &&
+                    if ((cntr >= nct[7:0]) && (inflight == 2'd0) && (gh_qcnt == 2'd0) &&
                         (ghcnt >= (nct[7:0] + 8'd1))) begin
-                        gh_pending <= 1'b1;
                         phase <= PHASE_GH_LEN;
                     end
                 end

@@ -48,7 +48,7 @@ module bridge_top #(
     wire [7:0] esp_rx_data;
     wire       esp_rx_valid, esp_rx_ready, esp_rx_last;
 
-    wire enc_req, enc_grant, enc_start;
+    wire enc_start;
     wire [11:0] enc_pt_len;
     wire [95:0] enc_nonce;
     wire [127:0] enc_aad;
@@ -59,7 +59,7 @@ module bridge_top #(
     wire enc_tag_valid;
     wire [127:0] enc_tag;
 
-    wire dec_req, dec_grant, dec_start;
+    wire dec_start;
     wire [11:0] dec_pt_len;
     wire [95:0] dec_nonce;
     wire [127:0] dec_aad;
@@ -70,73 +70,27 @@ module bridge_top #(
     wire dec_tag_valid;
     wire [127:0] dec_tag;
     wire dec_tag_ok_w;
-
-    wire gcm_start;
-    wire [11:0] gcm_pt_len;
-    wire [95:0] gcm_nonce;
-    wire [127:0] gcm_aad;
-    wire gcm_pt_valid, gcm_pt_ready;
-    wire [127:0] gcm_pt_data;
-    wire gcm_ct_valid, gcm_ct_ready;
-    wire [127:0] gcm_ct_data;
-    wire gcm_tag_valid;
-    wire [127:0] gcm_tag;
-    wire gcm_tag_ok;
-
-    reg  arb_enc;
-    reg  arb_dec;
-
-    assign enc_grant = arb_enc;
-    assign dec_grant = arb_dec;
-
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            arb_enc <= 1'b0;
-            arb_dec <= 1'b0;
-        end else begin
-            if (arb_enc && enc_tag_valid) begin
-                arb_enc <= 1'b0;
-            end else if (arb_dec && dec_tag_valid) begin
-                arb_dec <= 1'b0;
-            end else if (!arb_enc && !arb_dec) begin
-                if (enc_req) begin
-                    arb_enc <= 1'b1;
-                end else if (dec_req) begin
-                    arb_dec <= 1'b1;
-                end
-            end
-        end
-    end
-
-    assign gcm_start = (arb_enc ? enc_start : dec_start);
-    assign gcm_pt_len = arb_enc ? enc_pt_len : dec_pt_len;
-    assign gcm_nonce = arb_enc ? enc_nonce : dec_nonce;
-    assign gcm_aad = arb_enc ? enc_aad : dec_aad;
-    assign gcm_pt_valid = arb_enc ? enc_pt_valid : dec_pt_valid;
-    assign gcm_pt_data = arb_enc ? enc_pt_data : dec_pt_data;
-    assign enc_pt_ready = arb_enc ? gcm_pt_ready : 1'b0;
-    assign dec_pt_ready = arb_dec ? gcm_pt_ready : 1'b0;
-    assign enc_ct_valid = arb_enc ? gcm_ct_valid : 1'b0;
-    assign dec_ct_valid = arb_dec ? gcm_ct_valid : 1'b0;
-    assign enc_ct_data = gcm_ct_data;
-    assign dec_ct_data = gcm_ct_data;
-    assign gcm_ct_ready = arb_enc ? enc_ct_ready : (arb_dec ? dec_ct_ready : 1'b1);
-    assign enc_tag_valid = arb_enc ? gcm_tag_valid : 1'b0;
-    assign dec_tag_valid = arb_dec ? gcm_tag_valid : 1'b0;
-    assign enc_tag = gcm_tag;
-    assign dec_tag = gcm_tag;
-    assign dec_tag_ok_w = gcm_tag_ok;
-
     wire [127:0] dec_tag_in_w;
 
-    gcm_stream u_gcm (
+    gcm_stream u_gcm_enc (
         .clk(clk), .rst_n(rst_n),
-        .start(gcm_start), .key(key), .nonce(gcm_nonce),
-        .aad(gcm_aad), .aad_len(5'd8), .pt_len(gcm_pt_len),
-        .pt_valid(gcm_pt_valid), .pt_ready(gcm_pt_ready), .pt_data(gcm_pt_data),
-        .ct_valid(gcm_ct_valid), .ct_ready(gcm_ct_ready), .ct_data(gcm_ct_data),
-        .tag_valid(gcm_tag_valid), .tag(gcm_tag),
-        .decrypt(arb_dec), .tag_in(dec_tag_in_w), .tag_ok(gcm_tag_ok),
+        .start(enc_start), .key(key), .nonce(enc_nonce),
+        .aad(enc_aad), .aad_len(5'd8), .pt_len(enc_pt_len),
+        .pt_valid(enc_pt_valid), .pt_ready(enc_pt_ready), .pt_data(enc_pt_data),
+        .ct_valid(enc_ct_valid), .ct_ready(enc_ct_ready), .ct_data(enc_ct_data),
+        .tag_valid(enc_tag_valid), .tag(enc_tag),
+        .decrypt(1'b0), .tag_in(128'd0), .tag_ok(),
+        .busy(), .done()
+    );
+
+    gcm_stream u_gcm_dec (
+        .clk(clk), .rst_n(rst_n),
+        .start(dec_start), .key(key), .nonce(dec_nonce),
+        .aad(dec_aad), .aad_len(5'd8), .pt_len(dec_pt_len),
+        .pt_valid(dec_pt_valid), .pt_ready(dec_pt_ready), .pt_data(dec_pt_data),
+        .ct_valid(dec_ct_valid), .ct_ready(dec_ct_ready), .ct_data(dec_ct_data),
+        .tag_valid(dec_tag_valid), .tag(dec_tag),
+        .decrypt(1'b1), .tag_in(dec_tag_in_w), .tag_ok(dec_tag_ok_w),
         .busy(), .done()
     );
 
@@ -204,7 +158,7 @@ module bridge_top #(
         .cfg_src_port(cfg_src_port), .cfg_dst_port(cfg_dst_port),
         .cfg_src_mac(cfg_src_mac), .cfg_dst_mac(cfg_dst_mac),
         .seq_in(seq_in),
-        .gcm_grant(enc_grant), .gcm_req(enc_req), .gcm_start(enc_start),
+        .gcm_grant(1'b1), .gcm_req(), .gcm_start(enc_start),
         .gcm_pt_len(enc_pt_len), .gcm_nonce(enc_nonce), .gcm_aad(enc_aad),
         .gcm_pt_valid(enc_pt_valid), .gcm_pt_ready(enc_pt_ready),
         .gcm_pt_data(enc_pt_data),
@@ -221,7 +175,7 @@ module bridge_top #(
         .s_tdata(esp_rx_data), .s_tvalid(esp_rx_valid), .s_tlast(esp_rx_last),
         .s_tready(esp_rx_ready),
         .key(key),
-        .gcm_grant(dec_grant), .gcm_req(dec_req), .gcm_start(dec_start),
+        .gcm_grant(1'b1), .gcm_req(), .gcm_start(dec_start),
         .gcm_pt_len(dec_pt_len), .gcm_nonce(dec_nonce), .gcm_aad(dec_aad),
         .gcm_pt_valid(dec_pt_valid), .gcm_pt_ready(dec_pt_ready),
         .gcm_pt_data(dec_pt_data),
