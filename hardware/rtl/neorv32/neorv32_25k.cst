@@ -1,0 +1,31 @@
+// Tang Primer 25K (GW5A-25A) NEORV32 pin constraints
+// Part: GW5A-LV25MG121 (core board, BGA121)
+
+// clk: 50MHz on-board XTAL (Y1100), verified from Sipeed litex example
+IO_LOC "clk_i" E2;
+IO_PORT "clk_i" IO_TYPE=LVCMOS33;
+
+// UART0 via Dock onboard debugger (FTDI USB-UART)
+// B3/C3 from Sipeed litex example (serial_rx=B3, serial_tx=C3)
+// NOTE: B3 is flash HOLD_N shared pin (4.7K pull-up, safe for UART RX)
+IO_LOC "uart0_rxd_i" B3;
+IO_PORT "uart0_rxd_i" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_LOC "uart0_txd_o" C3;
+IO_PORT "uart0_txd_o" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+
+// GPIO bit0 -> Dock LED0 (from Sipeed litex example led0=L6)
+IO_LOC "gpio_o[0]" L6;
+IO_PORT "gpio_o[0]" IO_TYPE=LVCMOS33 DRIVE=8;
+
+// ---- W25Q64 SPI flash (onboard, XIP/SMC target) ----
+// Net names from core board schematic: FLASH_SPI_CS_N/CLK/MOSI/MISO
+// Ball numbers extracted from schematic BGA diagram; VERIFY with
+// Gowin Pin Planner before board bring-up. HOLD_N/WP_N stay pulled-up.
+IO_LOC "spi_clk_o" A6;
+IO_PORT "spi_clk_o" IO_TYPE=LVCMOS33;
+IO_LOC "spi_dat_o" D6;
+IO_PORT "spi_dat_o" IO_TYPE=LVCMOS33;
+IO_LOC "spi_dat_i" E5;
+IO_PORT "spi_dat_i" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_LOC "spi_csn_o[0]" E6;
+IO_PORT "spi_csn_o[0]" IO_TYPE=LVCMOS33;
