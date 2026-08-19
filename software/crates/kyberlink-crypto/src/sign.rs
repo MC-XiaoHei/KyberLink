@@ -1,5 +1,5 @@
 use ml_dsa::signature::{Keypair, Signer, SignatureEncoding, Verifier};
-use ml_dsa::{Generate, KeyExport, MlDsa65, SigningKey, VerifyingKey};
+use ml_dsa::{KeyExport, MlDsa65, SigningKey, VerifyingKey};
 
 pub type Signature = ml_dsa::Signature<MlDsa65>;
 pub type VerificationError = ml_dsa::Error;
@@ -10,12 +10,6 @@ pub struct SignKeyPair {
 }
 
 impl SignKeyPair {
-    pub fn generate() -> Self {
-        let sk = SigningKey::<MlDsa65>::generate();
-        let vk = sk.verifying_key();
-        Self { sk, vk }
-    }
-
     pub fn from_seed(seed: &[u8; 32]) -> Self {
         let sk = SigningKey::<MlDsa65>::from_seed(&(*seed).into());
         let vk = sk.verifying_key();
@@ -53,7 +47,7 @@ mod tests {
 
     #[test]
     fn roundtrip() {
-        let kp = SignKeyPair::generate();
+        let kp = SignKeyPair::from_seed(&[1u8; 32]);
         let msg = b"hello kyberlink";
         let sig = sign(&kp.sk, msg);
         assert!(verify(&kp.vk, msg, &sig).is_ok());
@@ -70,7 +64,7 @@ mod tests {
 
     #[test]
     fn wrong_sig_rejects() {
-        let kp = SignKeyPair::generate();
+        let kp = SignKeyPair::from_seed(&[1u8; 32]);
         let msg = b"attack at dawn";
         let mut sig = sig_bytes(&sign(&kp.sk, msg));
         sig[0] ^= 1;
@@ -79,7 +73,7 @@ mod tests {
 
     #[test]
     fn sig_bytes_roundtrip() {
-        let kp = SignKeyPair::generate();
+        let kp = SignKeyPair::from_seed(&[1u8; 32]);
         let sig = sign(&kp.sk, b"x");
         assert_eq!(sig_from_bytes(&sig_bytes(&sig)).unwrap(), sig);
     }

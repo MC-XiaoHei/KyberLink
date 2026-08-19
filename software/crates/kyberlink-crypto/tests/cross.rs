@@ -39,7 +39,7 @@ fn cross_kem() {
         let ss = k::decapsulate(&kp.dk, &ct);
         let ss_expect: [u8; 32] = hex_arr::<32>(&v["ss"]);
         assert_eq!(&ss_expect[..], ss.as_slice(), "kem {}", v["index"]);
-        let (ct_a, ss_a) = k::encapsulate(&kp.ek);
+        let (ct_a, ss_a) = k::encapsulate_deterministic(&kp.ek, &[2u8; 32]);
         out.push(json!({
             "index": v["index"],
             "ct": hex::encode(ct_a.as_slice()),

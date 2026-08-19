@@ -40,7 +40,7 @@ fn mlkem_decaps_negative() {
             }
             let seed: ml_kem::Seed = hex_arr::<64>(&t["seed"]).into();
             let dk = DecapsulationKey::<MlKem768>::from_seed(seed);
-            let ct: Ciphertext<MlKem768> = c.try_into().unwrap();
+            let ct: ml_kem::Ciphertext<MlKem768> = ml_kem::Ciphertext::<MlKem768>::from_slice(&c).clone();
             let got = k::decapsulate(&dk, &ct);
             let expect = hex_arr::<32>(&t["K"]);
             if valid {

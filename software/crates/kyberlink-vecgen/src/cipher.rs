@@ -1,3 +1,5 @@
+use alloc::vec;
+use alloc::vec::Vec;
 use aes_gcm::aead::{AeadInPlace, Nonce, Tag};
 use aes_gcm::{Aes256Gcm, Key, KeyInit};
 use sha3::{Digest, Sha3_256};
@@ -44,7 +46,7 @@ pub fn hkdf_sha3_256_expand(prk: &[u8], info: &[u8], okm_len: usize) -> Vec<u8> 
         msg.extend_from_slice(info);
         msg.push(counter);
         t = hmac_sha3_256(prk, &msg).to_vec();
-        let need = std::cmp::min(okm_len - okm.len(), t.len());
+        let need = core::cmp::min(okm_len - okm.len(), t.len());
         okm.extend_from_slice(&t[..need]);
         counter += 1;
     }

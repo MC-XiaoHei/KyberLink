@@ -12,11 +12,6 @@ pub struct KemKeyPair {
 }
 
 impl KemKeyPair {
-    pub fn generate() -> Self {
-        let (dk, ek) = MlKem768::generate_keypair();
-        Self { dk, ek }
-    }
-
     pub fn from_seed(seed: &[u8; 64]) -> Self {
         let seed: Seed<MlKem768> = (*seed).into();
         let (dk, ek) = MlKem768::from_seed(&seed);
@@ -26,10 +21,6 @@ impl KemKeyPair {
     pub fn seed(&self) -> Option<[u8; 64]> {
         self.dk.to_seed().map(Into::into)
     }
-}
-
-pub fn encapsulate(ek: &EncapsulationKey) -> (Ciphertext, SharedSecret) {
-    ek.encapsulate()
 }
 
 pub fn encapsulate_deterministic(
@@ -57,8 +48,8 @@ mod tests {
 
     #[test]
     fn roundtrip() {
-        let kp = KemKeyPair::generate();
-        let (ct, ss) = encapsulate(&kp.ek);
+        let kp = KemKeyPair::from_seed(&[1u8; 64]);
+        let (ct, ss) = encapsulate_deterministic(&kp.ek, &[2u8; 32]);
         assert_eq!(decapsulate(&kp.dk, &ct).as_slice(), ss.as_slice());
     }
 
@@ -74,15 +65,15 @@ mod tests {
 
     #[test]
     fn wrong_key_rejects() {
-        let a = KemKeyPair::generate();
-        let b = KemKeyPair::generate();
-        let (ct, ss) = encapsulate(&a.ek);
+        let a = KemKeyPair::from_seed(&[3u8; 64]);
+        let b = KemKeyPair::from_seed(&[4u8; 64]);
+        let (ct, ss) = encapsulate_deterministic(&a.ek, &[5u8; 32]);
         assert_ne!(decapsulate(&b.dk, &ct).as_slice(), ss.as_slice());
     }
 
     #[test]
     fn key_bytes_roundtrip() {
-        let kp = KemKeyPair::generate();
+        let kp = KemKeyPair::from_seed(&[6u8; 64]);
         let bytes = encaps_key_bytes(&kp.ek);
         let ek = encaps_key_from_bytes(&bytes).unwrap();
         assert_eq!(encaps_key_bytes(&ek), bytes);
