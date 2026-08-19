@@ -21,10 +21,10 @@ use work.neorv32_package.all;
 
 entity neorv32_cpu_pmp is
   generic (
-    NUM_REGIONS : natural range 0 to 16; -- number of regions
-    GRANULARITY : natural; -- minimal region granularity in bytes, has to be a power of 2, min 4 bytes
-    TOR_EN      : boolean; -- implement TOR mode
-    NAP_EN      : boolean  -- implement NAPOT/NA4 modes
+NUM_REGIONS : natural range 0 to 16 := 1; -- number of regions
+    GRANULARITY : natural := 0; -- minimal region granularity in bytes, has to be a power of 2, min 4 bytes
+    TOR_EN      : boolean := false; -- implement TOR mode
+    NAP_EN      : boolean   := false-- implement NAPOT/NA4 modes
   );
   port (
     -- global control --

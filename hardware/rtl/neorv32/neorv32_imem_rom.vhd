@@ -20,8 +20,8 @@ use work.neorv32_imem_image.all;
 
 entity neorv32_imem_rom is
   generic (
-    AWIDTH : natural; -- address width (byte address)
-    OUTREG : natural  -- add output register stage when 1
+AWIDTH : natural := 0; -- address width (byte address)
+    OUTREG : natural   := 0-- add output register stage when 1
   );
   port (
     clk_i  : in  std_ulogic;                     -- clock, rising-edge

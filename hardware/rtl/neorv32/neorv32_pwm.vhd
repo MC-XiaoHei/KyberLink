@@ -20,7 +20,7 @@ use work.neorv32_package.all;
 
 entity neorv32_pwm is
   generic (
-    NUM_CHANNELS : natural range 0 to 32 -- number of PWM channels (0..32)
+NUM_CHANNELS : natural range 0 to 32  := 0-- number of PWM c
   );
   port (
     clk_i     : in  std_ulogic;                    -- global clock line

@@ -47,7 +47,7 @@ architecture neorv32_setup_25k_rtl of neorv32_setup_25k is
   signal xbus_cyc_s   : std_ulogic;
   signal xbus_ack_s   : std_ulogic;
   signal xbus_err_s   : std_ulogic;
-  signal bc_dat_o     : std_ulogic_vector(31 downto 0);
+  signal bc_dat_o     : std_logic_vector(31 downto 0);
   signal bc_ack_o     : std_ulogic;
 
   component bridge_ctrl is
@@ -145,7 +145,7 @@ begin
         data_count_rx  => (others => '0')
     );
 
-    xbus_dat_is <= bc_dat_o when (xbus_adr_s(31 downto 8) = x"F00001") else
+    xbus_dat_is <= std_ulogic_vector(bc_dat_o) when (xbus_adr_s(31 downto 8) = x"F00001") else
                    (others => '0');
     xbus_ack_s  <= bc_ack_o;
 

@@ -189,7 +189,7 @@ use work.neorv32_package.all;
 
 entity neorv32_cpu_trace_simlog is
   generic (
-    LOG_FILE : string -- trace log file
+    LOG_FILE : string := "" -- trace log file
   );
   port (
     clk_i   : in std_ulogic;  -- global clock line

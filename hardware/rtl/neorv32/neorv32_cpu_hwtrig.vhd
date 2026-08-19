@@ -20,7 +20,7 @@ use work.neorv32_package.all;
 
 entity neorv32_cpu_hwtrig is
   generic (
-    NUM_TRIGGERS : natural range 1 to 16; -- number of implemented hardware triggers
+NUM_TRIGGERS : natural range 1 to 16 := 1; -- number of impl
     RISCV_ISA_U  : boolean := false       -- RISC-V user-mode available
   );
   port (

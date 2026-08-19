@@ -24,11 +24,11 @@ use work.neorv32_package.all;
 
 entity neorv32_cpu_alu_crypto is
   generic (
-    EN_ZKND  : boolean; -- enable NIST AES decryption extension
-    EN_ZKNE  : boolean; -- enable NIST AES encryption extension
-    EN_ZKNH  : boolean; -- enable NIST hash extension
-    EN_ZKSED : boolean; -- enable ShangMi block cipher extension
-    EN_ZKSH  : boolean  -- enable ShangMi hash extension
+EN_ZKND  : boolean := false; -- enable NIST AES decryption e
+    EN_ZKNE  : boolean := false; -- enable NIST AES encryption extension
+    EN_ZKNH  : boolean := false; -- enable NIST hash extension
+    EN_ZKSED : boolean := false; -- enable ShangMi block cipher extension
+    EN_ZKSH  : boolean   := false-- enable ShangMi hash extension
   );
   port (
     -- global control --

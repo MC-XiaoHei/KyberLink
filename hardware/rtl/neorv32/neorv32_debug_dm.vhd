@@ -20,8 +20,8 @@ use work.neorv32_package.all;
 
 entity neorv32_debug_dm is
   generic (
-    NUM_HARTS     : natural range 1 to 4; -- number of physical CPU cores
-    AUTHENTICATOR : boolean -- implement authentication module when true
+NUM_HARTS     : natural range 1 to 4 := 1; -- number of phys
+    AUTHENTICATOR : boolean  := false-- implement authentication module when true
   );
   port (
     -- global control --

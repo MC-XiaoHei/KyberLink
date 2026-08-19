@@ -17,7 +17,7 @@ use work.neorv32_package.all;
 
 entity neorv32_neoled is
   generic (
-    FIFO_DEPTH : natural range 1 to 2**15 -- FIFO depth, has to be a power of two, min 1
+FIFO_DEPTH : natural range 1 to 2**15  := 1-- FIFO depth, ha
   );
   port (
     clk_i     : in  std_ulogic;                    -- global clock line

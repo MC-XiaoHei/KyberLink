@@ -18,9 +18,9 @@ use work.neorv32_package.all;
 
 entity neorv32_debug_dtm is
   generic (
-    IDCODE_VERSION : std_ulogic_vector(3 downto 0);  -- version
-    IDCODE_PARTID  : std_ulogic_vector(15 downto 0); -- part number
-    IDCODE_MANID   : std_ulogic_vector(10 downto 0)  -- manufacturer id
+IDCODE_VERSION : std_ulogic_vector(3 downto 0) := "0000";  -- version
+    IDCODE_PARTID  : std_ulogic_vector(15 downto 0) := "0000000000000000"; -- part number
+    IDCODE_MANID   : std_ulogic_vector(10 downto 0)   := "00000000000"-- manufacturer id
   );
   port (
     -- global control --

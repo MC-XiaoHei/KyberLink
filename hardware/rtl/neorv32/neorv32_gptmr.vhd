@@ -19,7 +19,7 @@ use work.neorv32_package.all;
 
 entity neorv32_gptmr is
   generic (
-    NUM_SLICES : natural range 0 to 16 -- number of timer slices
+    NUM_SLICES : natural range 0 to 16 := 0 -- number of timer slices
   );
   port (
     clk_i     : in  std_ulogic;                    -- global clock line
