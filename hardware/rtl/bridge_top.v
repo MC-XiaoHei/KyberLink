@@ -96,8 +96,8 @@ module bridge_top #(
 
     eth_mac_1g_rgmii_fifo #(
         .TARGET(MAC_TARGET), .IODDR_STYLE("IODDR"), .CLOCK_INPUT_STYLE("BUFG"),
-        .USE_CLK90("TRUE"), .AXIS_DATA_WIDTH(8), .TX_FIFO_DEPTH(4096),
-        .RX_FIFO_DEPTH(4096), .ENABLE_PADDING(1), .MIN_FRAME_LENGTH(64)
+        .USE_CLK90("TRUE"), .AXIS_DATA_WIDTH(8), .TX_FIFO_DEPTH(512),
+        .RX_FIFO_DEPTH(512), .ENABLE_PADDING(1), .MIN_FRAME_LENGTH(64)
     ) u_wan_mac (
         .gtx_clk(gtx_clk), .gtx_clk90(gtx_clk90), .gtx_rst(logic_rst),
         .logic_clk(clk), .logic_rst(logic_rst),
@@ -119,8 +119,8 @@ module bridge_top #(
 
     eth_mac_1g_rgmii_fifo #(
         .TARGET(MAC_TARGET), .IODDR_STYLE("IODDR"), .CLOCK_INPUT_STYLE("BUFG"),
-        .USE_CLK90("TRUE"), .AXIS_DATA_WIDTH(8), .TX_FIFO_DEPTH(4096),
-        .RX_FIFO_DEPTH(4096), .ENABLE_PADDING(1), .MIN_FRAME_LENGTH(64)
+        .USE_CLK90("TRUE"), .AXIS_DATA_WIDTH(8), .TX_FIFO_DEPTH(512),
+        .RX_FIFO_DEPTH(512), .ENABLE_PADDING(1), .MIN_FRAME_LENGTH(64)
     ) u_lan_mac (
         .gtx_clk(gtx_clk), .gtx_clk90(gtx_clk90), .gtx_rst(logic_rst),
         .logic_clk(clk), .logic_rst(logic_rst),
@@ -149,10 +149,31 @@ module bridge_top #(
         .m_tready(esp_rx_ready)
     );
 
-    bridge_enc_path u_enc (
+    wire [7:0] lan_p1_data;
+    wire       lan_p1_valid, lan_p1_ready, lan_p1_last;
+    wire [7:0] esp_p1_data;
+    wire       esp_p1_valid, esp_p1_ready, esp_p1_last;
+
+    axis_pipe1 u_lan_pipe (
         .clk(clk), .rst_n(rst_n),
         .s_tdata(lan_rx_data), .s_tvalid(lan_rx_valid), .s_tlast(lan_rx_last),
         .s_tready(lan_rx_ready),
+        .m_tdata(lan_p1_data), .m_tvalid(lan_p1_valid), .m_tlast(lan_p1_last),
+        .m_tready(lan_p1_ready)
+    );
+
+    axis_pipe1 u_esp_pipe (
+        .clk(clk), .rst_n(rst_n),
+        .s_tdata(esp_rx_data), .s_tvalid(esp_rx_valid), .s_tlast(esp_rx_last),
+        .s_tready(esp_rx_ready),
+        .m_tdata(esp_p1_data), .m_tvalid(esp_p1_valid), .m_tlast(esp_p1_last),
+        .m_tready(esp_p1_ready)
+    );
+
+    bridge_enc_path u_enc (
+        .clk(clk), .rst_n(rst_n),
+        .s_tdata(lan_p1_data), .s_tvalid(lan_p1_valid), .s_tlast(lan_p1_last),
+        .s_tready(lan_p1_ready),
         .key(key), .cfg_spi(cfg_spi), .cfg_iv(cfg_iv),
         .cfg_src_ip(cfg_src_ip), .cfg_dst_ip(cfg_dst_ip),
         .cfg_src_port(cfg_src_port), .cfg_dst_port(cfg_dst_port),
@@ -172,8 +193,8 @@ module bridge_top #(
 
     bridge_dec_path u_dec (
         .clk(clk), .rst_n(rst_n),
-        .s_tdata(esp_rx_data), .s_tvalid(esp_rx_valid), .s_tlast(esp_rx_last),
-        .s_tready(esp_rx_ready),
+        .s_tdata(esp_p1_data), .s_tvalid(esp_p1_valid), .s_tlast(esp_p1_last),
+        .s_tready(esp_p1_ready),
         .key(key),
         .gcm_grant(1'b1), .gcm_req(), .gcm_start(dec_start),
         .gcm_pt_len(dec_pt_len), .gcm_nonce(dec_nonce), .gcm_aad(dec_aad),

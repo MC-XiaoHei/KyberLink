@@ -88,6 +88,9 @@ async def test_gcm_stream_roundtrip(dut):
         exp_ct = ct_tag[:-16]
         exp_tag = ct_tag[-16:]
         ct, tag, _ = await run_crypto(dut, key, iv, aad, L, False, b"", blocks(pt))
+        if L == 17:
+            dut._log.info(f"DEBUG17 exp_ct={exp_ct.hex()} got_ct={ct.hex()}")
+            dut._log.info(f"DEBUG17 exp_tag={exp_tag.hex()} got_tag={tag.hex()}")
         dut._log.info(f"len {li} L={L} enc ct={ct == exp_ct} tag={tag == exp_tag}")
         assert ct == exp_ct and tag == exp_tag, f"len {li} enc mismatch"
         pt2, _, ok = await run_crypto(dut, key, iv, aad, L, True, tag, blocks(ct))

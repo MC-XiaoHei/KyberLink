@@ -84,9 +84,11 @@ module ip_udp_eth_rx (
                     end
                 end
                 ST_RX: begin
-                    if (s_tvalid) begin
-                        if (bad_here || esp_len_bad)
+                    if (s_tvalid && s_tready) begin
+                        if (cnt < 9'd35)
+                        if (bad_here || esp_len_bad) begin
                             drop <= 1'b1;
+                        end
                         if (s_tlast) begin
                             if (total_len != (cnt + 9'd1 - 9'd14))
                                 drop <= 1'b1;

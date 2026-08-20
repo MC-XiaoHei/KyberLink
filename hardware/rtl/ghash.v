@@ -87,18 +87,24 @@ module ghash (
     wire [31:0] b_h2 = b_reg[95:64];
     wire [31:0] b_h3 = b_reg[127:96];
 
-    wire [1:0] ii = cnt[2:1];
-    wire [1:0] jj_a = {cnt[0], 1'b0};
-    wire [1:0] jj_b = {cnt[0], 1'b1};
+    wire [1:0] ii = cnt[1:0];
     wire [31:0] ai = (ii == 2'd0) ? a_h0 : (ii == 2'd1) ? a_h1 : (ii == 2'd2) ? a_h2 : a_h3;
-    wire [31:0] bj_a = (jj_a == 2'd0) ? b_h0 : (jj_a == 2'd1) ? b_h1 : (jj_a == 2'd2) ? b_h2 : b_h3;
-    wire [31:0] bj_b = (jj_b == 2'd0) ? b_h0 : (jj_b == 2'd1) ? b_h1 : (jj_b == 2'd2) ? b_h2 : b_h3;
-    wire [62:0] mul_a = mul32f(ai, bj_a);
-    wire [62:0] mul_b = mul32f(ai, bj_b);
-    wire [3:0] ij_a = {2'd0, ii} + {2'd0, jj_a};
-    wire [3:0] ij_b = {2'd0, ii} + {2'd0, jj_b};
-    wire [255:0] shifted = ({193'd0, mul_a} << ({4'd0, ij_a} << 5)) ^
-                           ({193'd0, mul_b} << ({4'd0, ij_b} << 5));
+    wire [31:0] bj_0 = b_h0;
+    wire [31:0] bj_1 = b_h1;
+    wire [31:0] bj_2 = b_h2;
+    wire [31:0] bj_3 = b_h3;
+    wire [62:0] mul_0 = mul32f(ai, bj_0);
+    wire [62:0] mul_1 = mul32f(ai, bj_1);
+    wire [62:0] mul_2 = mul32f(ai, bj_2);
+    wire [62:0] mul_3 = mul32f(ai, bj_3);
+    wire [3:0] ij_0 = {2'd0, ii};
+    wire [3:0] ij_1 = {2'd0, ii} + 4'd1;
+    wire [3:0] ij_2 = {2'd0, ii} + 4'd2;
+    wire [3:0] ij_3 = {2'd0, ii} + 4'd3;
+    wire [255:0] shifted = ({193'd0, mul_0} << ({4'd0, ij_0} << 5)) ^
+                           ({193'd0, mul_1} << ({4'd0, ij_1} << 5)) ^
+                           ({193'd0, mul_2} << ({4'd0, ij_2} << 5)) ^
+                           ({193'd0, mul_3} << ({4'd0, ij_3} << 5));
 
     reg [255:0] red;
     integer ri;
@@ -150,7 +156,7 @@ module ghash (
                 end
                 PHASE_MUL: begin
                     prod <= prod ^ shifted;
-                    if (cnt == 4'd7) begin
+                    if (cnt == 4'd3) begin
                         phase <= PHASE_RED;
                     end else begin
                         cnt <= cnt + 4'd1;
