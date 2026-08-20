@@ -1,0 +1,6 @@
+create_clock -name clk -period 20.0 [get_ports {clk}]
+create_generated_clock -name clk_dp -source [get_ports {clk}] -multiply_by 12 -divide_by 5 [get_pins {u_pll/CLKOUT0}]
+create_generated_clock -name clk_nrv -source [get_ports {clk}] -multiply_by 6 -divide_by 5 [get_pins {u_pll/CLKOUT1}]
+create_clock -name lan_rgmii_rx_clk -period 8.0 [get_ports {lan_rgmii_rx_clk}]
+create_clock -name wan_rgmii_rx_clk -period 8.0 [get_ports {wan_rgmii_rx_clk}]
+set_clock_groups -asynchronous -group [get_clocks {clk}] -group [get_clocks {clk_dp}] -group [get_clocks {clk_nrv}] -group [get_clocks {lan_rgmii_rx_clk wan_rgmii_rx_clk}]

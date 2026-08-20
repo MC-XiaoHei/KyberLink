@@ -1,6 +1,3 @@
--- KyberLink Tang Primer 25K (GW5A-25) NEORV32 setup
--- RV32IMC + IMEM/DMEM + UART0/SPI/TRNG/XBUS + SMC(XIP) + I-Cache
--- Library references flattened to work for GowinSynthesis CLI
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
@@ -89,7 +86,7 @@ begin
     IMEM_SIZE        => IMEM_SIZE,
     DMEM_EN          => true,
     DMEM_SIZE        => DMEM_SIZE,
-    ICACHE_EN        => true,
+    ICACHE_EN        => false,
     ICACHE_NUM_BLOCKS => 16,
     CACHE_BLOCK_SIZE => 64,
     DCACHE_EN        => false,
@@ -99,7 +96,7 @@ begin
     IO_CLINT_EN      => true,
     IO_UART0_EN      => true,
     IO_SPI_EN        => true,
-    IO_TRNG_EN       => true,
+    IO_TRNG_EN       => false,
     XBUS_EN          => true
   )
   port map (

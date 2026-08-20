@@ -34,13 +34,39 @@ module full_top (
     wire        nrv_xbus_ack;
     wire        nrv_xbus_err;
     wire [7:0]  nrv_spi_csn;
+    wire clk_dp;
+    wire clk_nrv;
+    wire pll_lock;
+
+    PLLA u_pll (
+        .LOCK(pll_lock),
+        .CLKOUT0(clk_dp),
+        .CLKOUT1(clk_nrv),
+        .CLKOUT2(), .CLKOUT3(),
+        .CLKOUT4(), .CLKOUT5(), .CLKOUT6(),
+        .CLKFBOUT(), .MDRDO(),
+        .CLKIN(clk), .CLKFB(1'b0),
+        .RESET(1'b0), .PLLPWD(1'b0), .RESET_I(1'b0), .RESET_O(1'b0),
+        .PSSEL(3'd0), .PSDIR(1'b0), .PSPULSE(1'b0),
+        .SSCPOL(1'b0), .SSCON(1'b0), .SSCMDSEL(7'd0), .SSCMDSEL_FRAC(3'd0),
+        .MDCLK(1'b0), .MDOPC(2'd0), .MDAINC(1'b0), .MDWDI(8'd0)
+    );
+    defparam u_pll.FCLKIN = "50";
+    defparam u_pll.IDIV_SEL = 2;
+    defparam u_pll.FBDIV_SEL = 5;
+    defparam u_pll.CLKFB_SEL = "INTERNAL";
+    defparam u_pll.MDIV_SEL = 24;
+    defparam u_pll.ODIV0_SEL = 5;
+    defparam u_pll.ODIV1_SEL = 10;
+    defparam u_pll.CLKOUT0_EN = "TRUE";
+    defparam u_pll.CLKOUT1_EN = "TRUE";
 
     neorv32_setup_25k #(
         .CLOCK_FREQUENCY(50000000),
-        .IMEM_SIZE(16384),
-        .DMEM_SIZE(8192)
+        .IMEM_SIZE(8192),
+        .DMEM_SIZE(4096)
     ) u_nrv (
-        .clk_i(clk),
+        .clk_i(clk_nrv),
         .rstn_i(rstn),
         .gpio_o(nrv_gpio),
         .uart0_txd_o(uart0_txd),
@@ -66,10 +92,10 @@ module full_top (
     bridge_top #(
         .MAC_TARGET("GOWIN")
     ) u_bridge (
-        .clk(clk),
+        .clk(clk_dp),
         .rst_n(rstn),
-        .gtx_clk(clk),
-        .gtx_clk90(clk),
+        .gtx_clk(clk_dp),
+        .gtx_clk90(clk_dp),
         .key(256'd0),
         .cfg_spi(32'h11223344),
         .cfg_iv(96'h000000000000000000000001),
@@ -90,7 +116,7 @@ module full_top (
         .wan_rgmii_tx_clk(wan_rgmii_tx_clk),
         .wan_rgmii_txd(wan_rgmii_txd),
         .wan_rgmii_tx_ctl(wan_rgmii_tx_ctl)
-        
+
     );
 
     assign nrv_xbus_dat_i = 32'd0;

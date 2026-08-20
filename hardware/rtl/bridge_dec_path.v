@@ -15,9 +15,9 @@ module bridge_dec_path (
     output reg  [11:0]   gcm_pt_len,
     output reg  [95:0]   gcm_nonce,
     output reg  [127:0]  gcm_aad,
-    output reg  gcm_pt_valid,
+    output wire          gcm_pt_valid,
     input  wire          gcm_pt_ready,
-    output reg  [127:0]  gcm_pt_data,
+    output wire [127:0]  gcm_pt_data,
     input  wire          gcm_ct_valid,
     output wire          gcm_ct_ready,
     input  wire [127:0]  gcm_ct_data,
@@ -41,7 +41,10 @@ module bridge_dec_path (
 
     reg [1:0] state;
 
-    (* syn_ramstyle = "block" *) reg [127:0] frm_buf [0:127];
+    (* syn_ramstyle = "block" *) reg [127:0] frm_buf [0:95];
+    reg         frm_wr_pend;
+    reg [6:0]   frm_wr_addr;
+    reg [127:0] frm_wr_data;
     reg [31:0] spi_r;
     reg [31:0] seq_r;
     reg [95:0] iv_r;
@@ -71,6 +74,8 @@ module bridge_dec_path (
     wire [127:0] tag_w = tail18[127:0];
     assign tag_in_w = tag_w;
 
+    assign gcm_pt_valid = pt_data_v;
+    assign gcm_pt_data  = pt_rd_data;
     assign s_tready = (state == ST_IDLE) || (state == ST_RX);
 
     always @(posedge clk) begin
@@ -90,6 +95,9 @@ module bridge_dec_path (
             iv_r <= 96'd0;
             tail18 <= 144'd0;
             blk_acc <= 128'd0;
+            frm_wr_pend <= 1'b0;
+            frm_wr_addr <= 7'd0;
+            frm_wr_data <= 128'd0;
             fcnt <= 12'd0;
             frm_len <= 12'd0;
             ct_len <= 12'd0;
@@ -111,10 +119,8 @@ module bridge_dec_path (
             gcm_pt_len <= 12'd0;
             gcm_nonce <= 96'd0;
             gcm_aad <= 128'd0;
-            gcm_pt_valid <= 1'b0;
         end else begin
             gcm_start <= 1'b0;
-            gcm_pt_valid <= 1'b0;
             if (gcm_tag_valid) begin
                 tag_ok_r <= gcm_tag_ok;
                 tag_ok <= gcm_tag_ok;
@@ -139,7 +145,7 @@ module bridge_dec_path (
                         else if (fcnt < 12'd20)
                             iv_r[95 - 8*(fcnt - 12'd8) -: 8] <= s_tdata;
                         else begin
-                            if ((fcnt - 12'd20) % 12'd16 == 12'd15) begin
+                            if (fcnt[3:0] == 4'd3) begin
                                 frm_buf[(fcnt - 12'd20) >> 4] <= {blk_acc[119:0], s_tdata};
                                 blk_acc <= 128'd0;
                             end else begin
@@ -147,23 +153,25 @@ module bridge_dec_path (
                             end
                         end
                         if (s_tlast) begin
-                            if ((fcnt - 12'd20) % 12'd16 != 12'd15) begin
+                            if (fcnt[3:0] != 4'd3) begin
+                                frm_wr_pend <= 1'b1;
+                                frm_wr_addr <= (fcnt - 12'd20) >> 4;
                                 case (fcnt[3:0] - 4'd3)
-                                    4'd1:  frm_buf[(fcnt - 12'd20) >> 4] <= {s_tdata, 120'd0};
-                                    4'd2:  frm_buf[(fcnt - 12'd20) >> 4] <= {blk_acc[7:0], s_tdata, 112'd0};
-                                    4'd3:  frm_buf[(fcnt - 12'd20) >> 4] <= {blk_acc[15:8], blk_acc[7:0], s_tdata, 104'd0};
-                                    4'd4:  frm_buf[(fcnt - 12'd20) >> 4] <= {blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 96'd0};
-                                    4'd5:  frm_buf[(fcnt - 12'd20) >> 4] <= {blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 88'd0};
-                                    4'd6:  frm_buf[(fcnt - 12'd20) >> 4] <= {blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 80'd0};
-                                    4'd7:  frm_buf[(fcnt - 12'd20) >> 4] <= {blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 72'd0};
-                                    4'd8:  frm_buf[(fcnt - 12'd20) >> 4] <= {blk_acc[55:48], blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 64'd0};
-                                    4'd9:  frm_buf[(fcnt - 12'd20) >> 4] <= {blk_acc[63:56], blk_acc[55:48], blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 56'd0};
-                                    4'd10: frm_buf[(fcnt - 12'd20) >> 4] <= {blk_acc[71:64], blk_acc[63:56], blk_acc[55:48], blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 48'd0};
-                                    4'd11: frm_buf[(fcnt - 12'd20) >> 4] <= {blk_acc[79:72], blk_acc[71:64], blk_acc[63:56], blk_acc[55:48], blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 40'd0};
-                                    4'd12: frm_buf[(fcnt - 12'd20) >> 4] <= {blk_acc[87:80], blk_acc[79:72], blk_acc[71:64], blk_acc[63:56], blk_acc[55:48], blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 32'd0};
-                                    4'd13: frm_buf[(fcnt - 12'd20) >> 4] <= {blk_acc[95:88], blk_acc[87:80], blk_acc[79:72], blk_acc[71:64], blk_acc[63:56], blk_acc[55:48], blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 24'd0};
-                                    4'd14: frm_buf[(fcnt - 12'd20) >> 4] <= {blk_acc[103:96], blk_acc[95:88], blk_acc[87:80], blk_acc[79:72], blk_acc[71:64], blk_acc[63:56], blk_acc[55:48], blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 16'd0};
-                                    default: frm_buf[(fcnt - 12'd20) >> 4] <= {blk_acc[111:104], blk_acc[103:96], blk_acc[95:88], blk_acc[87:80], blk_acc[79:72], blk_acc[71:64], blk_acc[63:56], blk_acc[55:48], blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 8'd0};
+                                    4'd1:  frm_wr_data <= {s_tdata, 120'd0};
+                                    4'd2:  frm_wr_data <= {blk_acc[7:0], s_tdata, 112'd0};
+                                    4'd3:  frm_wr_data <= {blk_acc[15:8], blk_acc[7:0], s_tdata, 104'd0};
+                                    4'd4:  frm_wr_data <= {blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 96'd0};
+                                    4'd5:  frm_wr_data <= {blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 88'd0};
+                                    4'd6:  frm_wr_data <= {blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 80'd0};
+                                    4'd7:  frm_wr_data <= {blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 72'd0};
+                                    4'd8:  frm_wr_data <= {blk_acc[55:48], blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 64'd0};
+                                    4'd9:  frm_wr_data <= {blk_acc[63:56], blk_acc[55:48], blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 56'd0};
+                                    4'd10: frm_wr_data <= {blk_acc[71:64], blk_acc[63:56], blk_acc[55:48], blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 48'd0};
+                                    4'd11: frm_wr_data <= {blk_acc[79:72], blk_acc[71:64], blk_acc[63:56], blk_acc[55:48], blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 40'd0};
+                                    4'd12: frm_wr_data <= {blk_acc[87:80], blk_acc[79:72], blk_acc[71:64], blk_acc[63:56], blk_acc[55:48], blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 32'd0};
+                                    4'd13: frm_wr_data <= {blk_acc[95:88], blk_acc[87:80], blk_acc[79:72], blk_acc[71:64], blk_acc[63:56], blk_acc[55:48], blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 24'd0};
+                                    4'd14: frm_wr_data <= {blk_acc[103:96], blk_acc[95:88], blk_acc[87:80], blk_acc[79:72], blk_acc[71:64], blk_acc[63:56], blk_acc[55:48], blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 16'd0};
+                                    default: frm_wr_data <= {blk_acc[111:104], blk_acc[103:96], blk_acc[95:88], blk_acc[87:80], blk_acc[79:72], blk_acc[71:64], blk_acc[63:56], blk_acc[55:48], blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 8'd0};
                                 endcase
                             end
                             frm_len <= fcnt + 12'd1;
@@ -176,6 +184,10 @@ module bridge_dec_path (
                     end
                 end
                 ST_RUN: begin
+                    if (frm_wr_pend) begin
+                        frm_buf[frm_wr_addr] <= frm_wr_data;
+                        frm_wr_pend <= 1'b0;
+                    end
                     if (gcm_grant && !grant_used) begin
                         grant_used <= 1'b1;
                         gcm_req <= 1'b0;
@@ -198,8 +210,6 @@ module bridge_dec_path (
                     if (pt_req && !pt_data_v) begin
                         pt_data_v <= 1'b1;
                     end
-                    gcm_pt_valid <= pt_data_v;
-                    gcm_pt_data <= pt_rd_data;
                     if (pt_data_v && gcm_pt_ready) begin
                         pt_req <= 1'b0;
                         pt_data_v <= 1'b0;
