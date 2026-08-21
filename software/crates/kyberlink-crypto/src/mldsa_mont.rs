@@ -24,7 +24,7 @@ fn zetas() -> [u64; 256] {
 
 const Q_U32: u32 = 8380417;
 const Q_INV: u32 = 4236238847; // -Q^{-1} mod 2^32
-const R2: u32 = 2365951;     // R^2 mod Q
+const R2: u32 = 2365951; // R^2 mod Q
 const INV_256_MONT: u32 = 16382; // 256^{-1} * R mod Q
 
 #[inline(always)]

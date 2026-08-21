@@ -1,13 +1,7 @@
-software/target/
 __pycache__/
 *.pyc
-hardware/impl/
-hardware/*.json
-hardware/*.gprj
-sim_build/
-results.xml
 .venv/
 docs/
-vectors/cross/
-vectors/generated/
 logs/
+build/
+.env
