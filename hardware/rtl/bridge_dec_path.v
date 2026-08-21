@@ -64,12 +64,12 @@ module bridge_dec_path (
     reg [127:0] ct_hold;
     reg         ct_hold_v;
     reg         grant_used;
+    reg [15:0]  frame_n_r;
     reg [15:0]  tx_cnt;
     reg         tag_ok_r;
 
     wire [11:0] ct_len_w = fcnt + 12'd1 - 12'd38;
     wire [8:0]  nct = {1'b0, ct_len_w[11:4]} + {8'd0, |ct_len_w[3:0]};
-    wire [15:0] frame_n = {4'd0, ct_len_w};
 
     wire [127:0] tag_w = tail18[127:0];
     assign tag_in_w = tag_w;
@@ -83,8 +83,8 @@ module bridge_dec_path (
     end
 
     assign m_tdata = tx_blk[127:120];
-    assign m_tvalid = (state == ST_RUN) && tx_blk_v && (tx_cnt < frame_n);
-    assign m_tlast = (state == ST_RUN) && tx_blk_v && (tx_cnt == frame_n - 16'd1);
+    assign m_tvalid = (state == ST_RUN) && tx_blk_v && (tx_cnt < frame_n_r);
+    assign m_tlast = (state == ST_RUN) && tx_blk_v && (tx_cnt == frame_n_r - 16'd1);
     assign gcm_ct_ready = gcm_ct_valid && !ct_hold_v;
 
     always @(posedge clk or negedge rst_n) begin
@@ -108,6 +108,7 @@ module bridge_dec_path (
             tx_blk <= 128'd0;
             tx_b <= 4'd0;
             tx_blk_v <= 1'b0;
+            frame_n_r <= 16'd0;
             ct_hold <= 128'd0;
             ct_hold_v <= 1'b0;
             grant_used <= 1'b0;
@@ -176,6 +177,7 @@ module bridge_dec_path (
                             end
                             frm_len <= fcnt + 12'd1;
                             ct_len <= fcnt + 12'd1 - 12'd38;
+                            frame_n_r <= {4'd0, fcnt + 12'd1 - 12'd38};
                             gcm_req <= 1'b1;
                             state <= ST_RUN;
                         end else begin
@@ -220,7 +222,7 @@ module bridge_dec_path (
                         ct_hold_v <= 1'b1;
                     end
                     if (m_tready && tx_blk_v) begin
-                        if (tx_cnt == frame_n - 16'd1) begin
+                        if (tx_cnt == frame_n_r - 16'd1) begin
                             state <= ST_IDLE;
                             grant_used <= 1'b0;
                         end else begin

@@ -8,8 +8,8 @@ use work.neorv32_package.all;
 entity neorv32_setup_25k is
   generic (
     CLOCK_FREQUENCY : natural := 50000000;
-    IMEM_SIZE       : natural := 16*1024;
-    DMEM_SIZE       : natural := 8*1024
+    IMEM_SIZE       : natural := 14*1024;
+    DMEM_SIZE       : natural := 6*1024
   );
   port (
     clk_i  : in std_ulogic;
@@ -77,7 +77,7 @@ begin
     BOOT_MODE_SELECT => 0,
     RISCV_ISA_C      => true,
     RISCV_ISA_M      => true,
-    RISCV_ISA_Zbb    => true,
+    RISCV_ISA_Zbb    => false,
     RISCV_ISA_Zicntr => true,
     CPU_FAST_MUL_EN  => true,
     CPU_FAST_MUL_REGS => 1,

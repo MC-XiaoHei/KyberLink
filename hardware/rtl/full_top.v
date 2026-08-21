@@ -55,16 +55,16 @@ module full_top (
     defparam u_pll.IDIV_SEL = 2;
     defparam u_pll.FBDIV_SEL = 5;
     defparam u_pll.CLKFB_SEL = "INTERNAL";
-    defparam u_pll.MDIV_SEL = 24;
-    defparam u_pll.ODIV0_SEL = 5;
-    defparam u_pll.ODIV1_SEL = 10;
+    defparam u_pll.MDIV_SEL = 44;
+    defparam u_pll.ODIV0_SEL = 10;
+    defparam u_pll.ODIV1_SEL = 22;
     defparam u_pll.CLKOUT0_EN = "TRUE";
     defparam u_pll.CLKOUT1_EN = "TRUE";
 
     neorv32_setup_25k #(
         .CLOCK_FREQUENCY(50000000),
-        .IMEM_SIZE(8192),
-        .DMEM_SIZE(4096)
+        .IMEM_SIZE(2048),
+        .DMEM_SIZE(1024)
     ) u_nrv (
         .clk_i(clk_nrv),
         .rstn_i(rstn),
