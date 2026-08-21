@@ -3,7 +3,7 @@ import os
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, FallingEdge, Timer
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from Crypto.Cipher import AES
 
 
 VECDIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "vectors", "generated")
@@ -30,7 +30,9 @@ def build_eth(payload, src_mac=SRC_MAC, dst_mac=DST_MAC):
 
 
 def build_esp_frame(key, iv, spi, seq, plain, aad):
-    ct_tag = AESGCM(key).encrypt(iv, plain, aad)
+    aes = AES.new(key, AES.MODE_GCM, nonce=iv)
+    aes.update(aad)
+    ct_tag = aes.encrypt(plain) + aes.digest()
     ct = ct_tag[:-16]
     tag = ct_tag[-16:]
     esp = spi + seq + iv + ct + b"\x00\x04" + tag
@@ -67,6 +69,29 @@ async def rgmii_drive(dut, clk_sig, rxd_sig, ctl_sig, gmii_bytes):
     await FallingEdge(clk_sig)
 
 
+async def rgmii_drive_skew(dut, clk_sig, rxd_sig, ctl_sig, gmii_bytes, skew_ns):
+    period = 8.0
+    await RisingEdge(clk_sig)
+    rxd_sig.value = gmii_bytes[0] & 0xF
+    ctl_sig.value = 1
+    prev = 0.0
+    for i, b in enumerate(gmii_bytes):
+        if i > 0:
+            hi_t = period * i - skew_ns
+            await Timer(hi_t - prev, units="ns")
+            rxd_sig.value = b & 0xF
+            ctl_sig.value = 1
+            prev = hi_t
+        lo_t = period * i + period / 2 - skew_ns
+        await Timer(lo_t - prev, units="ns")
+        rxd_sig.value = (b >> 4) & 0xF
+        ctl_sig.value = 1
+        prev = lo_t
+    await Timer(period / 2, units="ns")
+    rxd_sig.value = 0
+    ctl_sig.value = 0
+
+
 async def tx_collect(dut, tv, td, tl, max_cyc):
     out = bytearray()
     for _ in range(max_cyc):
@@ -88,8 +113,7 @@ async def reset_dut(dut):
     await Timer(1, units="ns")
 
 
-@cocotb.test()
-async def test_bridge_loopback(dut):
+async def run_loopback(dut, skew_ns):
     cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
     cocotb.start_soon(Clock(dut.gtx_clk, 8, units="ns").start())
     cocotb.start_soon(Clock(dut.wan_rgmii_rx_clk, 8, units="ns").start())
@@ -142,8 +166,8 @@ async def test_bridge_loopback(dut):
     dut._log.info(f"lan_frame={len(lan_frame)}B exp_wan={len(exp_wan)}B")
     wm = dut.u_wan_mac
     lm = dut.u_lan_mac
-    await rgmii_drive(dut, dut.lan_rgmii_rx_clk, dut.lan_rgmii_rxd,
-                      dut.lan_rgmii_rx_ctl, gmii_lan)
+    await rgmii_drive_skew(dut, dut.lan_rgmii_rx_clk, dut.lan_rgmii_rxd,
+                           dut.lan_rgmii_rx_ctl, gmii_lan, skew_ns)
     wan_body = await tx_collect(dut, dut.u_enc.m_tvalid, dut.u_enc.m_tdata, dut.u_enc.m_tlast, 40000)
     if wan_body != exp_wan:
         for i in range(min(len(wan_body), len(exp_wan))):
@@ -156,8 +180,8 @@ async def test_bridge_loopback(dut):
         assert False, "wan enc mismatch"
     dut._log.info("wan enc OK")
 
-    await rgmii_drive(dut, dut.wan_rgmii_rx_clk, dut.wan_rgmii_rxd,
-                      dut.wan_rgmii_rx_ctl, gmii_wan)
+    await rgmii_drive_skew(dut, dut.wan_rgmii_rx_clk, dut.wan_rgmii_rxd,
+                           dut.wan_rgmii_rx_ctl, gmii_wan, skew_ns)
     lan_body = await tx_collect(dut, dut.u_dec.m_tvalid, dut.u_dec.m_tdata, dut.u_dec.m_tlast, 40000)
     dut._log.info(f"lan tx {len(lan_body)}B")
     await Timer(3000, units="ns")
@@ -168,3 +192,18 @@ async def test_bridge_loopback(dut):
         dut._log.error(f"LAN MISMATCH got={lan_body[:40].hex()} exp={lan_frame[:40].hex()}")
         assert False, "lan dec mismatch"
     dut._log.info("lan dec OK")
+
+
+@cocotb.test()
+async def test_bridge_loopback(dut):
+    await run_loopback(dut, 0.0)
+
+
+@cocotb.test()
+async def test_bridge_rx_skew_15(dut):
+    await run_loopback(dut, 1.5)
+
+
+@cocotb.test()
+async def test_bridge_rx_skew_20(dut):
+    await run_loopback(dut, 2.0)

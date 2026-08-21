@@ -3,7 +3,7 @@ import os
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, Timer
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from Crypto.Cipher import AES
 
 VECDIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "vectors", "generated")
 VECTORS = os.path.join(VECDIR, "esp.json")
@@ -42,9 +42,12 @@ async def run_crypto(dut, key, nonce, aad, pt_len, decrypt, tag_in, blks):
     prev_r = 0
     dut.pt_valid.value = 1 if blks else 0
     dut.pt_data.value = blks[0] if blks else 0
+    dut._log.info(f"RUN pt_valid_set={1 if blks else 0} blks={len(blks) if blks else 0}")
     for _ in range(300000):
         await RisingEdge(dut.clk)
         await Timer(1, units="ns")
+        if _ < 20:
+            dut._log.info(f"LOOP{_} pv={int(dut.pt_valid.value)} pr={int(dut.pt_ready.value)} bi={bi} prev={prev_r}")
         if int(dut.ct_valid.value) and int(dut.ct_ready.value):
             out += int(dut.ct_data.value).to_bytes(16, "big")
         cur_r = int(dut.pt_ready.value)
@@ -83,14 +86,15 @@ async def test_gcm_stream_roundtrip(dut):
         seq = bytes.fromhex(v["seq"])
         aad = spi + seq
         pt = bytes((i * 7 + li) % 256 for i in range(L))
-        aes = AESGCM(key)
-        ct_tag = aes.encrypt(iv, pt, aad)
+        aes = AES.new(key, AES.MODE_GCM, nonce=iv)
+        aes.update(aad)
+        ct_tag = aes.encrypt(pt) + aes.digest()
         exp_ct = ct_tag[:-16]
         exp_tag = ct_tag[-16:]
         ct, tag, _ = await run_crypto(dut, key, iv, aad, L, False, b"", blocks(pt))
-        if L == 17:
-            dut._log.info(f"DEBUG17 exp_ct={exp_ct.hex()} got_ct={ct.hex()}")
-            dut._log.info(f"DEBUG17 exp_tag={exp_tag.hex()} got_tag={tag.hex()}")
+        if L == 17 or L == 1:
+            dut._log.info(f"DEBUG{li} exp_ct={exp_ct.hex()} got_ct={ct.hex()}")
+            dut._log.info(f"DEBUG{li} exp_tag={exp_tag.hex()} got_tag={tag.hex()}")
         dut._log.info(f"len {li} L={L} enc ct={ct == exp_ct} tag={tag == exp_tag}")
         assert ct == exp_ct and tag == exp_tag, f"len {li} enc mismatch"
         pt2, _, ok = await run_crypto(dut, key, iv, aad, L, True, tag, blocks(ct))

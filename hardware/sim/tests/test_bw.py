@@ -30,7 +30,7 @@ async def drive_frame(dut, clk, start_sig, valid_sig, ready_sig, data_sig, nonce
         await RisingEdge(clk)
 
 
-async def run_bw(dut, dual, pt_len, blk, use_b=False):
+async def run_bw(dut, dual, pt_len, blk, use_b=False, period=9.09):
     dut.key.value = int.from_bytes(KEY, "big")
     dut.pt_valid_a.value = 0
     dut.pt_valid_b.value = 0
@@ -67,25 +67,26 @@ async def run_bw(dut, dual, pt_len, blk, use_b=False):
     else:
         await drive_a()
     t1 = cocotb.utils.get_sim_time(units="ns")
-    nclk = (t1 - t0) / 10.0
+    nclk = (t1 - t0) / period
     nbit = blk * 128 * (2 if dual else 1)
     per_block = nclk / blk
+    gbps = nbit / (t1 - t0) 
     dut._log.info(f"dual={dual} pt_len={pt_len}B blk={blk} 耗时={nclk:.0f}拍 "
-                  f"每块={per_block:.2f}拍 吞吐={nbit/nclk*100:.1f}Mbps@100MHz "
-                  f"({nbit/nclk*125:.1f}Mbps@125MHz)")
+                  f"每块={per_block:.2f}拍 实测={gbps:.3f}Gbps @{1000/period:.0f}MHz "
+                  f"(拍数外推@{1000/period:.0f}MHz={nbit/(nclk*period)*1000:.3f})")
     return per_block
 
 
 @cocotb.test
 async def test_bw_dec_only(dut):
-    cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, 9.09, units="ns").start())
     p = await run_bw(dut, dual=False, pt_len=1400, blk=NBLK, use_b=True)
     assert p <= 24
 
 
 @cocotb.test
 async def test_bw_dual_parallel(dut):
-    cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, 9.09, units="ns").start())
     p1 = await run_bw(dut, dual=False, pt_len=1400, blk=NBLK)
     p2 = await run_bw(dut, dual=True, pt_len=1400, blk=NBLK)
     assert p1 <= 24, f"单核每块 {p1:.1f} 拍，超过 24 拍预期"
