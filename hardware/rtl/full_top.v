@@ -1,3 +1,4 @@
+`include "hw_clk_cfg.v"
 module full_top (
     input  wire        clk,
     input  wire        rstn,
@@ -55,9 +56,10 @@ module full_top (
     defparam u_pll.IDIV_SEL = 2;
     defparam u_pll.FBDIV_SEL = 5;
     defparam u_pll.CLKFB_SEL = "INTERNAL";
-    defparam u_pll.MDIV_SEL = 44;
-    defparam u_pll.ODIV0_SEL = 10;
-    defparam u_pll.ODIV1_SEL = 22;
+    defparam u_pll.MDIV_SEL = `CLK_MDIV;
+    defparam u_pll.ODIV0_SEL = `CLK_ODIV0;
+    defparam u_pll.ODIV0_FRAC_SEL = `CLK_ODIV0_FRAC;
+    defparam u_pll.ODIV1_SEL = `CLK_ODIV1;
     defparam u_pll.CLKOUT0_EN = "TRUE";
     defparam u_pll.CLKOUT1_EN = "TRUE";
 

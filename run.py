@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from utils import config
 from utils.cross import cross
 from utils.nrv import convert
-from utils.pnr import pnr
+from utils.pnr import pnr, list_freq
 from utils.sim import sim
 
 
@@ -23,6 +23,9 @@ def main():
     p_pnr = sub.add_parser("pnr")
     p_pnr.add_argument("--dry-run", action="store_true")
     p_pnr.add_argument("--verify-only", action="store_true")
+    p_pnr.add_argument("--list-freq", action="store_true")
+    p_pnr.add_argument("--fmin", type=float, default=100.0)
+    p_pnr.add_argument("--fmax", type=float, default=125.0)
     p_cross = sub.add_parser("cross")
     p_cross.add_argument("mode", nargs="?", default="gen", choices=["gen", "verify"])
     sub.add_parser("nrv")
@@ -31,6 +34,9 @@ def main():
     if args.cmd == "sim":
         sim(args.mod, args.testcase)
     elif args.cmd == "pnr":
+        if args.list_freq:
+            list_freq(fmin=args.fmin, fmax=args.fmax)
+            sys.exit(0)
         sys.exit(pnr(dry_run=args.dry_run, verify_only=args.verify_only))
     elif args.cmd == "cross":
         cross(args.mode)
