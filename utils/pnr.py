@@ -15,10 +15,11 @@ def pnr(dry_run=False, verify_only=False):
     device = os.environ.get("DEVICE", "GW5A-LV25MG121NC1/I0")
     dev_ver = os.environ.get("DEVICE_VERSION", "A")
     place_opt = int(os.environ.get("PLACE_OPTION", "1"))
+    route_opt = int(os.environ.get("ROUTE_OPTION", "2"))
     freq = int(os.environ.get("GLOBAL_FREQ", "120"))
     sdc = os.path.join(config.SYNTH, "timing.sdc")
     cst = os.path.join(config.SYNTH, "full_top.cst")
-    work = os.path.join(config.BUILD, "synth", "impl")
+    work = os.path.join(config.BUILD, "synth", "impl" + os.environ.get("PNR_WORK", ""))
     results_dir = os.path.join(config.LOGS, "pnr")
 
     def collect_sources():
@@ -37,7 +38,7 @@ def pnr(dry_run=False, verify_only=False):
             "set_option -resolve_multiple_driver 1",
             "set_option -place_option %d" % place_opt,
             "set_option -timing_driven 1",
-            "set_option -route_option 1",
+            "set_option -route_option %d" % route_opt,
             "set_option -use_sspi_as_gpio 1",
             "set_option -use_cpu_as_gpio 1",
             "set_option -use_mspi_as_gpio 1",
@@ -105,7 +106,8 @@ def pnr(dry_run=False, verify_only=False):
                                 datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + ".json")
             payload = {
                 "device": device, "device_version": dev_ver,
-                "place_option": place_opt, "global_freq": freq,
+                "place_option": place_opt, "route_option": route_opt,
+                "global_freq": freq,
                 "paths": [{"type": s["type"], "slack": s["slack"]} for s in secs],
                 "worst_slack": worst, "resources": res,
             }
