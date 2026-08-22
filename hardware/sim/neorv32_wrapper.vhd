@@ -1,0 +1,72 @@
+-- ================================================================================ --
+-- NEORV32 wrapper for VHDL-to-Verilog conversion (KyberLink XIP simulation)        --
+-- -------------------------------------------------------------------------------- --
+-- Configuration mirrors neorv32_setup_25k (SMC_EN, UART0, GPIO, CLINT; no XBUS).  --
+-- Converted with: ghdl synth --out=verilog, then simulated via cocotb/verilator.  --
+-- ================================================================================ --
+
+library ieee;
+use ieee.std_logic_1164.all;
+
+library work;
+use work.neorv32_package.all;
+
+entity neorv32_wrapper is
+  port (
+    clk_i       : in  std_ulogic;
+    rstn_i      : in  std_ulogic;
+    gpio_o      : out std_ulogic_vector(31 downto 0);
+    uart0_txd_o : out std_ulogic;
+    uart0_rxd_i : in  std_ulogic;
+    smc_sck_o   : out std_ulogic;
+    smc_csn_o   : out std_ulogic_vector(1 downto 0);
+    smc_sdo_o   : out std_ulogic;
+    smc_sdi_i   : in  std_ulogic
+  );
+end entity;
+
+architecture neorv32_wrapper_rtl of neorv32_wrapper is
+
+begin
+
+  neorv32_top_inst: neorv32_top
+  generic map (
+    CLOCK_FREQUENCY  => 50000000,
+    BOOT_MODE_SELECT => 2,
+    RISCV_ISA_C      => true,
+    RISCV_ISA_M      => true,
+    RISCV_ISA_Zbb    => false,
+    RISCV_ISA_Zicntr => true,
+    CPU_FAST_MUL_EN  => true,
+    CPU_FAST_MUL_REGS => 1,
+    CPU_FAST_SHIFT_EN => true,
+    IMEM_EN          => true,
+    IMEM_SIZE        => 14*1024,
+    DMEM_EN          => true,
+    DMEM_SIZE        => 6*1024,
+    ICACHE_EN        => false,
+    ICACHE_NUM_BLOCKS => 16,
+    CACHE_BLOCK_SIZE => 64,
+    DCACHE_EN        => false,
+    DCACHE_NUM_BLOCKS => 16,
+    SMC_EN           => true,
+    IO_GPIO_NUM      => 8,
+    IO_CLINT_EN      => true,
+    IO_UART0_EN      => true,
+    IO_SPI_EN        => false,
+    IO_TRNG_EN       => false,
+    XBUS_EN          => false
+  )
+  port map (
+    clk_i       => clk_i,
+    rstn_i      => rstn_i,
+    gpio_o      => gpio_o,
+    uart0_txd_o => uart0_txd_o,
+    uart0_rxd_i => uart0_rxd_i,
+    smc_sck_o   => smc_sck_o,
+    smc_csn_o   => smc_csn_o,
+    smc_sdo_o   => smc_sdo_o,
+    smc_sdi_i   => smc_sdi_i
+  );
+
+end architecture;

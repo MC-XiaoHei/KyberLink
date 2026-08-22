@@ -147,6 +147,23 @@ MODS = {
         "src": [R("ghash.v")],
         "test": "test_ghash",
     },
+    "nrv_xip": {
+        "top": "nrv_xip_top",
+        "src": [os.path.join(BUILD, "neorv32_conv", "neorv32_wrapper.v"),
+                S("nrv_xip_top.v"), S("w25q64_model.v")],
+        "test": "test_nrv_xip",
+    },
+    "full_sim": {
+        "top": "full_top_sim",
+        "src": [R("axis_pipe1.v"), R("aes256_core_pipe.v"), R("sb_sbox16.v"), S("gowin_dpb_sim.v"),
+                R("sbox_combo_cf_lut.v"), R("ghash.v"), R("gcm_stream.v"),
+                R("bridge_enc_path.v"), R("bridge_dec_path.v"), R("ip_udp_eth_rx.v"),
+                R("bridge_top.v"), S("gowin_simlib.v")] +
+               [os.path.join(R("mac"), f) for f in os.listdir(R("mac")) if f.endswith(".v")] +
+               [os.path.join(BUILD, "neorv32_conv", "neorv32_full_wrapper.v"),
+                R("neorv32", "bridge_ctrl.v"), S("full_top_sim.v")],
+        "test": "test_full_sim",
+    },
 }
 
 WNO = ["-Wno-fatal", "-Wno-SELRANGE", "-Wno-WIDTH", "-Wno-UNOPTFLAT"]

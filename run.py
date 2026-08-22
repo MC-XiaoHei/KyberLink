@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from utils import config
 from utils.cross import cross
+from utils.nrv import convert
 from utils.pnr import pnr
 from utils.sim import sim
 
@@ -24,6 +25,7 @@ def main():
     p_pnr.add_argument("--verify-only", action="store_true")
     p_cross = sub.add_parser("cross")
     p_cross.add_argument("mode", nargs="?", default="gen", choices=["gen", "verify"])
+    sub.add_parser("nrv")
     sub.add_parser("clean")
     args = ap.parse_args()
     if args.cmd == "sim":
@@ -32,6 +34,8 @@ def main():
         sys.exit(pnr(dry_run=args.dry_run, verify_only=args.verify_only))
     elif args.cmd == "cross":
         cross(args.mode)
+    elif args.cmd == "nrv":
+        sys.exit(convert())
     elif args.cmd == "clean":
         os.system("rm -rf build/sim build/synth build/probe")
 

@@ -17,10 +17,10 @@ entity neorv32_setup_25k is
     gpio_o : out std_ulogic_vector(7 downto 0);
     uart0_txd_o : out std_ulogic;
     uart0_rxd_i : in  std_ulogic;
-    spi_clk_o   : out std_ulogic;
-    spi_dat_o   : out std_ulogic;
-    spi_dat_i   : in  std_ulogic;
-    spi_csn_o   : out std_ulogic_vector(7 downto 0);
+    smc_sck_o   : out std_ulogic;
+    smc_csn_o   : out std_ulogic_vector(1 downto 0);
+    smc_sdo_o   : out std_ulogic;
+    smc_sdi_i   : in  std_ulogic;
     xbus_adr_o  : out std_ulogic_vector(31 downto 0);
     xbus_dat_o  : out std_ulogic_vector(31 downto 0);
     xbus_we_o   : out std_ulogic;
@@ -95,7 +95,7 @@ begin
     IO_GPIO_NUM      => 8,
     IO_CLINT_EN      => true,
     IO_UART0_EN      => true,
-    IO_SPI_EN        => true,
+    IO_SPI_EN        => false,
     IO_TRNG_EN       => false,
     XBUS_EN          => true
   )
@@ -105,10 +105,10 @@ begin
     gpio_o      => con_gpio_out,
     uart0_txd_o => uart0_txd_o,
     uart0_rxd_i => uart0_rxd_i,
-    spi_clk_o   => spi_clk_o,
-    spi_dat_o   => spi_dat_o,
-    spi_dat_i   => spi_dat_i,
-    spi_csn_o   => spi_csn_o,
+    smc_sck_o   => smc_sck_o,
+    smc_csn_o   => smc_csn_o,
+    smc_sdo_o   => smc_sdo_o,
+    smc_sdi_i   => smc_sdi_i,
     xbus_adr_o  => xbus_adr_s,
     xbus_dat_o  => xbus_dat_os,
     xbus_we_o   => xbus_we_s,

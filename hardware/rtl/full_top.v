@@ -3,10 +3,10 @@ module full_top (
     input  wire        rstn,
     output wire        uart0_txd,
     input  wire        uart0_rxd,
-    output wire        spi_clk,
-    output wire        spi_mosi,
-    input  wire        spi_miso,
-    output wire        spi_csn,
+    output wire        smc_sck,
+    output wire        smc_sdo,
+    input  wire        smc_sdi,
+    output wire        smc_csn,
     output wire        gpio_led,
     input  wire        lan_rgmii_rx_clk,
     input  wire [3:0]  lan_rgmii_rxd,
@@ -33,7 +33,7 @@ module full_top (
     wire        nrv_xbus_cyc;
     wire        nrv_xbus_ack;
     wire        nrv_xbus_err;
-    wire [7:0]  nrv_spi_csn;
+    wire [1:0]  nrv_smc_csn;
     wire clk_dp;
     wire clk_nrv;
     wire pll_lock;
@@ -71,10 +71,10 @@ module full_top (
         .gpio_o(nrv_gpio),
         .uart0_txd_o(uart0_txd),
         .uart0_rxd_i(uart0_rxd),
-        .spi_clk_o(spi_clk),
-        .spi_dat_o(spi_mosi),
-        .spi_dat_i(spi_miso),
-        .spi_csn_o(nrv_spi_csn),
+        .smc_sck_o(smc_sck),
+        .smc_sdo_o(smc_sdo),
+        .smc_sdi_i(smc_sdi),
+        .smc_csn_o(nrv_smc_csn),
         .xbus_adr_o(nrv_xbus_adr),
         .xbus_dat_o(nrv_xbus_dat_o),
         .xbus_we_o(nrv_xbus_we),
@@ -87,7 +87,7 @@ module full_top (
     );
 
     assign gpio_led = nrv_gpio[0];
-    assign spi_csn = nrv_spi_csn[0];
+    assign smc_csn = nrv_smc_csn[0];
 
     bridge_top #(
         .MAC_TARGET("GOWIN")
