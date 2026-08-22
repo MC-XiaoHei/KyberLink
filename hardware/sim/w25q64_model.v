@@ -8,7 +8,7 @@ module w25q64_model (
     output reg         sdi      // SPI data in  (flash -> host)
 );
 
-    reg [7:0] mem [0:2047];     // 2 KB test image
+    reg [7:0] mem [0:8388607];  // 8 MB
     integer bitcnt;
     reg [7:0] cmd;
     reg [23:0] addr;
@@ -39,7 +39,7 @@ module w25q64_model (
             if (bitcnt >= 32) begin
                 // output data: flash[addr], MSB first
                 if (bitpos == 0) begin
-                    curbyte = mem[addr[10:0]];
+                    curbyte = mem[addr[22:0]];
                 end
                 sdi = curbyte[7 - bitpos];
                 bitpos = bitpos + 1;
