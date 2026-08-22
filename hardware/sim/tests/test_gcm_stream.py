@@ -21,7 +21,7 @@ async def reset_dut(dut):
     dut.rst_n.value = 1
     for _ in range(5):
         await RisingEdge(dut.clk)
-    await Timer(1, units="ns")
+    await Timer(1, unit="ns")
 
 
 async def run_crypto(dut, key, nonce, aad, pt_len, decrypt, tag_in, blks):
@@ -45,7 +45,7 @@ async def run_crypto(dut, key, nonce, aad, pt_len, decrypt, tag_in, blks):
     dut._log.info(f"RUN pt_valid_set={1 if blks else 0} blks={len(blks) if blks else 0}")
     for _ in range(300000):
         await RisingEdge(dut.clk)
-        await Timer(1, units="ns")
+        await Timer(1, unit="ns")
         if _ < 20:
             dut._log.info(f"LOOP{_} pv={int(dut.pt_valid.value)} pr={int(dut.pt_ready.value)} bi={bi} prev={prev_r}")
         if int(dut.ct_valid.value) and int(dut.ct_ready.value):
@@ -67,7 +67,7 @@ async def run_crypto(dut, key, nonce, aad, pt_len, decrypt, tag_in, blks):
 
 @cocotb.test()
 async def test_gcm_stream_roundtrip(dut):
-    cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     dut.pt_valid.value = 0
     dut.ct_ready.value = 1
     dut.start.value = 0

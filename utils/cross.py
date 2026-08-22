@@ -3,6 +3,7 @@ import os
 import random
 
 from . import config
+from .core import AppError, Result
 
 N = 500
 
@@ -50,7 +51,10 @@ def cross(mode="gen"):
         with open(os.path.join(out, "dsa.json"), "w") as f:
             json.dump(dsa, f)
         print(f"generated {len(kem)} kem + {len(dsa)} dsa vectors -> {out}")
-        return
+        return Result("cross", config={"mode": mode},
+                      metrics={"kem": len(kem), "dsa": len(dsa)},
+                      artifacts={"kem": os.path.join(out, "kem.json"),
+                                 "dsa": os.path.join(out, "dsa.json")})
 
     if mode == "verify":
         kem_in = json.load(open(os.path.join(out, "kem.json")))
@@ -67,6 +71,6 @@ def cross(mode="gen"):
                 assert s.verify(bytes.fromhex(v["msg"]), bytes.fromhex(v["sig"]), bytes.fromhex(v["pk"])), \
                     f"dsa {v['index']}"
         print("dsa_out verified (rust sign -> liboqs verify)")
-        return
+        return Result("cross", config={"mode": mode})
 
-    raise SystemExit(f"unknown mode: {mode}")
+    raise AppError("unknown mode: %s" % mode, 2)

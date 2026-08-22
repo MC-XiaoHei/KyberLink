@@ -16,10 +16,10 @@ async def test_ghash_vectors(dut):
     with open(VECTORS) as f:
         vecs = json.load(f)
 
-    clock = Clock(dut.clk, 10, units="ns")
+    clock = Clock(dut.clk, 10, unit="ns")
     cocotb.start_soon(clock.start())
     dut.rst_n.value = 0
-    await Timer(25, units="ns")
+    await Timer(25, unit="ns")
     dut.rst_n.value = 1
     await RisingEdge(dut.clk)
 

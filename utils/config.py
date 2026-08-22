@@ -10,7 +10,15 @@ SYNTH = os.path.join(REPO, "hardware", "synth")
 BUILD = os.path.join(REPO, "build")
 LOGS = os.path.join(REPO, "logs")
 VECTORS = os.path.join(REPO, "vectors")
-VENV_PY = os.path.join(REPO, ".venv", "bin", "python.exe")
+
+
+def run_dir():
+    ts = os.environ.get("RUN_TS")
+    if ts:
+        d = os.path.join(LOGS, os.environ.get("RUN_CMD", "run"), ts)
+        os.makedirs(d, exist_ok=True)
+        return d
+    return None
 
 
 def load_env():
@@ -24,37 +32,6 @@ def load_env():
                 continue
             k, _, v = line.partition("=")
             os.environ.setdefault(k.strip(), v.strip())
-
-
-def ensure_shims():
-    d = os.path.join(BUILD, "bin")
-    os.makedirs(d, exist_ok=True)
-    if not os.path.exists(os.path.join(d, "verilator.exe")):
-        v = os.environ.get("VERILATOR")
-        if v and os.path.exists(v):
-            shutil.copy2(v, os.path.join(d, "verilator.exe"))
-    if not os.path.exists(os.path.join(d, "make.exe")):
-        for p in os.environ.get("TOOLCHAIN_BIN", "").split(os.pathsep):
-            cand = os.path.join(p, "mingw32-make.exe")
-            if os.path.exists(cand):
-                shutil.copy2(cand, os.path.join(d, "make.exe"))
-                break
-
-
-def ensure_py_runtime(build_dir):
-    src = None
-    for p in os.environ.get("TOOLCHAIN_BIN", "").split(os.pathsep):
-        if os.path.exists(os.path.join(p, "libpython3.14.dll")):
-            src = p
-            break
-    if src:
-        for dll in ("libpython3.14.dll", "libgcc_s_seh-1.dll", "libstdc++-6.dll",
-                    "libwinpthread-1.dll", "libssp-0.dll", "libffi-8.dll", "zlib1.dll"):
-            s = os.path.join(src, dll)
-            if not os.path.exists(s):
-                s = os.path.join(BUILD, "bin", dll)
-            if os.path.exists(s) and not os.path.exists(os.path.join(build_dir, dll)):
-                shutil.copy2(s, os.path.join(build_dir, dll))
 
 
 def find_tool(env, name):
@@ -81,7 +58,8 @@ def gw_sh():
 
 
 def cocotb_config():
-    return os.environ.get("COCOTB_CONFIG", os.path.join(os.path.dirname(VENV_PY), "cocotb-config.exe"))
+    exe = "cocotb-config" + (".exe" if os.name == "nt" else "")
+    return os.environ.get("COCOTB_CONFIG", os.path.join(os.path.dirname(sys.executable), exe))
 
 
 def cocotb_lib_dir():
@@ -91,12 +69,20 @@ def cocotb_lib_dir():
 def verilator_env():
     v = verilator()
     env = dict(os.environ)
+    os.environ.pop("VERILATOR_ROOT", None)
+    env.pop("VERILATOR_ROOT", None)
     root = os.environ.get("VERILATOR_ROOT")
+    if root and not os.path.exists(os.path.join(root, "bin", "verilator_bin")):
+        root = None
     base = os.path.dirname(os.path.dirname(v))
-    if not root and os.path.exists(os.path.join(base, "share", "verilator", "include", "verilated_std.sv")):
-        root = os.path.join(base, "share", "verilator")
-    if root:
+    if not root:
+        for cand in (os.path.join(base, "share", "verilator"), base):
+            if os.path.exists(os.path.join(cand, "bin", "verilator_bin")):
+                root = cand
+                break
+    if root and os.path.exists(os.path.join(root, "include", "verilated_std.sv")):
         env["VERILATOR_ROOT"] = root
+        os.environ["VERILATOR_ROOT"] = root
     path = []
     for p in [os.path.join(BUILD, "bin")] + [p for p in os.environ.get("TOOLCHAIN_BIN", "").split(os.pathsep) if p]:
         if os.path.isdir(p):
@@ -106,7 +92,7 @@ def verilator_env():
         path.append(libs)
     for seg in os.environ.get("PATH", "").split(os.pathsep):
         seg = seg.strip()
-        if len(seg) >= 2 and seg[1] == ":" and seg[0].isalpha() and os.path.isdir(seg) and seg not in path:
+        if seg and os.path.isdir(seg) and seg not in path:
             path.append(seg)
     env["PATH"] = os.pathsep.join(path)
     return env

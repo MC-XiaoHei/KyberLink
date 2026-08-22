@@ -78,16 +78,16 @@ async def rgmii_drive_skew(dut, clk_sig, rxd_sig, ctl_sig, gmii_bytes, skew_ns):
     for i, b in enumerate(gmii_bytes):
         if i > 0:
             hi_t = period * i - skew_ns
-            await Timer(hi_t - prev, units="ns")
+            await Timer(hi_t - prev, unit="ns")
             rxd_sig.value = b & 0xF
             ctl_sig.value = 1
             prev = hi_t
         lo_t = period * i + period / 2 - skew_ns
-        await Timer(lo_t - prev, units="ns")
+        await Timer(lo_t - prev, unit="ns")
         rxd_sig.value = (b >> 4) & 0xF
         ctl_sig.value = 1
         prev = lo_t
-    await Timer(period / 2, units="ns")
+    await Timer(period / 2, unit="ns")
     rxd_sig.value = 0
     ctl_sig.value = 0
 
@@ -110,22 +110,22 @@ async def reset_dut(dut):
     dut.rst_n.value = 1
     for _ in range(5):
         await RisingEdge(dut.clk)
-    await Timer(1, units="ns")
+    await Timer(1, unit="ns")
 
 
 async def run_loopback(dut, skew_ns):
-    cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
-    cocotb.start_soon(Clock(dut.gtx_clk, 8, units="ns").start())
-    cocotb.start_soon(Clock(dut.wan_rgmii_rx_clk, 8, units="ns").start())
-    cocotb.start_soon(Clock(dut.lan_rgmii_rx_clk, 8, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    cocotb.start_soon(Clock(dut.gtx_clk, 8, unit="ns").start())
+    cocotb.start_soon(Clock(dut.wan_rgmii_rx_clk, 8, unit="ns").start())
+    cocotb.start_soon(Clock(dut.lan_rgmii_rx_clk, 8, unit="ns").start())
 
     async def _clk90():
-        await Timer(2, units="ns")
+        await Timer(2, unit="ns")
         while True:
             dut.gtx_clk90.value = 1
-            await Timer(4, units="ns")
+            await Timer(4, unit="ns")
             dut.gtx_clk90.value = 0
-            await Timer(4, units="ns")
+            await Timer(4, unit="ns")
 
     cocotb.start_soon(_clk90())
     dut.wan_rgmii_rxd.value = 0
@@ -184,7 +184,7 @@ async def run_loopback(dut, skew_ns):
                            dut.wan_rgmii_rx_ctl, gmii_wan, skew_ns)
     lan_body = await tx_collect(dut, dut.u_dec.m_tvalid, dut.u_dec.m_tdata, dut.u_dec.m_tlast, 40000)
     dut._log.info(f"lan tx {len(lan_body)}B")
-    await Timer(3000, units="ns")
+    await Timer(3000, unit="ns")
     assert int(dut.u_dec.tag_ok_r.value) == 1, "dec tag mismatch"
     dut._log.info("dec tag OK")
     assert lan_body is not None, "lan no frame"

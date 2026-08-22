@@ -8,6 +8,7 @@ import subprocess
 import sys
 
 from . import config
+from .core import AppError, Result
 
 _gen_cache = None
 
@@ -77,19 +78,18 @@ def pnr(dry_run=False, verify_only=False):
     try:
         freq = float(os.environ.get("GLOBAL_FREQ", "110.0"))
     except ValueError:
-        sys.exit("GLOBAL_FREQ must be numeric, got: %s" % os.environ.get("GLOBAL_FREQ"))
+        raise AppError("GLOBAL_FREQ must be numeric, got: %s" % os.environ.get("GLOBAL_FREQ"), 2)
     err, (fact, mdiv, odiv0, odiv0_frac, odiv1) = _match(freq)
     if err > 0.1:
-        sys.exit("GLOBAL_FREQ=%.3f: nearest feasible PLL config is %.4f MHz (off by %.3f); run 'run.py pnr --list-freq'"
-                 % (freq, fact, err))
+        raise AppError("GLOBAL_FREQ=%.3f: nearest feasible PLL config is %.4f MHz (off by %.3f); run 'run.py pnr --list-freq'"
+                       % (freq, fact, err), 2)
     try:
         _validate(fact, mdiv, odiv0, odiv0_frac, odiv1)
     except ValueError as e:
-        sys.exit("GLOBAL_FREQ=%s invalid: %s" % (freq, e))
+        raise AppError("GLOBAL_FREQ=%s invalid: %s" % (freq, e), 2)
     sdc = os.path.join(config.SYNTH, "timing.sdc")
     cst = os.path.join(config.SYNTH, "full_top.cst")
     work = os.path.join(config.BUILD, "synth", "impl" + os.environ.get("PNR_WORK", ""))
-    results_dir = os.path.join(config.LOGS, "pnr")
 
     def gen_clk_cfg():
         os.makedirs(os.path.join(config.BUILD, "synth"), exist_ok=True)
@@ -178,10 +178,10 @@ def pnr(dry_run=False, verify_only=False):
             out["bsram"] = m.group(1).strip()
         return out
 
-    def report(timing, rpt, save):
+    def report(timing, rpt):
         if not os.path.exists(timing):
             print("timing_paths not found", file=sys.stderr)
-            return False
+            return False, {}, None, None, []
         secs = parse_timing(timing)
         res = parse_rpt(rpt) if os.path.exists(rpt) else {}
         slacks = [s["slack"] for s in secs]
@@ -193,20 +193,7 @@ def pnr(dry_run=False, verify_only=False):
             print("%s %+.3f" % (s["type"], s["slack"]))
         for k, v in res.items():
             print("%s %s" % (k, v))
-        if save:
-            os.makedirs(results_dir, exist_ok=True)
-            name = os.path.join(results_dir, "pnr_" +
-                                datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + ".json")
-            payload = {
-                "device": device, "device_version": dev_ver,
-                "place_option": place_opt, "route_option": route_opt,
-                "global_freq": freq,
-                "paths": [{"type": s["type"], "slack": s["slack"]} for s in secs],
-                "worst_slack": worst, "resources": res,
-            }
-            json.dump(payload, open(name, "w"), indent=2)
-            print("saved %s" % name)
-        return worst >= 0
+        return worst >= 0, res, worst, None, [{"type": s["type"], "slack": s["slack"]} for s in secs]
 
     def force_rmtree(path):
         def onerr(func, p, exc):
@@ -219,10 +206,13 @@ def pnr(dry_run=False, verify_only=False):
     rpt = os.path.join(pnr_dir, "project.rpt.html")
 
     if verify_only:
-        return 0 if report(timing, rpt, save=False) else 1
+        ok, res, worst, _, paths = report(timing, rpt)
+        return Result("pnr", "ok" if ok else "fail",
+                      config={"freq": freq, "place": place_opt, "route": route_opt},
+                      metrics={"worst_slack": worst, "paths": paths}, artifacts=res,
+                      error=None if ok else "timing failed").finish()
     if not os.path.exists(gwsh):
-        print("gw_sh not found: %s" % gwsh, file=sys.stderr)
-        return 2
+        raise AppError("gw_sh not found: %s" % gwsh, 2)
 
     cfg_path = gen_clk_cfg()
     sdc_path = gen_sdc()
@@ -234,7 +224,8 @@ def pnr(dry_run=False, verify_only=False):
         print("sources %d" % len(files))
         print("--- build.tcl ---")
         print(tcl_text)
-        return 0
+        return Result("pnr", config={"freq": freq, "actual": fact,
+                                     "place": place_opt, "route": route_opt})
 
     if os.path.isdir(work):
         force_rmtree(work)
@@ -243,11 +234,21 @@ def pnr(dry_run=False, verify_only=False):
     with open(tcl_path, "w") as f:
         f.write(tcl_text)
 
-    log_path = os.path.join(work, "pnr.log")
+    log_path = os.path.join(config.run_dir(), "pnr.log") if config.run_dir() else \
+        os.path.join(work, "pnr.log")
     with open(log_path, "w") as log:
         rc = subprocess.run([gwsh, tcl_path], cwd=work,
                             stdout=log, stderr=subprocess.STDOUT).returncode
     print("gw_sh exit %d" % rc)
+    cfg = {"freq": freq, "actual": fact, "place": place_opt, "route": route_opt}
     if rc != 0:
-        return 1
-    return 0 if report(timing, rpt, save=True) else 1
+        return Result("pnr", "fail", config=cfg, error="gw_sh exit %d" % rc,
+                      artifacts={"log": log_path})
+    ok, res, worst, _, paths = report(timing, rpt)
+    arts = dict(res)
+    arts["timing"] = timing
+    arts["log"] = log_path
+    return Result("pnr", "ok" if ok else "fail", config=cfg,
+                  metrics={"worst_slack": worst, "paths": paths},
+                  artifacts=arts,
+                  error=None if ok else "timing failed")

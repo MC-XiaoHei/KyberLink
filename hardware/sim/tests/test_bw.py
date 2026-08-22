@@ -57,7 +57,7 @@ async def run_bw(dut, dual, pt_len, blk, use_b=False, period=9.09):
                           dut.pt_len_b, dut.tag_valid_b, pt_len, blk)
         dut._log.info("dec 核完成")
 
-    t0 = cocotb.utils.get_sim_time(units="ns")
+    t0 = cocotb.utils.get_sim_time(unit="ns")
     if use_b:
         await drive_b()
     elif dual:
@@ -66,7 +66,7 @@ async def run_bw(dut, dual, pt_len, blk, use_b=False, period=9.09):
         await ta
     else:
         await drive_a()
-    t1 = cocotb.utils.get_sim_time(units="ns")
+    t1 = cocotb.utils.get_sim_time(unit="ns")
     nclk = (t1 - t0) / period
     nbit = blk * 128 * (2 if dual else 1)
     per_block = nclk / blk
@@ -79,14 +79,14 @@ async def run_bw(dut, dual, pt_len, blk, use_b=False, period=9.09):
 
 @cocotb.test
 async def test_bw_dec_only(dut):
-    cocotb.start_soon(Clock(dut.clk, 9.09, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, 9.09, unit="ns").start())
     p = await run_bw(dut, dual=False, pt_len=1400, blk=NBLK, use_b=True)
     assert p <= 24
 
 
 @cocotb.test
 async def test_bw_dual_parallel(dut):
-    cocotb.start_soon(Clock(dut.clk, 9.09, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, 9.09, unit="ns").start())
     p1 = await run_bw(dut, dual=False, pt_len=1400, blk=NBLK)
     p2 = await run_bw(dut, dual=True, pt_len=1400, blk=NBLK)
     assert p1 <= 24, f"单核每块 {p1:.1f} 拍，超过 24 拍预期"
