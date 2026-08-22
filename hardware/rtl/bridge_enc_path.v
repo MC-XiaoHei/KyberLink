@@ -165,13 +165,17 @@ module bridge_enc_path (
             m_byte = tag_r[127 - 8*(tx_cnt - (ct_end + 16'd2)) -: 8];
     end
 
-    assign m_tdata = m_byte;
-    assign m_tvalid = (state == ST_TX);
-    assign m_tlast = (state == ST_TX) && (tx_cnt == frame_n - 16'd1);
+    reg [7:0] m_tdata_r;
+    reg       m_tvalid_r;
+    reg       m_tlast_r;
+    assign m_tdata = m_tdata_r;
+    assign m_tvalid = m_tvalid_r;
+    assign m_tlast = m_tlast_r;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             state <= ST_IDLE;
+            m_tvalid_r <= 1'b0;
             blk_acc <= 128'd0;
             fcnt <= 12'd0;
             frm_wr_pend <= 1'b0;
@@ -203,6 +207,7 @@ module bridge_enc_path (
             gcm_ct_ready <= 1'b0;
             case (state)
                 ST_IDLE: begin
+                    m_tvalid_r <= 1'b0;
                     if (s_tvalid) begin
                         fcnt <= 12'd1;
                         blk_acc <= {120'd0, s_tdata};
@@ -293,6 +298,9 @@ module bridge_enc_path (
                     end
                 end
                 ST_TX: begin
+                    m_tvalid_r <= 1'b1;
+                    m_tdata_r <= m_byte;
+                    m_tlast_r <= (tx_cnt == frame_n - 16'd1);
                     if (m_tready) begin
                         if (tx_cnt >= 16'd61 && tx_cnt < ct_end) begin
                             if (!tx_blk_v) begin

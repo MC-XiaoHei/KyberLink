@@ -82,9 +82,12 @@ module bridge_dec_path (
         pt_rd_data <= frm_buf[pt_rd_addr];
     end
 
-    assign m_tdata = tx_blk[127:120];
-    assign m_tvalid = (state == ST_RUN) && tx_blk_v && (tx_cnt < frame_n_r);
-    assign m_tlast = (state == ST_RUN) && tx_blk_v && (tx_cnt == frame_n_r - 16'd1);
+    reg [7:0] m_tdata_r;
+    reg       m_tvalid_r;
+    reg       m_tlast_r;
+    assign m_tdata = m_tdata_r;
+    assign m_tvalid = m_tvalid_r;
+    assign m_tlast = m_tlast_r;
     assign gcm_ct_ready = gcm_ct_valid && !ct_hold_v;
 
     always @(posedge clk or negedge rst_n) begin
@@ -113,6 +116,7 @@ module bridge_dec_path (
             ct_hold_v <= 1'b0;
             grant_used <= 1'b0;
             tx_cnt <= 16'd0;
+            m_tvalid_r <= 1'b0;
             tag_ok_r <= 1'b0;
             tag_ok <= 1'b0;
             gcm_req <= 1'b0;
@@ -128,6 +132,7 @@ module bridge_dec_path (
             end
             case (state)
                 ST_IDLE: begin
+                    m_tvalid_r <= 1'b0;
                     if (s_tvalid) begin
                         tail18 <= {tail18[135:0], s_tdata};
                         spi_r[31 - 8*fcnt[1:0] -: 8] <= s_tdata;
@@ -221,6 +226,9 @@ module bridge_dec_path (
                         ct_hold <= gcm_ct_data;
                         ct_hold_v <= 1'b1;
                     end
+                    m_tdata_r <= tx_blk[127:120];
+                    m_tvalid_r <= (state == ST_RUN) && tx_blk_v && (tx_cnt < frame_n_r);
+                    m_tlast_r <= (state == ST_RUN) && tx_blk_v && (tx_cnt == frame_n_r - 16'd1);
                     if (m_tready && tx_blk_v) begin
                         if (tx_cnt == frame_n_r - 16'd1) begin
                             state <= ST_IDLE;
