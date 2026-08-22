@@ -1,0 +1,13 @@
+[package]
+name = "kyberlink-firmware"
+description = "KyberLink NEORV32 固件（XIP 从 SPI flash 执行）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[build-dependencies]
+
+[profile.release]
+panic = "abort"

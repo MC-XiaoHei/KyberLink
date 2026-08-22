@@ -266,6 +266,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "kyberlink-firmware"
+version = "0.1.0"
+
+[[package]]
 name = "kyberlink-vecgen"
 version = "0.1.0"
 dependencies = [

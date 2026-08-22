@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/kyberlink-crypto",
+    "crates/kyberlink-firmware",
     "crates/kyberlink-vecgen",
 ]
 
