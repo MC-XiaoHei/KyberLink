@@ -11,8 +11,8 @@ module aes256_core_pipe (
     output wire         busy,
     output wire         crypt_rdy,
     output wire         load_rdy,
-    output wire         done,
-    output wire [127:0] block_out,
+    output reg          done,
+    output reg  [127:0] block_out,
     output wire [1919:0] ksch_out
 );
     localparam PHASE_IDLE     = 3'd0;
@@ -129,8 +129,36 @@ module aes256_core_pipe (
                             mc_col3[0], mc_col3[1], mc_col3[2], mc_col3[3]};
 
     wire [127:0] mid_cmb = (rd[b1_d] == 4'd14) ? sr_r[b1_d] : mc_comb;
-    wire [127:0] state_next = mid_cmb ^ ksch[rd[b1_d]];
-    assign block_out = (rd[b1_d] == 4'd14) ? state_next : out_r;
+    reg [127:0] rk;
+    always @(*) begin
+        case (rd[b1_d])
+            4'd0:  rk = ksch[0];
+            4'd1:  rk = ksch[1];
+            4'd2:  rk = ksch[2];
+            4'd3:  rk = ksch[3];
+            4'd4:  rk = ksch[4];
+            4'd5:  rk = ksch[5];
+            4'd6:  rk = ksch[6];
+            4'd7:  rk = ksch[7];
+            4'd8:  rk = ksch[8];
+            4'd9:  rk = ksch[9];
+            4'd10: rk = ksch[10];
+            4'd11: rk = ksch[11];
+            4'd12: rk = ksch[12];
+            4'd13: rk = ksch[13];
+            4'd14: rk = ksch[14];
+            default: rk = ksch[0];
+        endcase
+    end
+    wire [127:0] state_next = mid_cmb ^ rk;
+    wire [127:0] block_out_comb = (rd[b1_d] == 4'd14) ? state_next : out_r;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            block_out <= 128'd0;
+        end else begin
+            block_out <= block_out_comb;
+        end
+    end
 
     genvar ko;
     generate
@@ -233,6 +261,12 @@ module aes256_core_pipe (
     assign busy = (rd[0] != 4'd0) && (rd[1] != 4'd0) && (rd[2] != 4'd0);
     assign crypt_rdy = (phase == PHASE_CRYPT) && !busy;
     assign load_rdy = (phase == PHASE_CRYPT) && (rd[b2] == 4'd0);
-    assign done = (rd[b1_d] == 4'd14);
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            done <= 1'b0;
+        end else begin
+            done <= (rd[b1_d] == 4'd14);
+        end
+    end
 
 endmodule
