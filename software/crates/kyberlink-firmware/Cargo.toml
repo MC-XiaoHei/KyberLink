@@ -1,6 +1,6 @@
 [package]
 name = "kyberlink-firmware"
-description = "KyberLink NEORV32 固件（XIP 从 SPI flash 执行）"
+description = "KyberLink Firmware"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

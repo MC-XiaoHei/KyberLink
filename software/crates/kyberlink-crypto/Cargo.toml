@@ -1,6 +1,6 @@
 [package]
 name = "kyberlink-crypto"
-description = "KyberLink 密码层"
+description = "KyberLink Crypto Primitives"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -625,7 +625,6 @@ module sb_sbox16 (
     always @(posedge clk) begin
         lut_a_r <= lut_a;
         lut_b_r <= lut_b;
-        $display("%0t LUT xa=%02x la=%02x lar=%02x", $time, x[127:120], lut_a, lut_a_r);
     end
     assign y = {lut_a_r, lut_b_r, d6b, d6a, d5b, d5a, d4b, d4a,
                 d3b, d3a, d2b, d2a, d1b, d1a, d0b, d0a};

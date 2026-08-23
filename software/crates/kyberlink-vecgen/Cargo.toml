@@ -1,6 +1,6 @@
 [package]
 name = "kyberlink-vecgen"
-description = "KyberLink 测试向量生成器（host）"
+description = "KyberLink Test Vector Generator"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
