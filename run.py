@@ -40,10 +40,12 @@ def dispatch(args, reporter):
             return sim_all(args.testcase)
         return sim(args.mod, args.testcase)
     if args.cmd == "pnr":
-        from utils.pnr import pnr, list_freq
-        if args.list_freq:
-            list_freq(fmin=args.fmin, fmax=args.fmax)
-            return Result("pnr", config={"freqs": [args.fmin, args.fmax]})
+        from utils.pnr import pnr, pnr_multi, analyze
+        if args.analyze:
+            return analyze()
+        if args.freqs:
+            freqs = [float(x) for x in args.freqs.split(",")]
+            return pnr_multi(freqs, args.jobs, dry_run=args.dry_run)
         return pnr(dry_run=args.dry_run, verify_only=args.verify_only)
     if args.cmd == "cross":
         from utils.cross import cross
@@ -72,9 +74,10 @@ def parse():
     p_pnr = sub.add_parser("pnr")
     p_pnr.add_argument("--dry-run", action="store_true")
     p_pnr.add_argument("--verify-only", action="store_true")
-    p_pnr.add_argument("--list-freq", action="store_true")
-    p_pnr.add_argument("--fmin", type=float, default=100.0)
-    p_pnr.add_argument("--fmax", type=float, default=125.0)
+    p_pnr.add_argument("--analyze", action="store_true")
+    p_pnr.add_argument("--freqs",
+                       help="comma list of BOOT_FREQ values, e.g. 110,112,122 (parallel runs)")
+    p_pnr.add_argument("--jobs", type=int, help="parallel worker count (default: all freqs)")
     p_cross = sub.add_parser("cross")
     p_cross.add_argument("mode", nargs="?", default="gen", choices=["gen", "verify"])
     sub.add_parser("nrv")
@@ -103,6 +106,8 @@ def main():
         sys.exit(e.code)
     except KeyboardInterrupt:
         sys.exit(130)
+    if result.config.get("dry"):
+        sys.exit(0 if result.status == "ok" else 1)
     if result.status == "ok":
         reporter.ok("%s done in %.1fs" % (result.cmd, result.duration_s))
     else:

@@ -4,7 +4,7 @@ import subprocess
 from . import config
 from .core import Result
 
-ENV_KEYS = ("GLOBAL_FREQ", "VERILATOR", "TOOLCHAIN_BIN", "GOWIN_HOME", "DEVICE", "DEVICE_VERSION")
+ENV_KEYS = ("BOOT_FREQ", "TARGET_FREQ", "VERILATOR", "TOOLCHAIN_BIN", "GOWIN_HOME", "DEVICE", "DEVICE_VERSION")
 
 
 def _wsl_script():

@@ -36,13 +36,17 @@ module full_top (
     wire        nrv_xbus_err;
     wire [1:0]  nrv_smc_csn;
     wire clk_dp;
+    wire [255:0] bridge_key;
     wire clk_nrv;
-    wire pll_lock;
+    wire clk_tx;
+    wire clk_tx90;
+    wire pll_data_lock;
+    wire pll_cpu_lock;
+    wire pll_mac_lock;
 
-    PLLA u_pll (
-        .LOCK(pll_lock),
-        .CLKOUT0(clk_dp),
-        .CLKOUT1(clk_nrv),
+    PLLA u_pll_data (
+        .LOCK(pll_data_lock),
+        .CLKOUT0(), .CLKOUT1(clk_dp),
         .CLKOUT2(), .CLKOUT3(),
         .CLKOUT4(), .CLKOUT5(), .CLKOUT6(),
         .CLKFBOUT(), .MDRDO(),
@@ -52,19 +56,64 @@ module full_top (
         .SSCPOL(1'b0), .SSCON(1'b0), .SSCMDSEL(7'd0), .SSCMDSEL_FRAC(3'd0),
         .MDCLK(1'b0), .MDOPC(2'd0), .MDAINC(1'b0), .MDWDI(8'd0)
     );
-    defparam u_pll.FCLKIN = "50";
-    defparam u_pll.IDIV_SEL = 2;
-    defparam u_pll.FBDIV_SEL = 5;
-    defparam u_pll.CLKFB_SEL = "INTERNAL";
-    defparam u_pll.MDIV_SEL = `CLK_MDIV;
-    defparam u_pll.ODIV0_SEL = `CLK_ODIV0;
-    defparam u_pll.ODIV0_FRAC_SEL = `CLK_ODIV0_FRAC;
-    defparam u_pll.ODIV1_SEL = `CLK_ODIV1;
-    defparam u_pll.CLKOUT0_EN = "TRUE";
-    defparam u_pll.CLKOUT1_EN = "TRUE";
+    defparam u_pll_data.FCLKIN = "50";
+    defparam u_pll_data.IDIV_SEL = 2;
+    defparam u_pll_data.FBDIV_SEL = 5;
+    defparam u_pll_data.CLKFB_SEL = "INTERNAL";
+    defparam u_pll_data.MDIV_SEL = `DATA_MDIV;
+    defparam u_pll_data.ODIV1_SEL = `DATA_ODIV1;
+    defparam u_pll_data.CLKOUT1_EN = "TRUE";
+
+    PLLA u_pll_cpu (
+        .LOCK(pll_cpu_lock),
+        .CLKOUT0(clk_nrv),
+        .CLKOUT1(),
+        .CLKOUT2(), .CLKOUT3(),
+        .CLKOUT4(), .CLKOUT5(), .CLKOUT6(),
+        .CLKFBOUT(), .MDRDO(),
+        .CLKIN(clk), .CLKFB(1'b0),
+        .RESET(1'b0), .PLLPWD(1'b0), .RESET_I(1'b0), .RESET_O(1'b0),
+        .PSSEL(3'd0), .PSDIR(1'b0), .PSPULSE(1'b0),
+        .SSCPOL(1'b0), .SSCON(1'b0), .SSCMDSEL(7'd0), .SSCMDSEL_FRAC(3'd0),
+        .MDCLK(1'b0), .MDOPC(2'd0), .MDAINC(1'b0), .MDWDI(8'd0)
+    );
+    defparam u_pll_cpu.FCLKIN = "50";
+    defparam u_pll_cpu.IDIV_SEL = 2;
+    defparam u_pll_cpu.FBDIV_SEL = 5;
+    defparam u_pll_cpu.CLKFB_SEL = "INTERNAL";
+    defparam u_pll_cpu.MDIV_SEL = `CPU_MDIV;
+    defparam u_pll_cpu.ODIV0_SEL = `CPU_ODIV0;
+    defparam u_pll_cpu.ODIV0_FRAC_SEL = `CPU_ODIV0_FRAC;
+    defparam u_pll_cpu.ODIV1_SEL = `CPU_ODIV1;
+    defparam u_pll_cpu.CLKOUT0_EN = "TRUE";
+    defparam u_pll_cpu.CLKOUT1_EN = "FALSE";
+
+    PLLA u_pll_mac (
+        .LOCK(pll_mac_lock),
+        .CLKOUT0(clk_tx),
+        .CLKOUT1(clk_tx90),
+        .CLKOUT2(), .CLKOUT3(),
+        .CLKOUT4(), .CLKOUT5(), .CLKOUT6(),
+        .CLKFBOUT(), .MDRDO(),
+        .CLKIN(clk), .CLKFB(1'b0),
+        .RESET(1'b0), .PLLPWD(1'b0), .RESET_I(1'b0), .RESET_O(1'b0),
+        .PSSEL(3'd0), .PSDIR(1'b0), .PSPULSE(1'b0),
+        .SSCPOL(1'b0), .SSCON(1'b0), .SSCMDSEL(7'd0), .SSCMDSEL_FRAC(3'd0),
+        .MDCLK(1'b0), .MDOPC(2'd0), .MDAINC(1'b0), .MDWDI(8'd0)
+    );
+    defparam u_pll_mac.FCLKIN = "50";
+    defparam u_pll_mac.IDIV_SEL = 2;
+    defparam u_pll_mac.FBDIV_SEL = 5;
+    defparam u_pll_mac.CLKFB_SEL = "INTERNAL";
+    defparam u_pll_mac.MDIV_SEL = `MAC_MDIV;
+    defparam u_pll_mac.ODIV0_SEL = `MAC_ODIV0;
+    defparam u_pll_mac.ODIV0_FRAC_SEL = `MAC_ODIV0_FRAC;
+    defparam u_pll_mac.ODIV1_SEL = `MAC_ODIV1;
+    defparam u_pll_mac.CLKOUT0_EN = "TRUE";
+    defparam u_pll_mac.CLKOUT1_EN = "TRUE";
 
     neorv32_setup_25k #(
-        .CLOCK_FREQUENCY(50000000),
+        .CLOCK_FREQUENCY(`CPU_CLOCK_HZ),
         .IMEM_SIZE(2048),
         .DMEM_SIZE(1024)
     ) u_nrv (
@@ -91,14 +140,33 @@ module full_top (
     assign gpio_led = nrv_gpio[0];
     assign smc_csn = nrv_smc_csn[0];
 
+    bridge_ctrl u_bc (
+        .clk(clk_nrv),
+        .rst_n(rstn),
+        .xbus_adr_i(nrv_xbus_adr),
+        .xbus_dat_i(nrv_xbus_dat_o),
+        .xbus_we_i(nrv_xbus_we),
+        .xbus_stb_i(nrv_xbus_stb),
+        .xbus_cyc_i(nrv_xbus_cyc),
+        .xbus_dat_o(nrv_xbus_dat_i),
+        .xbus_ack_o(nrv_xbus_ack),
+        .xbus_err_o(nrv_xbus_err),
+        .cfg_key(bridge_key),
+        .cfg_sa_en(),
+        .cfg_cmd_start(),
+        .data_sa_active(1'b0),
+        .data_count_tx(32'd0),
+        .data_count_rx(32'd0)
+    );
+
     bridge_top #(
         .MAC_TARGET("GOWIN")
     ) u_bridge (
         .clk(clk_dp),
         .rst_n(rstn),
-        .gtx_clk(clk_dp),
-        .gtx_clk90(clk_dp),
-        .key(256'd0),
+        .gtx_clk(clk_tx),
+        .gtx_clk90(clk_tx90),
+        .key(bridge_key),
         .cfg_spi(32'h11223344),
         .cfg_iv(96'h000000000000000000000001),
         .seq_in(32'd0),
@@ -121,8 +189,6 @@ module full_top (
 
     );
 
-    assign nrv_xbus_dat_i = 32'd0;
-    assign nrv_xbus_ack = 1'b0;
-    assign nrv_xbus_err = 1'b0;
+    assign eth_rstn = 1'b1;
 
 endmodule

@@ -1,4 +1,3 @@
-import datetime
 import glob
 import json
 import os
@@ -6,6 +5,7 @@ import re
 import shutil
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 from . import config
 from .core import AppError, Result
@@ -39,216 +39,337 @@ def _match(target):
     return best
 
 
-def list_freq(fmin=100.0, fmax=125.0):
-    rows = [(f, m, o0, fr, o1) for f, m, o0, fr, o1 in _gen_all() if fmin <= f <= fmax]
-    print("%-8s %4s %5s %4s %5s %7s" % ("freq", "MDIV", "ODIV0", "FRAC", "ODIV1", "VCO"))
-    for f, mdiv, od0, frac, od1 in rows:
-        print("%-8.4f %4d %5d %4d %5d %7d" % (f, mdiv, od0, frac, od1, 25 * mdiv))
-    print("total %d (%.1f-%.1f MHz)" % (len(rows), fmin, fmax))
+def _match_info(req):
+    dist, (f, mdiv, od0, frac, od1) = _match(req)
+    return {"req_freq": req, "freq": f, "mdiv": mdiv, "odiv0": od0,
+            "odiv0_frac": frac, "freq_error": abs(f - req)}
 
 
-def _clk_ratio(mdiv, odiv0, odiv0_frac):
-    num, den = 8 * mdiv, 16 * odiv0 + 2 * odiv0_frac
-    for p in (2, 3, 5, 7, 11, 13):
-        while num % p == 0 and den % p == 0:
-            num, den = num // p, den // p
-    return num, den
+def _freq_id(f):
+    return ("%.1f" % f).replace(".", "_")
 
 
-def _validate(freq, mdiv, odiv0, odiv0_frac, odiv1):
-    vco = 25 * mdiv
-    if not 700 <= vco <= 1400:
-        raise ValueError("VCO %d out of range 700-1400" % vco)
-    fdp = vco / (odiv0 + odiv0_frac / 8.0)
-    fnrv = vco / odiv1
-    if abs(fdp - freq) > 0.05:
-        raise ValueError("clk_dp %.4f != GLOBAL_FREQ %.1f" % (fdp, freq))
-    if abs(fnrv - 50) > 0.01:
-        raise ValueError("clk_nrv %.2f != 50" % fnrv)
-    if not (2 <= mdiv <= 128 and 1 <= odiv0 <= 128 and 0 <= odiv0_frac <= 7):
-        raise ValueError("PLL parameter out of range: %d/%d/%d" % (mdiv, odiv0, odiv0_frac))
+def _ratio_simple(freq):
+    num, den = round(freq * 1000), 50000
+    g = _gcd(num, den)
+    return num // g, den // g
+
+
+def _gcd(a, b):
+    while b:
+        a, b = b, a % b
+    return a
+
+
+def analyze():
+    fs = sorted(glob.glob(os.path.join(config.LOGS, "pnr", "*", "pnr_report.json")))
+    r = None
+    for f in reversed(fs):
+        cand = json.load(open(f))
+        runs = cand.get("config", {}).get("runs")
+        if runs or cand.get("metrics", {}).get("worst_slack") is not None:
+            r, src = cand, f
+            break
+    if r is None:
+        raise AppError("no pnr report with runs/worst_slack under %s" % config.LOGS, 2)
+    cfg = r.get("config", {})
+    target = cfg.get("target") or cfg.get("freq")
+    runs = cfg.get("runs")
+    if target is None:
+        raise AppError("latest report %s lacks target/freq" % src, 2)
+    print("source: %s" % src)
+    print("constraint target=%sMHz" % (target,))
+    if runs is None:
+        worst = r["metrics"]["worst_slack"]
+        dmax = 1000.0 / target - worst
+        print("worst_slack=%+.3fns  D_max=%.3fns  max freq ~= %.1fMHz"
+              % (worst, dmax, 1000.0 / dmax))
+        return Result("pnr", config={"analyze": True, "source": src,
+                                     "target": target, "d_max_ns": dmax})
+    hdr = "%-8s %-10s %-8s %-7s %-10s %-10s %-9s %s" % (
+        "req", "matched", "MDIV", "ODIV", "errorMHz", "slack", "D_max", "maxMHz")
+    print(hdr)
+    for rn in runs:
+        dmax = rn.get("d_max_ns")
+        mx = 1000.0 / dmax if dmax else float("nan")
+        print("%-8.1f %-10.4f %-8d %-7d %-10.4f %+10.3f %-9.3f %.1f  %s" % (
+            rn["req_freq"], rn.get("freq", float("nan")), rn["mdiv"], rn["odiv0"],
+            rn.get("freq_error", float("nan")), rn.get("worst_slack", float("nan")),
+            dmax if dmax is not None else float("nan"), mx, rn.get("status", "")))
+    return Result("pnr", config={"analyze": True, "source": src,
+                                 "target": target, "runs": runs})
+
+
+def gen_clk_cfg(boot, out_dir):
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, "hw_clk_cfg.v")
+    cpu_boot = float(os.environ.get("CPU_FREQ", "75.0"))
+    mac_f = 125.0
+    _, (cf, cm, co0, cfr, co1) = _match(cpu_boot)
+    _, (mf, mm, mo0, mfr, mo1) = _match(mac_f)
+    dm, do0, dfr = _match_info(boot)["mdiv"], _match_info(boot)["odiv0"], \
+        _match_info(boot)["odiv0_frac"]
+    with open(path, "w") as f:
+        f.write("`define CPU_CLOCK_HZ %d\n" % int(cpu_boot * 1e6))
+        f.write("`define DATA_MDIV %d\n" % dm)
+        f.write("`define DATA_ODIV0 %d\n" % do0)
+        f.write("`define DATA_ODIV0_FRAC %d\n" % dfr)
+        f.write("`define DATA_ODIV1 %d\n" % do0)
+        # single-PLL legacy macros
+        f.write("`define CLK_MDIV %d\n" % dm)
+        f.write("`define CLK_ODIV0 %d\n" % do0)
+        f.write("`define CLK_ODIV0_FRAC %d\n" % dfr)
+        f.write("`define CLK_ODIV1 %d\n" % (dm // 2))
+        for pfx, (pm, po0, pfr, po1) in (("CPU", (cm, co0, cfr, co1)),
+                                          ("MAC", (mm, mo0, mfr, mo1))):
+            f.write("`define %s_MDIV %d\n" % (pfx, pm))
+            f.write("`define %s_ODIV0 %d\n" % (pfx, po0))
+            f.write("`define %s_ODIV0_FRAC %d\n" % (pfx, pfr))
+            f.write("`define %s_ODIV1 %d\n" % (pfx, po1))
+    return path
+
+
+def gen_sdc(target, out_dir):
+    sdc_src = os.environ.get("PNR_SDC_SRC") or os.path.join(config.SYNTH, "timing.sdc")
+    out = []
+    num, den = _ratio_simple(target)
+    cpu_freq = float(os.environ.get("CPU_FREQ", "75.0"))
+    cn, cd = _ratio_simple(cpu_freq)
+    for ln in open(sdc_src):
+        if "clk_dp" in ln and "create_generated_clock" in ln:
+            ln = re.sub(r"-multiply_by \d+", "-multiply_by %d" % num, ln)
+            ln = re.sub(r"-divide_by \d+", "-divide_by %d" % den, ln)
+        elif "clk_nrv" in ln and "create_generated_clock" in ln:
+            ln = re.sub(r"-multiply_by \d+", "-multiply_by %d" % cn, ln)
+            ln = re.sub(r"-divide_by \d+", "-divide_by %d" % cd, ln)
+        out.append(ln)
+    path = os.path.join(out_dir, "timing_gen.sdc")
+    with open(path, "w") as f:
+        f.writelines(out)
+    return path
+
+
+def build_tcl(cfg_path, sdc_path, cst, target, device, dev_ver, place_opt, route_opt):
+    top_src = os.environ.get("PNR_TOP_SRC")
+    files = []
+    for ext in ("*.v", "*.vhd"):
+        files += glob.glob(os.path.join(config.RTL, "**", ext), recursive=True)
+    files = [f.replace("\\", "/") for f in files]
+    if top_src:
+        file_top = os.path.join(config.RTL, "full_top.v").replace("\\", "/")
+        if file_top in files:
+            files.remove(file_top)
+        files.append(os.path.abspath(top_src).replace("\\", "/"))
+    files = sorted(files)
+    lines = [
+        "set_device %s -name GW5A-25 -device_version %s" % (device, dev_ver),
+        "set_option -global_freq %s" % target,
+        "set_option -include_path %s" % os.path.dirname(cfg_path).replace("\\", "/"),
+        "set_option -top_module full_top",
+        "set_option -compiler_compatible 1",
+        "set_option -resolve_multiple_driver 1",
+        "set_option -place_option %d" % place_opt,
+        "set_option -timing_driven 1",
+        "set_option -route_option %d" % route_opt,
+        "set_option -use_sspi_as_gpio 1",
+        "set_option -use_cpu_as_gpio 1",
+        "set_option -use_mspi_as_gpio 1",
+        "set_option -use_ready_as_gpio 1",
+        "set_option -use_done_as_gpio 1",
+    ]
+    for i in range(0, len(files), 8):
+        lines.append("add_file " + " ".join(files[i:i + 8]))
+    lines.append("add_file " + sdc_path.replace("\\", "/"))
+    if os.path.exists(cst):
+        lines.append("add_file " + cst.replace("\\", "/"))
+    lines.append("run all")
+    return "\n".join(lines) + "\n", files
+
+
+def parse_timing(path):
+    sections = []
+    cur = None
+    for raw in open(path, errors="replace"):
+        ln = raw.strip()
+        if ln == "=====":
+            if cur is not None and cur.get("slack") is not None:
+                sections.append(cur)
+            cur = {"type": "?", "slack": None}
+        elif cur is not None:
+            if ln in ("SETUP", "HOLD"):
+                cur["type"] = ln
+            elif cur["slack"] is None and re.fullmatch(r"-?\d+\.\d+", ln):
+                cur["slack"] = float(ln)
+    if cur is not None and cur.get("slack") is not None:
+        sections.append(cur)
+    return sections
+
+
+def parse_rpt(path):
+    txt = open(path, errors="replace").read()
+    out = {}
+    m = re.search(r"--LUT,ALU,ROM16</td>\s*<td>([^<]+)</td>", txt)
+    if m:
+        out["lut_alu_rom16"] = m.group(1).strip()
+    m = re.search(r"<td class=\"label\">Register</td>\s*<td>([^<]+)</td>", txt)
+    if m:
+        out["register"] = m.group(1).strip()
+    m = re.search(r"<td class=\"label\">BSRAM</td>\s*<td>([^<]+)</td>", txt)
+    if m:
+        out["bsram"] = m.group(1).strip()
+    return out
+
+
+def report(timing, rpt):
+    if not os.path.exists(timing):
+        print("timing_paths not found", file=sys.stderr)
+        return False, {}, None, None, []
+    secs = parse_timing(timing)
+    res = parse_rpt(rpt) if os.path.exists(rpt) else {}
+    slacks = [s["slack"] for s in secs]
+    worst = min(slacks)
+    wt = [s["type"] for s in secs if s["slack"] == worst][0]
+    print("paths %d" % len(secs))
+    print("worst %+.3fns (%s)" % (worst, wt))
+    for s in secs:
+        print("%s %+.3f" % (s["type"], s["slack"]))
+    for k, v in res.items():
+        print("%s %s" % (k, v))
+    return worst >= 0, res, worst, None, \
+        [{"type": s["type"], "slack": s["slack"]} for s in secs]
+
+
+def force_rmtree(path):
+    def onerr(func, p, exc):
+        os.chmod(p, 0o666)
+        func(p)
+    shutil.rmtree(path, onerror=onerr)
+
+
+def pnr_run(freq, target, place_opt, route_opt, device, dev_ver,
+            work_dir, log_path, dry_run=False, cst=None):
+    mi = _match_info(freq)
+    if os.path.isdir(work_dir):
+        force_rmtree(work_dir)
+    os.makedirs(work_dir)
+    cfg_path = gen_clk_cfg(mi["freq"], work_dir)
+    sdc_path = gen_sdc(target, work_dir)
+    tcl_text, files = build_tcl(cfg_path, sdc_path, cst, target, device, dev_ver,
+                                place_opt, route_opt)
+    if dry_run:
+        print("freq=%.4f matched mdiv=%d odiv0=%d frac=%d" %
+              (mi["freq"], mi["mdiv"], mi["odiv0"], mi["odiv0_frac"]))
+        print("work=%s" % work_dir)
+        print("log=%s" % log_path)
+        print("--- build.tcl (%d sources) ---" % len(files))
+        print(tcl_text)
+        return mi
+    tcl_path = os.path.join(work_dir, "build.tcl")
+    with open(tcl_path, "w") as f:
+        f.write(tcl_text)
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, "w") as log:
+        rc = subprocess.run([config.gw_sh(), tcl_path], cwd=work_dir,
+                            stdout=log, stderr=subprocess.STDOUT).returncode
+    print("gw_sh exit %d (%s)" % (rc, _freq_id(freq)))
+    pnr_dir = os.path.join(work_dir, "impl", "pnr")
+    timing = os.path.join(pnr_dir, "project.timing_paths")
+    rpt = os.path.join(pnr_dir, "project.rpt.html")
+    run = dict(mi)
+    if rc != 0:
+        run.update({"status": "fail", "worst_slack": None, "paths": [],
+                    "log": log_path})
+        return run
+    ok, res, worst, _, paths = report(timing, rpt)
+    if config.run_dir():
+        fid = _freq_id(freq)
+        for src, nm in ((rpt, "pnr_%s.rpt.html" % fid),
+                        (timing, "pnr_%s.timing_paths" % fid)):
+            if os.path.exists(src):
+                shutil.copy2(src, os.path.join(config.run_dir(), nm))
+    run.update({"status": "ok" if ok else "fail",
+                "worst_slack": worst, "paths": paths,
+                "timing": timing, "log": log_path})
+    if worst is not None:
+        run["d_max_ns"] = round(1000.0 / target - worst, 4)
+    return run
 
 
 def pnr(dry_run=False, verify_only=False):
-    gwsh = config.gw_sh()
     device = os.environ.get("DEVICE", "GW5A-LV25MG121NC1/I0")
     dev_ver = os.environ.get("DEVICE_VERSION", "A")
     place_opt = int(os.environ.get("PLACE_OPTION", "1"))
     route_opt = int(os.environ.get("ROUTE_OPTION", "2"))
-    try:
-        freq = float(os.environ.get("GLOBAL_FREQ", "110.0"))
-    except ValueError:
-        raise AppError("GLOBAL_FREQ must be numeric, got: %s" % os.environ.get("GLOBAL_FREQ"), 2)
-    err, (fact, mdiv, odiv0, odiv0_frac, odiv1) = _match(freq)
-    if err > 0.1:
-        raise AppError("GLOBAL_FREQ=%.3f: nearest feasible PLL config is %.4f MHz (off by %.3f); run 'run.py pnr --list-freq'"
-                       % (freq, fact, err), 2)
-    try:
-        _validate(fact, mdiv, odiv0, odiv0_frac, odiv1)
-    except ValueError as e:
-        raise AppError("GLOBAL_FREQ=%s invalid: %s" % (freq, e), 2)
-    sdc = os.path.join(config.SYNTH, "timing.sdc")
+    target = float(os.environ.get("TARGET_FREQ", "125.0"))
+    boot = float(os.environ.get("BOOT_FREQ", "100.0"))
+    if target < 1 or target > 800:
+        raise AppError("TARGET_FREQ out of range: %s" % target, 2)
+    if boot < 1 or boot > 1400:
+        raise AppError("BOOT_FREQ out of range: %s" % boot, 2)
+    work_dir = os.path.join(config.BUILD, "synth", "impl_" + _freq_id(boot))
+    log_path = os.path.join(config.run_dir(), "pnr_%s.log" % _freq_id(boot)) \
+        if config.run_dir() else os.path.join(work_dir, "pnr.log")
     cst = os.path.join(config.SYNTH, "full_top.cst")
-    work = os.path.join(config.BUILD, "synth", "impl" + os.environ.get("PNR_WORK", ""))
-
-    def gen_clk_cfg():
-        os.makedirs(os.path.join(config.BUILD, "synth"), exist_ok=True)
-        path = os.path.join(config.BUILD, "synth", "hw_clk_cfg.v")
-        with open(path, "w") as f:
-            f.write("`define CLK_MDIV %d\n" % mdiv)
-            f.write("`define CLK_ODIV0 %d\n" % odiv0)
-            f.write("`define CLK_ODIV0_FRAC %d\n" % odiv0_frac)
-            f.write("`define CLK_ODIV1 %d\n" % odiv1)
-        return path
-
-    def gen_sdc():
-        num, den = _clk_ratio(mdiv, odiv0, odiv0_frac)
-        out = []
-        for ln in open(sdc):
-            if "clk_dp" in ln and "multiply_by" in ln:
-                ln = re.sub(r"-multiply_by \d+ -divide_by \d+",
-                            "-multiply_by %d -divide_by %d" % (num, den), ln)
-            out.append(ln)
-        path = os.path.join(config.BUILD, "synth", "timing_gen.sdc")
-        with open(path, "w") as f:
-            f.writelines(out)
-        return path
-
-    def collect_sources():
-        files = []
-        for ext in ("*.v", "*.vhd"):
-            files += glob.glob(os.path.join(config.RTL, "**", ext), recursive=True)
-        return sorted(f.replace("\\", "/") for f in files)
-
-    def build_tcl(cfg_path, sdc_path):
-        files = collect_sources()
-        lines = [
-            "set_device %s -name GW5A-25 -device_version %s" % (device, dev_ver),
-            "set_option -global_freq %s" % freq,
-            "set_option -include_path %s" % os.path.join(config.BUILD, "synth").replace("\\", "/"),
-            "set_option -top_module full_top",
-            "set_option -compiler_compatible 1",
-            "set_option -resolve_multiple_driver 1",
-            "set_option -place_option %d" % place_opt,
-            "set_option -timing_driven 1",
-            "set_option -route_option %d" % route_opt,
-            "set_option -use_sspi_as_gpio 1",
-            "set_option -use_cpu_as_gpio 1",
-            "set_option -use_mspi_as_gpio 1",
-            "set_option -use_ready_as_gpio 1",
-            "set_option -use_done_as_gpio 1",
-        ]
-        for i in range(0, len(files), 8):
-            lines.append("add_file " + " ".join(files[i:i + 8]))
-        lines.append("add_file " + sdc_path.replace("\\", "/"))
-        if os.path.exists(cst):
-            lines.append("add_file " + cst.replace("\\", "/"))
-        lines.append("run all")
-        return "\n".join(lines) + "\n", files
-
-    def parse_timing(path):
-        sections = []
-        cur = None
-        for raw in open(path, errors="replace"):
-            ln = raw.strip()
-            if ln == "=====":
-                if cur is not None and cur.get("slack") is not None:
-                    sections.append(cur)
-                cur = {"type": "?", "slack": None}
-            elif cur is not None:
-                if ln in ("SETUP", "HOLD"):
-                    cur["type"] = ln
-                elif cur["slack"] is None and re.fullmatch(r"-?\d+\.\d+", ln):
-                    cur["slack"] = float(ln)
-        if cur is not None and cur.get("slack") is not None:
-            sections.append(cur)
-        return sections
-
-    def parse_rpt(path):
-        txt = open(path, errors="replace").read()
-        out = {}
-        m = re.search(r"--LUT,ALU,ROM16</td>\s*<td>([^<]+)</td>", txt)
-        if m:
-            out["lut_alu_rom16"] = m.group(1).strip()
-        m = re.search(r"<td class=\"label\">Register</td>\s*<td>([^<]+)</td>", txt)
-        if m:
-            out["register"] = m.group(1).strip()
-        m = re.search(r"<td class=\"label\">BSRAM</td>\s*<td>([^<]+)</td>", txt)
-        if m:
-            out["bsram"] = m.group(1).strip()
-        return out
-
-    def report(timing, rpt):
-        if not os.path.exists(timing):
-            print("timing_paths not found", file=sys.stderr)
-            return False, {}, None, None, []
-        secs = parse_timing(timing)
-        res = parse_rpt(rpt) if os.path.exists(rpt) else {}
-        slacks = [s["slack"] for s in secs]
-        worst = min(slacks)
-        wt = [s["type"] for s in secs if s["slack"] == worst][0]
-        print("paths %d" % len(secs))
-        print("worst %+.3fns (%s)" % (worst, wt))
-        for s in secs:
-            print("%s %+.3f" % (s["type"], s["slack"]))
-        for k, v in res.items():
-            print("%s %s" % (k, v))
-        return worst >= 0, res, worst, None, [{"type": s["type"], "slack": s["slack"]} for s in secs]
-
-    def force_rmtree(path):
-        def onerr(func, p, exc):
-            os.chmod(p, 0o666)
-            func(p)
-        shutil.rmtree(path, onerror=onerr)
-
-    pnr_dir = os.path.join(work, "impl", "pnr")
-    timing = os.path.join(pnr_dir, "project.timing_paths")
-    rpt = os.path.join(pnr_dir, "project.rpt.html")
-
     if verify_only:
-        ok, res, worst, _, paths = report(timing, rpt)
+        pnr_dir = os.path.join(work_dir, "impl", "pnr")
+        ok, res, worst, _, paths = report(
+            os.path.join(pnr_dir, "project.timing_paths"),
+            os.path.join(pnr_dir, "project.rpt.html"))
+        run = {"req_freq": boot, "freq": boot, "mdiv": 0, "odiv0": 0,
+               "odiv0_frac": 0, "freq_error": 0.0, "status": "ok" if ok else "fail",
+               "worst_slack": worst, "paths": paths}
         return Result("pnr", "ok" if ok else "fail",
-                      config={"freq": freq, "place": place_opt, "route": route_opt},
-                      metrics={"worst_slack": worst, "paths": paths}, artifacts=res,
+                      config={"target": target, "mode": "single", "runs": [run]},
+                      metrics={"worst_slack": worst, "paths": paths},
+                      artifacts=res,
                       error=None if ok else "timing failed").finish()
-    if not os.path.exists(gwsh):
-        raise AppError("gw_sh not found: %s" % gwsh, 2)
-
-    cfg_path = gen_clk_cfg()
-    sdc_path = gen_sdc()
-    tcl_text, files = build_tcl(cfg_path, sdc_path)
+    run = pnr_run(boot, target, place_opt, route_opt, device, dev_ver,
+                  work_dir, log_path, dry_run=dry_run, cst=cst)
     if dry_run:
-        print("%s v%s place=%d route=%d target=%.4fMHz actual=%.4fMHz PLL=%d/%d%s/%d" %
-              (device, dev_ver, place_opt, route_opt, freq, fact, mdiv, odiv0,
-               "+%d/8" % odiv0_frac if odiv0_frac else "", odiv1))
-        print("sources %d" % len(files))
-        print("--- build.tcl ---")
-        print(tcl_text)
-        return Result("pnr", config={"freq": freq, "actual": fact,
-                                     "place": place_opt, "route": route_opt})
-
-    if os.path.isdir(work):
-        force_rmtree(work)
-    os.makedirs(work)
-    tcl_path = os.path.join(work, "build.tcl")
-    with open(tcl_path, "w") as f:
-        f.write(tcl_text)
-
-    log_path = os.path.join(config.run_dir(), "pnr.log") if config.run_dir() else \
-        os.path.join(work, "pnr.log")
-    with open(log_path, "w") as log:
-        rc = subprocess.run([gwsh, tcl_path], cwd=work,
-                            stdout=log, stderr=subprocess.STDOUT).returncode
-    print("gw_sh exit %d" % rc)
-    cfg = {"freq": freq, "actual": fact, "place": place_opt, "route": route_opt}
-    if rc != 0:
-        return Result("pnr", "fail", config=cfg, error="gw_sh exit %d" % rc,
-                      artifacts={"log": log_path})
-    ok, res, worst, _, paths = report(timing, rpt)
-    arts = dict(res)
-    arts["timing"] = timing
-    arts["log"] = log_path
+        return Result("pnr", config={"target": target, "boot": boot,
+                                     "place": place_opt, "route": route_opt,
+                                     "dry": True, "runs": [run]})
+    cfg = {"target": target, "boot": boot, "mode": "single",
+           "place": place_opt, "route": route_opt, "runs": [run]}
+    ok = run["status"] == "ok"
+    worst = run.get("worst_slack")
     return Result("pnr", "ok" if ok else "fail", config=cfg,
-                  metrics={"worst_slack": worst, "paths": paths},
-                  artifacts=arts,
-                  error=None if ok else "timing failed")
+                  metrics={"worst_slack": worst, "paths": run.get("paths", [])},
+                  artifacts={"timing": run.get("timing"), "log": run.get("log")},
+                  error=None if ok else "timing failed").finish()
+
+
+def pnr_multi(freqs, jobs=None, dry_run=False):
+    if not freqs:
+        raise AppError("--freqs needs at least one value", 2)
+    target = float(os.environ.get("TARGET_FREQ", "125.0"))
+    device = os.environ.get("DEVICE", "GW5A-LV25MG121NC1/I0")
+    dev_ver = os.environ.get("DEVICE_VERSION", "A")
+    place_opt = int(os.environ.get("PLACE_OPTION", "1"))
+    route_opt = int(os.environ.get("ROUTE_OPTION", "2"))
+    jobs = jobs or len(freqs)
+    cst = os.path.join(config.SYNTH, "full_top.cst")
+
+    def one(freq):
+        fid = _freq_id(freq)
+        work_dir = os.path.join(config.BUILD, "synth", "impl_" + fid)
+        log_path = os.path.join(config.run_dir(), "pnr_%s.log" % fid) \
+            if config.run_dir() else os.path.join(work_dir, "pnr.log")
+        return pnr_run(freq, target, place_opt, route_opt, device, dev_ver,
+                       work_dir, log_path, dry_run=dry_run, cst=cst)
+
+    with ThreadPoolExecutor(max_workers=jobs) as ex:
+        runs = list(ex.map(one, freqs))
+    ok = all(r.get("status") == "ok" for r in runs)
+    worst = min((r.get("worst_slack") for r in runs
+                 if r.get("worst_slack") is not None), default=None)
+    cfg = {"target": target, "mode": "multi", "runs": runs}
+    metrics = {"worst_slack": worst,
+               "runs": [{"req_freq": r["req_freq"], "freq": r.get("freq"),
+                         "worst_slack": r.get("worst_slack"),
+                         "status": r.get("status")} for r in runs]}
+    arts = {"logs": [os.path.join(config.run_dir(), "pnr_%s.log" % _freq_id(f))
+                     for f in freqs if config.run_dir()]}
+    return Result("pnr", "ok" if ok or dry_run else "fail",
+                  config=cfg, metrics=metrics, artifacts=arts,
+                  error=None if ok or dry_run else "timing failed").finish()

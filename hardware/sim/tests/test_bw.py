@@ -85,6 +85,14 @@ async def test_bw_dec_only(dut):
 
 
 @cocotb.test
+async def test_bw_1500_mtu(dut):
+    cocotb.start_soon(Clock(dut.clk, 9.09, unit="ns").start())
+    p1 = await run_bw(dut, dual=False, pt_len=1500, blk=94)
+    p2 = await run_bw(dut, dual=True, pt_len=1500, blk=94)
+    assert p1 <= 24 and p2 <= 24, f"1500MTU 每块 {p1:.1f}/{p2:.1f} 拍，超过 24 拍预期"
+
+
+@cocotb.test
 async def test_bw_dual_parallel(dut):
     cocotb.start_soon(Clock(dut.clk, 9.09, unit="ns").start())
     p1 = await run_bw(dut, dual=False, pt_len=1400, blk=NBLK)
