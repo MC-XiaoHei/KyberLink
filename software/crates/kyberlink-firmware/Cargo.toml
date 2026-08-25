@@ -6,6 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+kyberlink-crypto = { path = "../kyberlink-crypto" }
 
 [build-dependencies]
 
