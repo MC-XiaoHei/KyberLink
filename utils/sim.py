@@ -51,11 +51,11 @@ def sim_all(testcase=None):
             subs[mod] = {"status": r.status, "tests": r.metrics.get("tests"),
                          "pass": r.metrics.get("pass"), "fail": r.metrics.get("fail"),
                          "skip": r.metrics.get("skip"), "testcases": r.metrics.get("testcases")}
-            print("%-12s %s" % (mod, r.status))
+            print(f"{mod:<12} {r.status}")
         except AppError as e:
             subs[mod] = {"status": "fail", "error": str(e)}
             failed.append(mod)
-            print("%-12s FAIL %s" % (mod, e))
+            print(f"{mod:<12} FAIL {e}")
         finally:
             if os.path.exists(xml):
                 os.remove(xml)

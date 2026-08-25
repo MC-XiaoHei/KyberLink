@@ -71,18 +71,18 @@ class Reporter:
         print(msg)
 
     def ok(self, msg):
-        print("[ok] %s" % msg)
+        print(f"[ok] {msg}")
 
     def fail(self, msg):
-        print("[fail] %s" % msg, file=sys.stderr)
+        print(f"[fail] {msg}", file=sys.stderr)
 
     def save(self, result):
         d = config.run_dir()
         if d:
-            name = os.path.join(d, "%s_report.json" % result.cmd)
+            name = os.path.join(d, f"{result.cmd}_report.json")
         else:
             os.makedirs(self.logs_dir, exist_ok=True)
             name = os.path.join(self.logs_dir,
-                                "%s_report_%s.json" % (result.cmd, datetime.now().strftime("%Y%m%d_%H%M%S")))
+                                f"{result.cmd}_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
         json.dump(result.to_dict(), open(name, "w"), indent=2)
         return name

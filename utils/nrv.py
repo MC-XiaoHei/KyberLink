@@ -62,17 +62,17 @@ def convert():
     base = rd if rd else os.path.join(config.LOGS, "nrv")
     os.makedirs(base, exist_ok=True)
     rc = _convert(WRAPPER_SRC, OUT_V, os.path.join(base, "nrv_convert.log"))
-    print("xip wrapper ghdl exit %d" % rc)
+    print(f"xip wrapper ghdl exit {rc}")
     if rc != 0:
-        return Result("nrv", "fail", error="xip wrapper ghdl exit %d" % rc,
+        return Result("nrv", "fail", error=f"xip wrapper ghdl exit {rc}",
                       artifacts={"log": os.path.join(base, "nrv_convert.log")})
     patch_regfile(OUT_V)
-    print("converted %s" % OUT_V)
+    print(f"converted {OUT_V}")
     rc = _convert(FULL_WRAPPER_SRC, FULL_OUT_V, os.path.join(base, "nrv_convert_full.log"))
-    print("full wrapper ghdl exit %d" % rc)
+    print(f"full wrapper ghdl exit {rc}")
     if rc != 0:
-        return Result("nrv", "fail", error="full wrapper ghdl exit %d" % rc,
+        return Result("nrv", "fail", error=f"full wrapper ghdl exit {rc}",
                       artifacts={"log": os.path.join(base, "nrv_convert_full.log")})
     patch_regfile(FULL_OUT_V)
-    print("converted %s" % FULL_OUT_V)
+    print(f"converted {FULL_OUT_V}")
     return Result("nrv", artifacts={"xip": OUT_V, "full": FULL_OUT_V})

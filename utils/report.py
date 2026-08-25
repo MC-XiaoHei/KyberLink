@@ -20,15 +20,14 @@ def _load_reports():
 def report():
     rows = _load_reports()
     if not rows:
-        return Result("report", error="no reports in %s" % config.LOGS, status="fail")
+        return Result("report", error=f"no reports in {config.LOGS}", status="fail")
     by_cmd = {}
     for r in rows:
         by_cmd.setdefault(r["cmd"], []).append(r)
     metrics = {}
     for cmd, runs in sorted(by_cmd.items()):
         last = runs[-1]
-        print("%-8s %2d runs  last=%s  %s" % (
-            cmd, len(runs), last["status"], last.get("error") or ""))
+        print(f"{cmd:<8} {len(runs):2d} runs  last={last['status']}  {last.get('error') or ''}")
         metrics[cmd] = {"runs": len(runs), "last": last["status"]}
         for r in runs[-3:]:
             extra = []
@@ -40,7 +39,6 @@ def report():
                     "%s=%s" % (k, v) for k, v in sorted(r["metrics"].items())))
             arts = ",".join(sorted(r.get("artifacts") or {}))
             if arts:
-                extra.append("art=%s" % arts)
-            print("    %s %-5s %5.1fs  %s" % (
-                r["cmd"], r["status"], r["duration_s"], "  ".join(extra)))
+                extra.append(f"art={arts}")
+            print(f"    {r['cmd']} {r['status']:<5} {r['duration_s']:5.1f}s  {'  '.join(extra)}")
     return Result("report", metrics=metrics)

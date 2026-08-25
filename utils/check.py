@@ -27,7 +27,7 @@ def check():
 
     def add(scope, name, ok, detail=""):
         items.append({"scope": scope, "name": name, "ok": ok, "detail": detail})
-        print("%-5s %-16s %-4s %s" % (scope, name, "ok" if ok else "FAIL", detail))
+        print(f"{scope:<5} {name:<16} {'ok' if ok else 'FAIL':<4} {detail}")
 
     envf = os.path.join(config.REPO, ".env")
     add("win", ".env", os.path.exists(envf), envf)

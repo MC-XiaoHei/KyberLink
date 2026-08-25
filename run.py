@@ -109,11 +109,11 @@ def main():
     if result.config.get("dry"):
         sys.exit(0 if result.status == "ok" else 1)
     if result.status == "ok":
-        reporter.ok("%s done in %.1fs" % (result.cmd, result.duration_s))
+        reporter.ok(f"{result.cmd} done in {result.duration_s:.1f}s")
     else:
-        reporter.fail("%s failed in %.1fs: %s" % (result.cmd, result.duration_s, result.error))
+        reporter.fail(f"{result.cmd} failed in {result.duration_s:.1f}s: {result.error}")
     name = reporter.save(result)
-    reporter.info("report %s" % name)
+    reporter.info(f"report {name}")
     sys.exit(0 if result.status == "ok" else 1)
 
 

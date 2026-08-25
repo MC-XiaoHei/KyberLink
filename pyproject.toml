@@ -1,7 +1,7 @@
 [project]
 name = "kyberlink"
 version = "0.1.0"
-description = "KyberLink FPGA bridge build/test entry"
+description = "KyberLink"
 requires-python = ">=3.10"
 dependencies = [
     "cocotb>=2.0.1,<3",
