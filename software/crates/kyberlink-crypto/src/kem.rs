@@ -42,6 +42,14 @@ pub fn encaps_key_from_bytes(b: &[u8; 1184]) -> Result<EncapsulationKey, ml_kem:
     EncapsulationKey::new(&(*b).into())
 }
 
+pub fn ct_bytes(ct: &Ciphertext) -> [u8; 1088] {
+    ct.as_slice().try_into().unwrap()
+}
+
+pub fn ct_from_bytes(b: &[u8; 1088]) -> Ciphertext {
+    (*b).into()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
