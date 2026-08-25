@@ -20,10 +20,15 @@ module bridge_top #(
     output wire [3:0]    lan_rgmii_txd,
     output wire          lan_rgmii_tx_ctl,
 
-    input  wire [255:0]  key,
-    input  wire [31:0]   cfg_spi,
-    input  wire [95:0]   cfg_iv,
-    input  wire [31:0]   seq_in,
+    input  wire [255:0]  enc_key,
+    input  wire [255:0]  dec_key,
+    input  wire [31:0]   enc_spi,
+    input  wire [95:0]   enc_salt,
+    input  wire [31:0]   enc_seq0,
+    input  wire [31:0]   dec_spi,
+    input  wire [95:0]   dec_salt,
+    input  wire [31:0]   dec_seq0,
+    input  wire [1:0]    sa_en,
     input  wire [31:0]   cfg_src_ip,
     input  wire [31:0]   cfg_dst_ip,
     input  wire [15:0]   cfg_src_port,
@@ -33,13 +38,36 @@ module bridge_top #(
 
     output wire [31:0]   seq_out,
     output wire          dec_tag_ok,
-    output wire          rx_err
+    output wire          rx_err,
+
+    output wire [7:0]    lan_mgmt_data,
+    output wire          lan_mgmt_valid,
+    output wire          lan_mgmt_last,
+    input  wire          lan_mgmt_ready,
+    output wire [7:0]    lan_hs_data,
+    output wire          lan_hs_valid,
+    output wire          lan_hs_last,
+    input  wire          lan_hs_ready,
+    input  wire [15:0]   hs_dport,
+    input  wire [7:0]    mgmt_tx_data,
+    input  wire          mgmt_tx_valid,
+    input  wire          mgmt_tx_last,
+    output wire          mgmt_tx_ready
 );
 
     wire logic_rst = ~rst_n;
 
     wire [7:0] wan_tx_data, wan_rx_data;
     wire       wan_tx_valid, wan_tx_ready, wan_tx_last;
+    wire       wan_hs_valid;
+    wire [7:0] enc_wan_tx_data;
+    wire       enc_wan_tx_valid, enc_wan_tx_ready, enc_wan_tx_last;
+    wire       esp_rx_valid_g = esp_rx_valid && !wan_hs_valid;
+    assign wan_tx_data = mgmt_tx_valid ? mgmt_tx_data : enc_wan_tx_data;
+    assign wan_tx_valid = mgmt_tx_valid ? mgmt_tx_valid : enc_wan_tx_valid;
+    assign wan_tx_last = mgmt_tx_valid ? mgmt_tx_last : enc_wan_tx_last;
+    assign mgmt_tx_ready = wan_tx_ready;
+    assign enc_wan_tx_ready = mgmt_tx_valid ? 1'b0 : wan_tx_ready;
     wire       wan_rx_valid, wan_rx_ready, wan_rx_last, wan_rx_user;
     wire [7:0] lan_tx_data, lan_rx_data;
     wire       lan_tx_valid, lan_tx_ready, lan_tx_last;
@@ -72,32 +100,72 @@ module bridge_top #(
     wire dec_tag_ok_w;
     wire [127:0] dec_tag_in_w;
 
-    gcm_stream u_gcm_enc (
+    wire enc_req_w;
+    wire dec_req_w;
+    wire enc_grant_w;
+    wire dec_grant_w;
+    wire enc_active_w;
+    wire dec_active_w;
+    wire gcm_busy;
+    wire dec_sel = dec_active_w;
+    wire enc_sel = enc_active_w;
+    wire gcm_pt_ready_w, gcm_ct_valid_w, gcm_tag_valid_w, gcm_tag_ok_w;
+    wire [127:0] gcm_ct_data_w, gcm_tag_w;
+
+    wire [255:0] gcm_key_w = dec_sel ? dec_key : enc_key;
+    reg [255:0] key_r;
+    reg         key_dirty;
+    reg         gcm_busy_q;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            key_r <= 256'd0;
+            key_dirty <= 1'b1;
+            gcm_busy_q <= 1'b0;
+        end else begin
+            key_r <= gcm_key_w;
+            if (gcm_key_w != key_r)
+                key_dirty <= 1'b1;
+            else if (gcm_busy && !gcm_busy_q)
+                key_dirty <= 1'b0;
+            gcm_busy_q <= gcm_busy;
+        end
+    end
+
+    gcm_arb u_arb (
         .clk(clk), .rst_n(rst_n),
-        .start(enc_start), .key(key), .nonce(enc_nonce),
-        .aad(enc_aad), .aad_len(5'd8), .pt_len(enc_pt_len),
-        .pt_valid(enc_pt_valid), .pt_ready(enc_pt_ready), .pt_data(enc_pt_data),
-        .ct_valid(enc_ct_valid), .ct_ready(enc_ct_ready), .ct_data(enc_ct_data),
-        .tag_valid(enc_tag_valid), .tag(enc_tag),
-        .decrypt(1'b0), .tag_in(128'd0), .tag_ok(),
-        .busy(), .done()
+        .enc_req(enc_req_w), .dec_req(dec_req_w),
+        .engine_busy(gcm_busy),
+        .enc_grant(enc_grant_w), .dec_grant(dec_grant_w)
     );
 
-    gcm_stream u_gcm_dec (
+    wire gcm_start_w    = dec_sel ? dec_start    : enc_start;
+    wire [11:0] gcm_pt_len_w = dec_sel ? dec_pt_len   : enc_pt_len;
+    wire [95:0] gcm_nonce_w = dec_sel ? dec_nonce   : enc_nonce;
+    wire [127:0] gcm_aad_w  = dec_sel ? dec_aad    : enc_aad;
+    wire gcm_pt_valid_w = dec_sel ? dec_pt_valid : enc_pt_valid;
+    wire [127:0] gcm_pt_data_w = dec_sel ? dec_pt_data : enc_pt_data;
+    wire gcm_ct_ready_w = dec_sel ? dec_ct_ready : enc_ct_ready;
+
+    wire gcm_pt_ready_e  = dec_sel ? 1'b0 : gcm_pt_ready_w;
+    wire gcm_pt_ready_d  = dec_sel ? gcm_pt_ready_w : 1'b0;
+    wire gcm_ct_valid_e  = dec_sel ? 1'b0 : gcm_ct_valid_w;
+    wire gcm_ct_valid_d  = dec_sel ? gcm_ct_valid_w : 1'b0;
+
+    gcm_stream u_gcm (
         .clk(clk), .rst_n(rst_n),
-        .start(dec_start), .key(key), .nonce(dec_nonce),
-        .aad(dec_aad), .aad_len(5'd8), .pt_len(dec_pt_len),
-        .pt_valid(dec_pt_valid), .pt_ready(dec_pt_ready), .pt_data(dec_pt_data),
-        .ct_valid(dec_ct_valid), .ct_ready(dec_ct_ready), .ct_data(dec_ct_data),
-        .tag_valid(dec_tag_valid), .tag(dec_tag),
-        .decrypt(1'b1), .tag_in(dec_tag_in_w), .tag_ok(dec_tag_ok_w),
-        .busy(), .done()
+        .start(gcm_start_w), .key_refresh(key_dirty), .key(gcm_key_w), .nonce(gcm_nonce_w),
+        .aad(gcm_aad_w), .aad_len(5'd8), .pt_len(gcm_pt_len_w),
+        .pt_valid(gcm_pt_valid_w), .pt_ready(gcm_pt_ready_w), .pt_data(gcm_pt_data_w),
+        .ct_valid(gcm_ct_valid_w), .ct_ready(gcm_ct_ready_w), .ct_data(gcm_ct_data_w),
+        .tag_valid(gcm_tag_valid_w), .tag(gcm_tag_w),
+        .decrypt(dec_sel), .tag_in(dec_tag_in_w), .tag_ok(gcm_tag_ok_w),
+        .busy(gcm_busy), .done(), .idle()
     );
 
     eth_mac_1g_rgmii_fifo #(
         .TARGET(MAC_TARGET), .IODDR_STYLE("IODDR"), .CLOCK_INPUT_STYLE("BUFG"),
         .USE_CLK90("TRUE"), .AXIS_DATA_WIDTH(8), .TX_FIFO_DEPTH(512),
-        .RX_FIFO_DEPTH(512), .ENABLE_PADDING(1), .MIN_FRAME_LENGTH(64)
+        .RX_FIFO_DEPTH(2048), .ENABLE_PADDING(1), .MIN_FRAME_LENGTH(64), .SPEED_FORCE(1'b1)
     ) u_wan_mac (
         .gtx_clk(gtx_clk), .gtx_clk90(gtx_clk90), .gtx_rst(logic_rst),
         .logic_clk(clk), .logic_rst(logic_rst),
@@ -120,7 +188,7 @@ module bridge_top #(
     eth_mac_1g_rgmii_fifo #(
         .TARGET(MAC_TARGET), .IODDR_STYLE("IODDR"), .CLOCK_INPUT_STYLE("BUFG"),
         .USE_CLK90("TRUE"), .AXIS_DATA_WIDTH(8), .TX_FIFO_DEPTH(512),
-        .RX_FIFO_DEPTH(512), .ENABLE_PADDING(1), .MIN_FRAME_LENGTH(64)
+        .RX_FIFO_DEPTH(2048), .ENABLE_PADDING(1), .MIN_FRAME_LENGTH(64), .SPEED_FORCE(1'b1)
     ) u_lan_mac (
         .gtx_clk(gtx_clk), .gtx_clk90(gtx_clk90), .gtx_rst(logic_rst),
         .logic_clk(clk), .logic_rst(logic_rst),
@@ -144,13 +212,19 @@ module bridge_top #(
         .clk(clk), .rst_n(rst_n),
         .s_tdata(wan_rx_data), .s_tvalid(wan_rx_valid), .s_tlast(wan_rx_last),
         .s_tready(wan_rx_ready), .s_tuser(wan_rx_user),
-        .cfg_dst_mac(cfg_dst_mac), .cfg_dst_port(cfg_dst_port),
+        .cfg_dst_mac(cfg_dst_mac), .cfg_dst_port(cfg_dst_port), .cfg_hs_port(16'd4501),
         .m_tdata(esp_rx_data), .m_tvalid(esp_rx_valid), .m_tlast(esp_rx_last),
-        .m_tready(esp_rx_ready)
+        .m_tready(esp_rx_ready), .m_hs_valid(wan_hs_valid)
     );
+
+    assign lan_hs_data = esp_rx_data;
+    assign lan_hs_valid = wan_hs_valid;
+    assign lan_hs_last = esp_rx_last;
 
     wire [7:0] lan_p1_data;
     wire       lan_p1_valid, lan_p1_ready, lan_p1_last;
+    wire [7:0] enc_lan_data;
+    wire       enc_lan_valid, enc_lan_ready, enc_lan_last;
     wire [7:0] esp_p1_data;
     wire       esp_p1_valid, esp_p1_ready, esp_p1_last;
 
@@ -162,54 +236,96 @@ module bridge_top #(
         .m_tready(lan_p1_ready)
     );
 
+    lan_rx_mux u_lan_mux (
+        .clk(clk), .rst_n(rst_n),
+        .s_tdata(lan_p1_data), .s_tvalid(lan_p1_valid), .s_tlast(lan_p1_last),
+        .s_tready(lan_p1_ready),
+        .hs_dport(hs_dport),
+        .m_enc_data(enc_lan_data), .m_enc_valid(enc_lan_valid),
+        .m_enc_last(enc_lan_last), .m_enc_ready(enc_lan_ready),
+        .m_mgmt_data(lan_mgmt_data), .m_mgmt_valid(lan_mgmt_valid),
+        .m_mgmt_last(lan_mgmt_last), .m_mgmt_ready(lan_mgmt_ready),
+        .m_hs_data(), .m_hs_valid(), .m_hs_last(), .m_hs_ready(1'b0)
+    );
+
+    wire esp_pipe_ready;
+
     axis_pipe1 u_esp_pipe (
         .clk(clk), .rst_n(rst_n),
-        .s_tdata(esp_rx_data), .s_tvalid(esp_rx_valid), .s_tlast(esp_rx_last),
-        .s_tready(esp_rx_ready),
+        .s_tdata(esp_rx_data), .s_tvalid(esp_rx_valid_g), .s_tlast(esp_rx_last),
+        .s_tready(esp_pipe_ready),
         .m_tdata(esp_p1_data), .m_tvalid(esp_p1_valid), .m_tlast(esp_p1_last),
         .m_tready(esp_p1_ready)
     );
 
+    assign esp_rx_ready = wan_hs_valid ? lan_hs_ready : esp_pipe_ready;
+
+    wire enc_lan_valid_g = sa_en[0] && enc_lan_valid;
+    wire esp_p1_valid_g = sa_en[1] && esp_p1_valid;
+
+    assign enc_pt_ready  = gcm_pt_ready_e;
+    assign enc_ct_valid  = gcm_ct_valid_e;
+    assign enc_tag_valid = gcm_tag_valid_w;
+    assign dec_pt_ready  = gcm_pt_ready_d;
+    assign dec_ct_valid  = gcm_ct_valid_d;
+    assign dec_tag_valid = gcm_tag_valid_w;
+    assign dec_tag_ok_w  = gcm_tag_ok_w;
+
     bridge_enc_path u_enc (
         .clk(clk), .rst_n(rst_n),
-        .s_tdata(lan_p1_data), .s_tvalid(lan_p1_valid), .s_tlast(lan_p1_last),
-        .s_tready(lan_p1_ready),
-        .key(key), .cfg_spi(cfg_spi), .cfg_iv(cfg_iv),
+        .s_tdata(enc_lan_data), .s_tvalid(enc_lan_valid_g), .s_tlast(enc_lan_last),
+        .s_tready(enc_lan_ready),
+        .key(enc_key), .cfg_spi(enc_spi), .cfg_iv(enc_salt),
         .cfg_src_ip(cfg_src_ip), .cfg_dst_ip(cfg_dst_ip),
         .cfg_src_port(cfg_src_port), .cfg_dst_port(cfg_dst_port),
         .cfg_src_mac(cfg_src_mac), .cfg_dst_mac(cfg_dst_mac),
-        .seq_in(seq_in),
-        .gcm_grant(1'b1), .gcm_req(), .gcm_start(enc_start),
+        .seq_in(enc_seq0), .seq_out(seq_out_w), .gcm_active(enc_active_w),
+        .gcm_grant(enc_grant_w), .gcm_req(enc_req_w), .gcm_start(enc_start),
         .gcm_pt_len(enc_pt_len), .gcm_nonce(enc_nonce), .gcm_aad(enc_aad),
         .gcm_pt_valid(enc_pt_valid), .gcm_pt_ready(enc_pt_ready),
         .gcm_pt_data(enc_pt_data),
         .gcm_ct_valid(enc_ct_valid), .gcm_ct_ready(enc_ct_ready),
-        .gcm_ct_data(enc_ct_data),
-        .gcm_tag_valid(enc_tag_valid), .gcm_tag(enc_tag),
+        .gcm_ct_data(gcm_ct_data_w),
+        .gcm_tag_valid(enc_tag_valid), .gcm_tag(gcm_tag_w),
         .gcm_busy(), .gcm_done(),
-        .m_tdata(wan_tx_data), .m_tvalid(wan_tx_valid),
-        .m_tlast(wan_tx_last), .m_tready(wan_tx_ready)
+        .m_tdata(enc_wan_tx_data), .m_tvalid(enc_wan_tx_valid),
+        .m_tlast(enc_wan_tx_last), .m_tready(enc_wan_tx_ready)
     );
+
+    wire [7:0] dec_tx_data;
+    wire       dec_tx_valid;
+    wire       dec_tx_last;
+    wire       dec_tx_ready;
+    wire lan_tx_from_dec = dec_tx_valid;
+    wire [7:0] lan_tx_data_m = lan_tx_from_dec ? dec_tx_data : mgmt_tx_data;
+    wire lan_tx_valid_m = lan_tx_from_dec ? dec_tx_valid : mgmt_tx_valid;
+    wire lan_tx_last_m = lan_tx_from_dec ? dec_tx_last : mgmt_tx_last;
 
     bridge_dec_path u_dec (
         .clk(clk), .rst_n(rst_n),
-        .s_tdata(esp_p1_data), .s_tvalid(esp_p1_valid), .s_tlast(esp_p1_last),
+        .s_tdata(esp_p1_data), .s_tvalid(esp_p1_valid_g), .s_tlast(esp_p1_last),
         .s_tready(esp_p1_ready),
-        .key(key),
-        .gcm_grant(1'b1), .gcm_req(), .gcm_start(dec_start),
+        .key(dec_key),
+        .gcm_grant(dec_grant_w), .gcm_req(dec_req_w), .gcm_start(dec_start),
         .gcm_pt_len(dec_pt_len), .gcm_nonce(dec_nonce), .gcm_aad(dec_aad),
         .gcm_pt_valid(dec_pt_valid), .gcm_pt_ready(dec_pt_ready),
         .gcm_pt_data(dec_pt_data),
         .gcm_ct_valid(dec_ct_valid), .gcm_ct_ready(dec_ct_ready),
-        .gcm_ct_data(dec_ct_data),
-        .gcm_tag_valid(dec_tag_valid), .gcm_tag(dec_tag), .gcm_tag_ok(dec_tag_ok_w),
+        .gcm_ct_data(gcm_ct_data_w),
+        .gcm_tag_valid(dec_tag_valid), .gcm_tag(gcm_tag_w), .gcm_tag_ok(dec_tag_ok_w),
         .gcm_busy(), .gcm_done(),
-        .m_tdata(lan_tx_data), .m_tvalid(lan_tx_valid),
-        .m_tlast(lan_tx_last), .m_tready(lan_tx_ready),
-        .tag_ok(dec_tag_ok), .tag_in_w(dec_tag_in_w)
+        .m_tdata(dec_tx_data), .m_tvalid(dec_tx_valid), .m_tlast(dec_tx_last),
+        .m_tready(dec_tx_ready),
+        .tag_ok(dec_tag_ok), .tag_in_w(dec_tag_in_w), .gcm_active(dec_active_w)
     );
 
-    assign seq_out = seq_in;
+    assign lan_tx_data = lan_tx_data_m;
+    assign lan_tx_valid = lan_tx_valid_m;
+    assign lan_tx_last = lan_tx_last_m;
+    assign dec_tx_ready = lan_tx_ready;
+
+    wire seq_out_w;
+    assign seq_out = seq_out_w;
     assign rx_err = wan_rx_user | lan_rx_user;
 
 endmodule

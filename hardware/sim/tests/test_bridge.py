@@ -30,12 +30,29 @@ def build_eth(payload, src_mac=SRC_MAC, dst_mac=DST_MAC):
 
 
 def build_esp_frame(key, iv, spi, seq, plain, aad):
-    aes = AES.new(key, AES.MODE_GCM, nonce=iv)
+    pad = (16 - ((len(plain) + 2) & 0xF)) & 0xF
+    pt = plain + b"\x00" * pad + bytes([pad]) + b"\x04"
+    nonce = seq + iv[:8]
+    aes = AES.new(key, AES.MODE_GCM, nonce=nonce)
     aes.update(aad)
-    ct_tag = aes.encrypt(plain) + aes.digest()
+    ct_tag = aes.encrypt(pt) + aes.digest()
     ct = ct_tag[:-16]
     tag = ct_tag[-16:]
-    esp = spi + seq + iv + ct + b"\x00\x04" + tag
+    esp = spi + seq + nonce + ct + tag
+    udp_len = 8 + len(esp)
+    total_len = 20 + udp_len
+    udp = (SRC_PORT.to_bytes(2, "big") + DST_PORT.to_bytes(2, "big") +
+           udp_len.to_bytes(2, "big") + b"\x00\x00" + esp)
+    ip = bytearray(bytes([0x45, 0x00]) + total_len.to_bytes(2, "big") + b"\x00\x00" +
+                   bytes([0x40, 0x00, 0x40, 0x11]) + b"\x00\x00" + SRC_IP + DST_IP)
+    s = 0
+    for i in range(0, len(ip), 2):
+        s += (ip[i] << 8) | ip[i + 1]
+    while s >> 16:
+        s = (s & 0xFFFF) + (s >> 16)
+    ip[10:12] = ((~s) & 0xFFFF).to_bytes(2, "big")
+    udp = bytes(udp)
+    return DST_MAC + SRC_MAC + bytes([0x08, 0x00]) + bytes(ip) + udp
     udp_len = 8 + len(esp)
     total_len = 20 + udp_len
     udp = (SRC_PORT.to_bytes(2, "big") + DST_PORT.to_bytes(2, "big") +
@@ -113,7 +130,8 @@ async def reset_dut(dut):
     await Timer(1, unit="ns")
 
 
-async def run_loopback(dut, skew_ns):
+
+async def run_loopback(dut, skew_ns, payload_len=242):
     cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     cocotb.start_soon(Clock(dut.gtx_clk, 8, unit="ns").start())
     cocotb.start_soon(Clock(dut.wan_rgmii_rx_clk, 8, unit="ns").start())
@@ -142,10 +160,15 @@ async def run_loopback(dut, skew_ns):
     seq = (0x11223344).to_bytes(4, "big")
     aad = spi + seq
 
-    dut.key.value = int(v["key"], 16)
-    dut.cfg_spi.value = int(v["spi"], 16)
-    dut.cfg_iv.value = int(v["iv"], 16)
-    dut.seq_in.value = int.from_bytes(seq, "big")
+    dut.enc_key.value = int(v["key"], 16)
+    dut.dec_key.value = int(v["key"], 16)
+    dut.enc_spi.value = int(v["spi"], 16)
+    dut.enc_salt.value = int(v["iv"], 16)
+    dut.enc_seq0.value = int.from_bytes(seq, "big")
+    dut.dec_spi.value = int(v["spi"], 16)
+    dut.dec_salt.value = int(v["iv"], 16)
+    dut.dec_seq0.value = 0
+    dut.sa_en.value = 3
     dut.cfg_src_mac.value = int.from_bytes(SRC_MAC, "big")
     dut.cfg_dst_mac.value = int.from_bytes(DST_MAC, "big")
     dut.cfg_src_ip.value = int.from_bytes(SRC_IP, "big")
@@ -154,7 +177,7 @@ async def run_loopback(dut, skew_ns):
     dut.cfg_dst_port.value = DST_PORT
     await RisingEdge(dut.clk)
 
-    payload = bytes((i * 3 + 1) % 256 for i in range(214))
+    payload = bytes((i * 3 + 1) % 256 for i in range(payload_len))
     lan_frame = build_eth(payload)
     fcs = crc32(lan_frame).to_bytes(4, "little")
     gmii_lan = b"\x55" * 7 + b"\xd5" + lan_frame + fcs
@@ -168,6 +191,14 @@ async def run_loopback(dut, skew_ns):
     lm = dut.u_lan_mac
     await rgmii_drive_skew(dut, dut.lan_rgmii_rx_clk, dut.lan_rgmii_rxd,
                            dut.lan_rgmii_rx_ctl, gmii_lan, skew_ns)
+    po = bytearray()
+    for _ in range(20000):
+        await RisingEdge(dut.clk)
+        if int(dut.u_lan_pipe.m_tvalid.value) and int(dut.u_lan_pipe.m_tready.value):
+            po.append(int(dut.u_lan_pipe.m_tdata.value))
+        if len(po) >= 6:
+            break
+    assert bytes(po) == lan_frame[:6], f"lan pipe head {po.hex()} exp {lan_frame[:6].hex()}"
     wan_body = await tx_collect(dut, dut.u_enc.m_tvalid, dut.u_enc.m_tdata, dut.u_enc.m_tlast, 40000)
     if wan_body != exp_wan:
         for i in range(min(len(wan_body), len(exp_wan))):
@@ -179,9 +210,24 @@ async def run_loopback(dut, skew_ns):
         dut._log.error(f'len got={len(wan_body)} exp={len(exp_wan)}')
         assert False, "wan enc mismatch"
     dut._log.info("wan enc OK")
-
     await rgmii_drive_skew(dut, dut.wan_rgmii_rx_clk, dut.wan_rgmii_rxd,
                            dut.wan_rgmii_rx_ctl, gmii_wan, skew_ns)
+    di = bytearray()
+    macb = bytearray()
+    mac_last_at = None
+    for i in range(100000):
+        await RisingEdge(dut.clk)
+        if int(dut.u_wan_mac.rx_axis_tvalid.value) and int(dut.u_wan_mac.rx_axis_tready.value):
+            macb.append(int(dut.u_wan_mac.rx_axis_tdata.value))
+            if int(dut.u_wan_mac.rx_axis_tlast.value):
+                mac_last_at = len(macb)
+                break
+        if int(dut.u_dec.s_tvalid.value) and int(dut.u_dec.s_tready.value):
+            di.append(int(dut.u_dec.s_tdata.value))
+        if int(dut.u_dec.s_tlast.value):
+            break
+    dut._log.info(f"mac rx out {len(macb)}B last_at={mac_last_at} (frame {len(exp_wan)}B)")
+    dut._log.info(f"dec input {len(di)}B (exp esp payload {len(exp_wan)-42}B)")
     lan_body = await tx_collect(dut, dut.u_dec.m_tvalid, dut.u_dec.m_tdata, dut.u_dec.m_tlast, 40000)
     dut._log.info(f"lan tx {len(lan_body)}B")
     await Timer(3000, unit="ns")
@@ -207,3 +253,8 @@ async def test_bridge_rx_skew_15(dut):
 @cocotb.test()
 async def test_bridge_rx_skew_20(dut):
     await run_loopback(dut, 2.0)
+
+
+@cocotb.test()
+async def test_bridge_mtu1500(dut):
+    await run_loopback(dut, 0.0, 1500)

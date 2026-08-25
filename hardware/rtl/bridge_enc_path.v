@@ -17,6 +17,8 @@ module bridge_enc_path (
     input  wire [47:0]   cfg_src_mac,
     input  wire [47:0]   cfg_dst_mac,
     input  wire [31:0]   seq_in,
+    output wire [31:0]   seq_out,
+    output wire          gcm_active,
 
     input  wire          gcm_grant,
     output reg           gcm_req,
@@ -48,8 +50,10 @@ module bridge_enc_path (
 
     reg [1:0] state;
 
-    (* syn_ramstyle = "block" *) reg [127:0] frm_buf [0:95];
-    (* syn_ramstyle = "block" *) reg [127:0] ct_buf [0:95];
+    (* syn_ramstyle = "block" *) reg [63:0] frm_lo [0:127];
+    (* syn_ramstyle = "block" *) reg [63:0] frm_hi [0:127];
+    (* syn_ramstyle = "block" *) reg [63:0] ct_lo [0:127];
+    (* syn_ramstyle = "block" *) reg [63:0] ct_hi [0:127];
     reg         frm_wr_pend;
     reg [6:0]   frm_wr_addr;
     reg [127:0] frm_wr_data;
@@ -59,6 +63,8 @@ module bridge_enc_path (
     reg [7:0]   pt_idx;
     reg [7:0]   pt_rd_addr;
     reg [127:0] pt_rd_data;
+    integer     blk_b;
+    reg [11:0]  blk_n;
     reg         pt_req;
     reg         pt_data_v;
     reg         grant_used;
@@ -66,6 +72,7 @@ module bridge_enc_path (
     reg [15:0]  tx_cnt;
     reg [127:0] tag_r;
     reg [31:0]  seq_r;
+    reg         first_pkt;
     reg [15:0]  ip_csum_r;
     reg [127:0] tx_blk;
     reg [3:0]   tx_b;
@@ -73,11 +80,13 @@ module bridge_enc_path (
     reg [7:0]   ct_rd_idx;
     reg [127:0] ct_rd_data;
 
-    wire [15:0] udp_len = 16'd46 + {4'd0, frm_len};
-    wire [15:0] total_len = 16'd66 + {4'd0, frm_len};
-    wire [15:0] frame_n = 16'd80 + {4'd0, frm_len};
-    wire [15:0] ct_end = 16'd62 + {4'd0, frm_len};
-    wire [8:0]  nct = {1'b0, frm_len[11:4]} + {8'd0, |frm_len[3:0]};
+    wire [3:0]  pad_n = (16 - ((frm_len[3:0] + 4'd2) & 4'hF)) & 4'hF;
+    wire [11:0] pt_len_w = frm_len + 12'd2 + {8'd0, pad_n};
+    wire [15:0] udp_len = 16'd44 + {4'd0, pt_len_w};
+    wire [15:0] total_len = 16'd64 + {4'd0, pt_len_w};
+    wire [15:0] frame_n = 16'd78 + {4'd0, pt_len_w};
+    wire [15:0] ct_end = 16'd62 + {4'd0, pt_len_w};
+    wire [8:0]  nct = {1'b0, pt_len_w[11:4]} + {8'd0, |pt_len_w[3:0]};
 
     function [15:0] fold16(input [31:0] s);
         begin
@@ -91,13 +100,30 @@ module bridge_enc_path (
     wire [15:0] ip_csum_c = ~fold16({16'd0, ip_sum});
     assign gcm_pt_valid = pt_data_v;
     assign gcm_pt_data  = pt_rd_data;
+    assign seq_out  = seq_r;
+    assign gcm_active = grant_used;
     assign s_tready = (state == ST_IDLE) || (state == ST_RX);
 
     always @(posedge clk) begin
-        pt_rd_data <= frm_buf[pt_rd_addr];
+        for (blk_b = 0; blk_b < 16; blk_b = blk_b + 1) begin
+            blk_n = {pt_rd_addr, 4'd0} + blk_b[11:0];
+            if (blk_n < frm_len)
+                pt_rd_data[127 - 8*blk_b -: 8] <= (blk_b < 8) ?
+                    frm_hi[pt_rd_addr][63 - 8*blk_b -: 8] :
+                    frm_lo[pt_rd_addr][127 - 8*blk_b -: 8];
+            else if (blk_n < pt_len_w) begin
+                if (blk_n - frm_len == pad_n)
+                    pt_rd_data[127 - 8*blk_b -: 8] <= {4'd0, pad_n};
+                else if (blk_n - frm_len == pad_n + 12'd1)
+                    pt_rd_data[127 - 8*blk_b -: 8] <= 8'h04;
+                else
+                    pt_rd_data[127 - 8*blk_b -: 8] <= 8'h00;
+            end else
+                pt_rd_data[127 - 8*blk_b -: 8] <= 8'h00;
+        end
     end
     always @(posedge clk) begin
-        ct_rd_data <= ct_buf[ct_rd_idx];
+        ct_rd_data <= {ct_hi[ct_rd_idx], ct_lo[ct_rd_idx]};
     end
 
     function [7:0] hdr_byte(input [15:0] o);
@@ -148,8 +174,10 @@ module bridge_enc_path (
                 hdr_byte = cfg_spi[31 - 8*(o - 16'd42) -: 8];
             else if (o < 16'd50)
                 hdr_byte = seq_r[31 - 8*(o - 16'd46) -: 8];
+            else if (o < 16'd54)
+                hdr_byte = seq_r[31 - 8*(o - 16'd50) -: 8];
             else
-                hdr_byte = cfg_iv[95 - 8*(o - 16'd50) -: 8];
+                hdr_byte = cfg_iv[95 - 8*(o - 16'd54) -: 8];
         end
     endfunction
 
@@ -159,10 +187,8 @@ module bridge_enc_path (
             m_byte = hdr_byte(tx_cnt);
         else if (tx_cnt < ct_end)
             m_byte = tx_blk[127:120];
-        else if (tx_cnt < ct_end + 16'd2)
-            m_byte = (tx_cnt == ct_end) ? 8'h00 : 8'h04;
         else
-            m_byte = tag_r[127 - 8*(tx_cnt - (ct_end + 16'd2)) -: 8];
+            m_byte = tag_r[127 - 8*(tx_cnt - ct_end) -: 8];
     end
 
     reg [7:0] m_tdata_r;
@@ -191,6 +217,7 @@ module bridge_enc_path (
             tx_cnt <= 16'd0;
             tag_r <= 128'd0;
             seq_r <= 32'd0;
+            first_pkt <= 1'b1;
             ip_csum_r <= 16'd0;
             tx_blk <= 128'd0;
             tx_b <= 4'd0;
@@ -217,7 +244,8 @@ module bridge_enc_path (
                 ST_RX: begin
                     if (s_tvalid) begin
                         if (fcnt[3:0] == 4'd0) begin
-                            frm_buf[(fcnt - 12'd1) >> 4] <= blk_acc;
+                            frm_lo[(fcnt - 12'd1) >> 4] <= blk_acc[63:0];
+                            frm_hi[(fcnt - 12'd1) >> 4] <= blk_acc[127:64];
                             blk_acc <= {120'd0, s_tdata};
                         end else begin
                             blk_acc <= {blk_acc[119:0], s_tdata};
@@ -241,10 +269,14 @@ module bridge_enc_path (
                                     4'd12: frm_wr_data <= {blk_acc[87:80], blk_acc[79:72], blk_acc[71:64], blk_acc[63:56], blk_acc[55:48], blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 32'd0};
                                     4'd13: frm_wr_data <= {blk_acc[95:88], blk_acc[87:80], blk_acc[79:72], blk_acc[71:64], blk_acc[63:56], blk_acc[55:48], blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 24'd0};
                                     4'd14: frm_wr_data <= {blk_acc[103:96], blk_acc[95:88], blk_acc[87:80], blk_acc[79:72], blk_acc[71:64], blk_acc[63:56], blk_acc[55:48], blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 16'd0};
-                                    default: frm_wr_data <= {blk_acc[111:104], blk_acc[103:96], blk_acc[95:88], blk_acc[87:80], blk_acc[79:72], blk_acc[71:64], blk_acc[63:56], blk_acc[55:48], blk_acc[47:40], blk_acc[39:32], blk_acc[31:24], blk_acc[23:16], blk_acc[15:8], blk_acc[7:0], s_tdata, 8'd0};
+                                    default: frm_wr_data <= {blk_acc[119:0], s_tdata};
                                 endcase
                             end
                             frm_len <= fcnt + 12'd1;
+                            if (first_pkt) begin
+                                first_pkt <= 1'b0;
+                                seq_r <= seq_in;
+                            end
                             gcm_req <= 1'b1;
                             state <= ST_ENC;
                         end else begin
@@ -254,17 +286,17 @@ module bridge_enc_path (
                 end
                 ST_ENC: begin
                     if (frm_wr_pend) begin
-                        frm_buf[frm_wr_addr] <= frm_wr_data;
+                        frm_lo[frm_wr_addr] <= frm_wr_data[63:0];
+                        frm_hi[frm_wr_addr] <= frm_wr_data[127:64];
                         frm_wr_pend <= 1'b0;
                     end
                     if (gcm_grant && !grant_used) begin
                         grant_used <= 1'b1;
                         gcm_req <= 1'b0;
                         gcm_start <= 1'b1;
-                        gcm_pt_len <= frm_len;
-                        gcm_nonce <= cfg_iv;
-                        gcm_aad <= {cfg_spi, seq_in, 64'd0};
-                        seq_r <= seq_in;
+                        gcm_pt_len <= pt_len_w;
+                        gcm_nonce <= {seq_r, cfg_iv[95:32]};
+                        gcm_aad <= {cfg_spi, seq_r, 64'd0};
                         ip_csum_r <= ip_csum_c;
                         pt_idx <= 8'd0;
                         pt_req <= 1'b0;
@@ -284,7 +316,8 @@ module bridge_enc_path (
                         pt_idx <= pt_idx + 8'd1;
                     end
                     if (gcm_ct_valid && gcm_ct_ready) begin
-                        ct_buf[ct_idx] <= gcm_ct_data;
+                        ct_lo[ct_idx] <= gcm_ct_data[63:0];
+                        ct_hi[ct_idx] <= gcm_ct_data[127:64];
                         ct_idx <= ct_idx + 8'd1;
                     end
                     gcm_ct_ready <= 1'b1;
@@ -320,6 +353,7 @@ module bridge_enc_path (
                             end
                         end
                         if (tx_cnt == frame_n - 16'd1) begin
+                            seq_r <= seq_r + 32'd1;
                             state <= ST_IDLE;
                         end else begin
                             tx_cnt <= tx_cnt + 16'd1;

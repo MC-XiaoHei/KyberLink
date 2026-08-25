@@ -28,7 +28,7 @@ module bw_dual (
 
     gcm_stream u_enc (
         .clk(clk), .rst_n(rst_n),
-        .start(start_a), .key(key), .nonce(nonce_a),
+        .start(start_a), .key_refresh(1'b1), .key(key), .nonce(nonce_a),
         .aad(128'd0), .aad_len(5'd0), .pt_len(pt_len_a),
         .pt_valid(pt_valid_a), .pt_ready(pt_ready_a), .pt_data(pt_data_a),
         .ct_valid(ct_valid_a), .ct_ready(ct_ready_a), .ct_data(ct_data_a),
@@ -38,7 +38,7 @@ module bw_dual (
 
     gcm_stream u_dec (
         .clk(clk), .rst_n(rst_n),
-        .start(start_b), .key(key), .nonce(nonce_b),
+        .start(start_b), .key_refresh(1'b1), .key(key), .nonce(nonce_b),
         .aad(128'd0), .aad_len(5'd0), .pt_len(pt_len_b),
         .pt_valid(pt_valid_b), .pt_ready(pt_ready_b), .pt_data(pt_data_b),
         .ct_valid(ct_valid_b), .ct_ready(ct_ready_b), .ct_data(ct_data_b),

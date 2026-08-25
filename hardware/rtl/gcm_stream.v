@@ -2,6 +2,7 @@ module gcm_stream (
     input  wire          clk,
     input  wire          rst_n,
     input  wire          start,
+    input  wire          key_refresh,
     input  wire [255:0]  key,
     input  wire [95:0]   nonce,
     input  wire [127:0]  aad,
@@ -19,8 +20,11 @@ module gcm_stream (
     input  wire [127:0]  tag_in,
     output wire          tag_ok,
     output reg           busy,
-    output reg           done
+    output reg           done,
+    output wire          idle
 );
+
+    assign idle = (phase == PHASE_IDLE) && !busy;
 
     localparam PHASE_IDLE    = 3'd0;
     localparam PHASE_AES_H   = 3'd1;
@@ -114,7 +118,7 @@ module gcm_stream (
                       (gh_qcnt < 3'd3) && (pt_cnt < 3'd4);
     assign ct_valid = (out_cnt != 3'd0);
     assign ct_data  = out_q[out_rd];
-    assign tag_ok = tag_valid && decrypt && ((gh_tag ^ tag_mask) == tag_in);
+    assign tag_ok = tag_valid && decrypt && (tag == tag_in);
 
     wire cb_submit = (phase == PHASE_AES_CB) && out_room && cb_avail &&
         (gh_qcnt < 3'd2) && aes_load_rdy && !aes_start && !aes_done;

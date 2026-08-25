@@ -44,41 +44,17 @@ architecture neorv32_setup_25k_rtl of neorv32_setup_25k is
   signal xbus_cyc_s   : std_ulogic;
   signal xbus_ack_s   : std_ulogic;
   signal xbus_err_s   : std_ulogic;
-  signal bc_dat_o     : std_logic_vector(31 downto 0);
-  signal bc_ack_o     : std_ulogic;
-
-  component bridge_ctrl is
-    port (
-      clk            : in  std_logic;
-      rst_n          : in  std_logic;
-      xbus_adr_i     : in  std_logic_vector(31 downto 0);
-      xbus_dat_i     : in  std_logic_vector(31 downto 0);
-      xbus_we_i      : in  std_logic;
-      xbus_stb_i     : in  std_logic;
-      xbus_cyc_i     : in  std_logic;
-      xbus_dat_o     : out std_logic_vector(31 downto 0);
-      xbus_ack_o     : out std_logic;
-      xbus_err_o     : out std_logic;
-      cfg_key        : out std_logic_vector(255 downto 0);
-      cfg_sa_en      : out std_logic;
-      cfg_cmd_start  : out std_logic;
-      data_sa_active : in  std_logic;
-      data_count_tx  : in  std_logic_vector(31 downto 0);
-      data_count_rx  : in  std_logic_vector(31 downto 0)
-    );
-  end component;
-
 
 begin
 
   neorv32_top_inst: neorv32_top
   generic map (
     CLOCK_FREQUENCY  => CLOCK_FREQUENCY,
-    BOOT_MODE_SELECT => 0,
+    BOOT_MODE_SELECT => 2,
     RISCV_ISA_C      => true,
     RISCV_ISA_M      => true,
     RISCV_ISA_Zbb    => false,
-    RISCV_ISA_Zicntr => true,
+    RISCV_ISA_Zicntr => false,
     CPU_FAST_MUL_EN  => true,
     CPU_FAST_MUL_REGS => 1,
     CPU_FAST_SHIFT_EN => true,
@@ -86,8 +62,8 @@ begin
     IMEM_SIZE        => IMEM_SIZE,
     DMEM_EN          => true,
     DMEM_SIZE        => DMEM_SIZE,
-    ICACHE_EN        => false,
-    ICACHE_NUM_BLOCKS => 16,
+    ICACHE_EN        => true,
+    ICACHE_NUM_BLOCKS => 32,
     CACHE_BLOCK_SIZE => 64,
     DCACHE_EN        => false,
     DCACHE_NUM_BLOCKS => 16,
@@ -122,29 +98,9 @@ begin
 
   gpio_o <= con_gpio_out(7 downto 0);
 
-    bridge_ctrl_inst: bridge_ctrl
-    port map (
-        clk            => clk_i,
-        rst_n          => rstn_i,
-        xbus_adr_i     => std_logic_vector(xbus_adr_s),
-        xbus_dat_i     => std_logic_vector(xbus_dat_os),
-        xbus_we_i      => std_logic(xbus_we_s),
-        xbus_stb_i     => std_logic(xbus_stb_s),
-        xbus_cyc_i     => std_logic(xbus_cyc_s),
-        xbus_dat_o     => bc_dat_o,
-        xbus_ack_o     => bc_ack_o,
-        xbus_err_o     => open,
-        cfg_key        => open,
-        cfg_sa_en      => open,
-        cfg_cmd_start  => open,
-        data_sa_active => '0',
-        data_count_tx  => (others => '0'),
-        data_count_rx  => (others => '0')
-    );
-
-    xbus_dat_is <= std_ulogic_vector(bc_dat_o) when (xbus_adr_s(31 downto 8) = x"F00001") else
-                   (others => '0');
-    xbus_ack_s  <= bc_ack_o;
+    xbus_dat_is <= xbus_dat_i;
+    xbus_ack_s  <= xbus_ack_i;
+    xbus_err_s  <= xbus_err_i;
 
     xbus_adr_o <= xbus_adr_s;
     xbus_dat_o <= xbus_dat_os;
