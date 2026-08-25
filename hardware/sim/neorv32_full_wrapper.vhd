@@ -1,5 +1,3 @@
--- NEORV32 wrapper for VHDL-to-Verilog conversion (full SoC, XBUS + SMC).
--- Configuration mirrors neorv32_setup_25k; used by full_top (replace VHDL setup).
 library ieee;
 use ieee.std_logic_1164.all;
 
@@ -36,20 +34,20 @@ begin
   neorv32_top_inst: neorv32_top
   generic map (
     CLOCK_FREQUENCY  => 50000000,
-    BOOT_MODE_SELECT => 0,
+    BOOT_MODE_SELECT => 2,
     RISCV_ISA_C      => true,
     RISCV_ISA_M      => true,
     RISCV_ISA_Zbb    => false,
-    RISCV_ISA_Zicntr => true,
+    RISCV_ISA_Zicntr => false,
     CPU_FAST_MUL_EN  => true,
     CPU_FAST_MUL_REGS => 1,
     CPU_FAST_SHIFT_EN => true,
     IMEM_EN          => true,
-    IMEM_SIZE        => 14*1024,
+    IMEM_SIZE        => 2*1024,
     DMEM_EN          => true,
-    DMEM_SIZE        => 6*1024,
-    ICACHE_EN        => false,
-    ICACHE_NUM_BLOCKS => 16,
+    DMEM_SIZE        => 24*1024,
+    ICACHE_EN        => true,
+    ICACHE_NUM_BLOCKS => 32,
     CACHE_BLOCK_SIZE => 64,
     DCACHE_EN        => false,
     DCACHE_NUM_BLOCKS => 16,
@@ -58,7 +56,7 @@ begin
     IO_CLINT_EN      => true,
     IO_UART0_EN      => true,
     IO_SPI_EN        => false,
-    IO_TRNG_EN       => false,
+    IO_TRNG_EN       => true,
     XBUS_EN          => true
   )
   port map (
