@@ -191,6 +191,18 @@ end
 
 wire phy_rgmii_tx_clk_new;
 wire [3:0] phy_rgmii_txd_new;
+
+reg [3:0] txd_pre_1 = 4'd0;
+reg [3:0] txd_pre_2 = 4'd0;
+reg ctl_pre_1 = 1'b0;
+reg ctl_pre_2 = 1'b0;
+
+always @(negedge clk) begin
+    txd_pre_1 <= rgmii_txd_1;
+    txd_pre_2 <= rgmii_txd_2;
+    ctl_pre_1 <= rgmii_tx_ctl_1;
+    ctl_pre_2 <= rgmii_tx_ctl_2;
+end
 wire phy_rgmii_tx_ctl_new;
 
 oddr #(
@@ -212,8 +224,8 @@ oddr #(
 )
 data_oddr_inst (
     .clk(clk),
-    .d1({rgmii_txd_1, rgmii_tx_ctl_1}),
-    .d2({rgmii_txd_2, rgmii_tx_ctl_2}),
+    .d1({txd_pre_1, ctl_pre_1}),
+    .d2({txd_pre_2, ctl_pre_2}),
     .q({phy_rgmii_txd, phy_rgmii_tx_ctl})
 );
 

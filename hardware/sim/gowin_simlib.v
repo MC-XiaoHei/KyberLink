@@ -9,15 +9,23 @@ module ODDRC #(
     input  wire CLK,
     input  wire CLEAR
 );
-    reg q0 = INIT, q1 = INIT;
+    reg d0_reg = INIT, d1_reg = INIT;
+    reg q1 = INIT;
     always @(posedge CLK or posedge CLEAR) begin
-        if (CLEAR)
-            q0 <= INIT;
-        else if (TX) begin
-            q0 <= D0;
+        if (CLEAR) begin
+            d0_reg <= INIT;
+            q1 <= INIT;
+        end else if (TX) begin
+            d0_reg <= D0;
             q1 <= D1;
         end
     end
-    assign Q0 = q0;
+    always @(negedge CLK or posedge CLEAR) begin
+        if (CLEAR)
+            d1_reg <= INIT;
+        else if (TX)
+            d1_reg <= D1;
+    end
+    assign Q0 = CLK ? d0_reg : d1_reg;
     assign Q1 = q1;
 endmodule

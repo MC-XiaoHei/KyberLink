@@ -122,10 +122,13 @@ end else begin
 
     always @(posedge clk) begin
         d_reg_1 <= d1;
+    end
+
+    always @(negedge clk) begin
         d_reg_2 <= d2;
     end
 
-    assign q = clk ? d1 : d_reg_2;
+    assign q = clk ? d_reg_1 : d_reg_2;
 end
 
 endgenerate
