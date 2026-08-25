@@ -48,6 +48,7 @@ module eth_mac_1g_rgmii_fifo #
     parameter AXIS_KEEP_WIDTH = (AXIS_DATA_WIDTH/8),
     parameter ENABLE_PADDING = 1,
     parameter MIN_FRAME_LENGTH = 64,
+    parameter SPEED_FORCE = 1'b0,
     parameter TX_FIFO_DEPTH = 4096,
     parameter TX_FIFO_RAM_PIPELINE = 1,
     parameter TX_FRAME_FIFO = 1,
@@ -205,7 +206,8 @@ eth_mac_1g_rgmii #(
     .CLOCK_INPUT_STYLE(CLOCK_INPUT_STYLE),
     .USE_CLK90(USE_CLK90),
     .ENABLE_PADDING(ENABLE_PADDING),
-    .MIN_FRAME_LENGTH(MIN_FRAME_LENGTH)
+    .MIN_FRAME_LENGTH(MIN_FRAME_LENGTH),
+    .SPEED_FORCE(SPEED_FORCE)
 )
 eth_mac_1g_rgmii_inst (
     .gtx_clk(gtx_clk),

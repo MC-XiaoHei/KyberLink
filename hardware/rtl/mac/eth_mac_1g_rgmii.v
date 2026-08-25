@@ -44,7 +44,8 @@ module eth_mac_1g_rgmii #
 
     parameter USE_CLK90 = "TRUE",
     parameter ENABLE_PADDING = 1,
-    parameter MIN_FRAME_LENGTH = 64
+    parameter MIN_FRAME_LENGTH = 64,
+    parameter SPEED_FORCE = 1'b0
 )
 (
     input  wire        gtx_clk,
@@ -147,8 +148,8 @@ always @(posedge gtx_clk) begin
 
             rx_speed_count_1 <= 0;
             rx_speed_count_2 <= 0;
-            speed_reg <= 2'b00;
-            mii_select_reg <= 1'b1;
+            speed_reg <= SPEED_FORCE ? 2'b10 : 2'b00;
+            mii_select_reg <= SPEED_FORCE ? 1'b0 : 1'b1;
         end
 
         if (&rx_speed_count_2) begin
@@ -157,7 +158,7 @@ always @(posedge gtx_clk) begin
             rx_speed_count_2 <= 0;
             if (rx_speed_count_1[6:5]) begin
 
-                speed_reg <= 2'b01;
+                speed_reg <= SPEED_FORCE ? 2'b10 : 2'b01;
                 mii_select_reg <= 1'b1;
             end else begin
 
