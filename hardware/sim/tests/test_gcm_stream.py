@@ -42,12 +42,9 @@ async def run_crypto(dut, key, nonce, aad, pt_len, decrypt, tag_in, blks):
     prev_r = 0
     dut.pt_valid.value = 1 if blks else 0
     dut.pt_data.value = blks[0] if blks else 0
-    dut._log.info(f"RUN pt_valid_set={1 if blks else 0} blks={len(blks) if blks else 0}")
     for _ in range(300000):
         await RisingEdge(dut.clk)
         await Timer(1, unit="ns")
-        if _ < 20:
-            dut._log.info(f"LOOP{_} pv={int(dut.pt_valid.value)} pr={int(dut.pt_ready.value)} bi={bi} prev={prev_r}")
         if int(dut.ct_valid.value) and int(dut.ct_ready.value):
             out += int(dut.ct_data.value).to_bytes(16, "big")
         cur_r = int(dut.pt_ready.value)
@@ -92,9 +89,6 @@ async def test_gcm_stream_roundtrip(dut):
         exp_ct = ct_tag[:-16]
         exp_tag = ct_tag[-16:]
         ct, tag, _ = await run_crypto(dut, key, iv, aad, L, False, b"", blocks(pt))
-        if L == 17 or L == 1:
-            dut._log.info(f"DEBUG{li} exp_ct={exp_ct.hex()} got_ct={ct.hex()}")
-            dut._log.info(f"DEBUG{li} exp_tag={exp_tag.hex()} got_tag={tag.hex()}")
         dut._log.info(f"len {li} L={L} enc ct={ct == exp_ct} tag={tag == exp_tag}")
         assert ct == exp_ct and tag == exp_tag, f"len {li} enc mismatch"
         pt2, _, ok = await run_crypto(dut, key, iv, aad, L, True, tag, blocks(ct))

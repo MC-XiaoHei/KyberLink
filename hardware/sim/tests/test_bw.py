@@ -6,7 +6,7 @@ KEY = bytes.fromhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1
 NONCE = bytes.fromhex("cafebabefacedbaddecaf880")
 PT_LEN = 1500
 NBLK = 94
-DP_PERIOD_NS = 1000.0 / 125.0  # data-plane 125 MHz constraint
+DP_PERIOD_NS = 1000.0 / 125.0
 
 
 def nct(pt_len):

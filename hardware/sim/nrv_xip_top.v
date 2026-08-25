@@ -1,4 +1,3 @@
-// XIP simulation top: NEORV32 wrapper + SPI flash model
 `timescale 1ns/1ps
 module nrv_xip_top (
     input  wire        clk_i,
