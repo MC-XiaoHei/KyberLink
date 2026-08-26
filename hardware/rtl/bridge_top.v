@@ -38,31 +38,20 @@ module bridge_top #(
 
     output wire [31:0]   seq_out,
     output wire          dec_tag_ok,
-    output wire          rx_err,
+    output wire          rx_err
 
-    output wire [7:0]    lan_hs_data,
-    output wire          lan_hs_valid,
-    output wire          lan_hs_last,
-    input  wire          lan_hs_ready,
-    input  wire [7:0]    mgmt_tx_data,
-    input  wire          mgmt_tx_valid,
-    input  wire          mgmt_tx_last,
-    output wire          mgmt_tx_ready
 );
 
     wire logic_rst = ~rst_n;
 
     wire [7:0] wan_tx_data, wan_rx_data;
     wire       wan_tx_valid, wan_tx_ready, wan_tx_last;
-    wire       wan_hs_valid;
     wire [7:0] enc_wan_tx_data;
     wire       enc_wan_tx_valid, enc_wan_tx_ready, enc_wan_tx_last;
-    wire       esp_rx_valid_g = esp_rx_valid && !wan_hs_valid;
-    assign wan_tx_data = mgmt_tx_valid ? mgmt_tx_data : enc_wan_tx_data;
-    assign wan_tx_valid = mgmt_tx_valid ? mgmt_tx_valid : enc_wan_tx_valid;
-    assign wan_tx_last = mgmt_tx_valid ? mgmt_tx_last : enc_wan_tx_last;
-    assign mgmt_tx_ready = wan_tx_ready;
-    assign enc_wan_tx_ready = mgmt_tx_valid ? 1'b0 : wan_tx_ready;
+    assign wan_tx_data = enc_wan_tx_data;
+    assign wan_tx_valid = enc_wan_tx_valid;
+    assign wan_tx_last = enc_wan_tx_last;
+    assign enc_wan_tx_ready = wan_tx_ready;
     wire       wan_rx_valid, wan_rx_ready, wan_rx_last, wan_rx_user;
     wire [7:0] lan_tx_data, lan_rx_data;
     wire       lan_tx_valid, lan_tx_ready, lan_tx_last;
@@ -201,22 +190,10 @@ module bridge_top #(
         .clk(clk), .rst_n(rst_n),
         .s_tdata(wan_rx_data), .s_tvalid(wan_rx_valid), .s_tlast(wan_rx_last),
         .s_tready(wan_rx_ready), .s_tuser(wan_rx_user),
-        .cfg_dst_mac(cfg_dst_mac), .cfg_dst_port(cfg_dst_port), .cfg_hs_port(16'd4501),
+        .cfg_dst_mac(cfg_dst_mac), .cfg_dst_port(cfg_dst_port),
         .m_tdata(esp_rx_data), .m_tvalid(esp_rx_valid), .m_tlast(esp_rx_last),
-        .m_tready(esp_rx_ready), .m_hs_valid(wan_hs_valid)
+        .m_tready(esp_rx_ready)
     );
-
-    reg [7:0] lan_hs_data_q;
-    reg       lan_hs_valid_q;
-    reg       lan_hs_last_q;
-    always @(posedge clk) begin
-        lan_hs_data_q <= esp_rx_data;
-        lan_hs_valid_q <= wan_hs_valid;
-        lan_hs_last_q <= esp_rx_last;
-    end
-    assign lan_hs_data = lan_hs_data_q;
-    assign lan_hs_valid = lan_hs_valid_q;
-    assign lan_hs_last = lan_hs_last_q;
 
     wire [7:0] lan_p1_data;
     wire       lan_p1_valid, lan_p1_ready, lan_p1_last;
@@ -242,13 +219,13 @@ module bridge_top #(
 
     axis_pipe1 u_esp_pipe (
         .clk(clk), .rst_n(rst_n),
-        .s_tdata(esp_rx_data), .s_tvalid(esp_rx_valid_g), .s_tlast(esp_rx_last),
+        .s_tdata(esp_rx_data), .s_tvalid(esp_rx_valid), .s_tlast(esp_rx_last),
         .s_tready(esp_pipe_ready),
         .m_tdata(esp_p1_data), .m_tvalid(esp_p1_valid), .m_tlast(esp_p1_last),
         .m_tready(esp_p1_ready)
     );
 
-    assign esp_rx_ready = wan_hs_valid ? lan_hs_ready : esp_pipe_ready;
+    assign esp_rx_ready = esp_pipe_ready;
 
     wire enc_lan_valid_g = sa_en[0] && enc_lan_valid;
     wire esp_p1_valid_g = sa_en[1] && esp_p1_valid;
@@ -283,10 +260,6 @@ module bridge_top #(
     wire       dec_tx_valid;
     wire       dec_tx_last;
     wire       dec_tx_ready;
-    wire lan_tx_from_dec = dec_tx_valid;
-    wire [7:0] lan_tx_data_m = lan_tx_from_dec ? dec_tx_data : mgmt_tx_data;
-    wire lan_tx_valid_m = lan_tx_from_dec ? dec_tx_valid : mgmt_tx_valid;
-    wire lan_tx_last_m = lan_tx_from_dec ? dec_tx_last : mgmt_tx_last;
 
     bridge_dec_path u_dec (
         .clk(clk), .rst_n(rst_n),
@@ -306,9 +279,9 @@ module bridge_top #(
         .tag_ok(dec_tag_ok), .gcm_active(dec_active_w)
     );
 
-    assign lan_tx_data = lan_tx_data_m;
-    assign lan_tx_valid = lan_tx_valid_m;
-    assign lan_tx_last = lan_tx_last_m;
+    assign lan_tx_data = dec_tx_data;
+    assign lan_tx_valid = dec_tx_valid;
+    assign lan_tx_last = dec_tx_last;
     assign dec_tx_ready = lan_tx_ready;
 
     wire seq_out_w;

@@ -64,6 +64,7 @@ module gcm_stream (
     wire aes_done;
     wire aes_busy;
     wire aes_crypt_rdy;
+    reg aes_crypt_rdy_q;
     wire aes_load_rdy;
     wire [127:0] aes_out;
     wire gh_done;
@@ -112,7 +113,7 @@ module gcm_stream (
 
     wire cb_avail = (pt_cnt >= 3'd1);
     wire out_room = (out_cnt + 3'd1) <= 3'd4;
-    assign pt_ready = (phase == PHASE_AES_CB) && aes_crypt_rdy &&
+    assign pt_ready = (phase == PHASE_AES_CB) && aes_crypt_rdy_q &&
                       (gh_qcnt < 3'd3) && (pt_cnt < 3'd4);
     assign ct_valid = (out_cnt != 3'd0);
     assign ct_data  = out_q[out_rd];
@@ -148,10 +149,12 @@ module gcm_stream (
             nct_r <= 9'd0;
             pt_len_r <= 12'd0;
             last_nb_r <= 5'd0;
+            aes_crypt_rdy_q <= 1'b0;
         end else begin
             done <= 1'b0;
             aes_start <= 1'b0;
             gh_start <= 1'b0;
+            aes_crypt_rdy_q <= aes_crypt_rdy;
             if (pt_valid && pt_ready) begin
                 pt_fifo[pt_wr] <= pt_data;
                 pt_wr <= pt_wr + 2'd1;

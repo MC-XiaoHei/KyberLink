@@ -22,7 +22,7 @@ module bw_dual (
         .pt_valid(pt_valid_a), .pt_ready(pt_ready_a), .pt_data(pt_data_a),
         .ct_valid(ct_valid_a), .ct_ready(ct_ready_a), .ct_data(ct_data_a),
         .tag_valid(tag_valid_a), .tag(tag_a),
-        .decrypt(1'b0), .tag_in(128'd0), .tag_ok(), .busy(), .done()
+        .decrypt(1'b0), .busy(), .done()
     );
 
 endmodule

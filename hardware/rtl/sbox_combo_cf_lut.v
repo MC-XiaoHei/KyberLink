@@ -1,14 +1,13 @@
-module sbox_combo_cf_lut (
+module sbox_combo_cf_lut #(parameter PIPE = 0) (
+    input  wire clk,
     input  wire [7:0] x,
     output wire [7:0] y
 );
     wire [7:0] U;
-    wire [7:0] S;
     genvar i;
     generate
         for (i = 0; i < 8; i = i + 1) begin
             assign U[i] = x[7-i];
-            assign y[i] = S[7-i];
         end
     endgenerate
 
@@ -106,44 +105,132 @@ module sbox_combo_cf_lut (
     wire m_62 = m_45 & t_4;
     wire m_63 = m_41 & t_2;
 
-    wire l_0  = m_61 ^ m_62;
-    wire l_1  = m_50 ^ m_56;
-    wire l_2  = m_46 ^ m_48;
-    wire l_3  = m_47 ^ m_55;
-    wire l_4  = m_54 ^ m_58;
-    wire l_5  = m_49 ^ m_61;
-    wire l_6  = m_62 ^ l_5;
-    wire l_7  = m_46 ^ l_3;
-    wire l_8  = m_51 ^ m_59;
-    wire l_9  = m_52 ^ m_53;
-    wire l_10 = m_53 ^ l_4;
-    wire l_11 = m_60 ^ l_2;
-    wire l_12 = m_48 ^ m_51;
-    wire l_13 = m_50 ^ l_0;
-    wire l_14 = m_52 ^ m_61;
-    wire l_15 = m_55 ^ l_1;
-    wire l_16 = m_56 ^ l_0;
-    wire l_17 = m_57 ^ l_1;
-    wire l_18 = m_58 ^ l_8;
-    wire l_19 = m_63 ^ l_4;
-    wire l_20 = l_0 ^ l_1;
-    wire l_21 = l_1 ^ l_7;
-    wire l_22 = l_3 ^ l_12;
-    wire l_23 = l_18 ^ l_2;
-    wire l_24 = l_15 ^ l_9;
-    wire l_25 = l_6 ^ l_10;
-    wire l_26 = l_7 ^ l_9;
-    wire l_27 = l_8 ^ l_10;
-    wire l_28 = l_11 ^ l_14;
-    wire l_29 = l_11 ^ l_17;
+    generate
+        if (PIPE) begin : g_pipe
+            reg m46_r, m47_r, m48_r, m49_r, m50_r, m51_r, m52_r, m53_r;
+            reg m54_r, m55_r, m56_r, m57_r, m58_r, m59_r, m60_r, m61_r;
+            reg m62_r, m63_r;
+            always @(posedge clk) begin
+                m46_r <= m_46;
+                m47_r <= m_47;
+                m48_r <= m_48;
+                m49_r <= m_49;
+                m50_r <= m_50;
+                m51_r <= m_51;
+                m52_r <= m_52;
+                m53_r <= m_53;
+                m54_r <= m_54;
+                m55_r <= m_55;
+                m56_r <= m_56;
+                m57_r <= m_57;
+                m58_r <= m_58;
+                m59_r <= m_59;
+                m60_r <= m_60;
+                m61_r <= m_61;
+                m62_r <= m_62;
+                m63_r <= m_63;
+            end
 
-    assign S[0] = l_6 ^ l_24;
-    assign S[1] = l_16 ~^ l_26;
-    assign S[2] = l_19 ~^ l_28;
-    assign S[3] = l_6 ^ l_21;
-    assign S[4] = l_20 ^ l_22;
-    assign S[5] = l_25 ^ l_29;
-    assign S[6] = l_13 ~^ l_27;
-    assign S[7] = l_6 ~^ l_23;
+            wire l_0  = m61_r ^ m62_r;
+            wire l_1  = m50_r ^ m56_r;
+            wire l_2  = m46_r ^ m48_r;
+            wire l_3  = m47_r ^ m55_r;
+            wire l_4  = m54_r ^ m58_r;
+            wire l_5  = m49_r ^ m61_r;
+            wire l_6  = m62_r ^ l_5;
+            wire l_7  = m46_r ^ l_3;
+            wire l_8  = m51_r ^ m59_r;
+            wire l_9  = m52_r ^ m53_r;
+            wire l_10 = m53_r ^ l_4;
+            wire l_11 = m60_r ^ l_2;
+            wire l_12 = m48_r ^ m51_r;
+            wire l_13 = m50_r ^ l_0;
+            wire l_14 = m52_r ^ m61_r;
+            wire l_15 = m55_r ^ l_1;
+            wire l_16 = m56_r ^ l_0;
+            wire l_17 = m57_r ^ l_1;
+            wire l_18 = m58_r ^ l_8;
+            wire l_19 = m63_r ^ l_4;
+            wire l_20 = l_0 ^ l_1;
+            wire l_21 = l_1 ^ l_7;
+            wire l_22 = l_3 ^ l_12;
+            wire l_23 = l_18 ^ l_2;
+            wire l_24 = l_15 ^ l_9;
+            wire l_25 = l_6 ^ l_10;
+            wire l_26 = l_7 ^ l_9;
+            wire l_27 = l_8 ^ l_10;
+            wire l_28 = l_11 ^ l_14;
+            wire l_29 = l_11 ^ l_17;
+
+            wire [7:0] S;
+            assign S[0] = l_6 ^ l_24;
+            assign S[1] = l_16 ~^ l_26;
+            assign S[2] = l_19 ~^ l_28;
+            assign S[3] = l_6 ^ l_21;
+            assign S[4] = l_20 ^ l_22;
+            assign S[5] = l_25 ^ l_29;
+            assign S[6] = l_13 ~^ l_27;
+            assign S[7] = l_6 ~^ l_23;
+
+            assign y[0] = S[7];
+            assign y[1] = S[6];
+            assign y[2] = S[5];
+            assign y[3] = S[4];
+            assign y[4] = S[3];
+            assign y[5] = S[2];
+            assign y[6] = S[1];
+            assign y[7] = S[0];
+        end else begin : g_nopipe
+            wire l_0  = m_61 ^ m_62;
+            wire l_1  = m_50 ^ m_56;
+            wire l_2  = m_46 ^ m_48;
+            wire l_3  = m_47 ^ m_55;
+            wire l_4  = m_54 ^ m_58;
+            wire l_5  = m_49 ^ m_61;
+            wire l_6  = m_62 ^ l_5;
+            wire l_7  = m_46 ^ l_3;
+            wire l_8  = m_51 ^ m_59;
+            wire l_9  = m_52 ^ m_53;
+            wire l_10 = m_53 ^ l_4;
+            wire l_11 = m_60 ^ l_2;
+            wire l_12 = m_48 ^ m_51;
+            wire l_13 = m_50 ^ l_0;
+            wire l_14 = m_52 ^ m_61;
+            wire l_15 = m_55 ^ l_1;
+            wire l_16 = m_56 ^ l_0;
+            wire l_17 = m_57 ^ l_1;
+            wire l_18 = m_58 ^ l_8;
+            wire l_19 = m_63 ^ l_4;
+            wire l_20 = l_0 ^ l_1;
+            wire l_21 = l_1 ^ l_7;
+            wire l_22 = l_3 ^ l_12;
+            wire l_23 = l_18 ^ l_2;
+            wire l_24 = l_15 ^ l_9;
+            wire l_25 = l_6 ^ l_10;
+            wire l_26 = l_7 ^ l_9;
+            wire l_27 = l_8 ^ l_10;
+            wire l_28 = l_11 ^ l_14;
+            wire l_29 = l_11 ^ l_17;
+
+            wire [7:0] S;
+            assign S[0] = l_6 ^ l_24;
+            assign S[1] = l_16 ~^ l_26;
+            assign S[2] = l_19 ~^ l_28;
+            assign S[3] = l_6 ^ l_21;
+            assign S[4] = l_20 ^ l_22;
+            assign S[5] = l_25 ^ l_29;
+            assign S[6] = l_13 ~^ l_27;
+            assign S[7] = l_6 ~^ l_23;
+
+            assign y[0] = S[7];
+            assign y[1] = S[6];
+            assign y[2] = S[5];
+            assign y[3] = S[4];
+            assign y[4] = S[3];
+            assign y[5] = S[2];
+            assign y[6] = S[1];
+            assign y[7] = S[0];
+        end
+    endgenerate
 
 endmodule

@@ -10,13 +10,11 @@ module ip_udp_eth_rx (
 
     input  wire [47:0]   cfg_dst_mac,
     input  wire [15:0]   cfg_dst_port,
-    input  wire [15:0]   cfg_hs_port,
 
     output wire [7:0]    m_tdata,
     output wire          m_tvalid,
     output wire          m_tlast,
-    input  wire          m_tready,
-    output wire          m_hs_valid
+    input  wire          m_tready
 );
 
     localparam ST_IDLE = 1'b0;
@@ -25,7 +23,6 @@ module ip_udp_eth_rx (
     reg       state;
     reg [11:0] cnt;
     reg       drop;
-    reg       is_hs;
     reg [47:0] dmac_r;
     reg [7:0]  tlen_hi_r;
     reg [7:0]  tlen_lo_r;
@@ -39,10 +36,6 @@ module ip_udp_eth_rx (
             tlen_hi_r <= 8'd0;
             tlen_lo_r <= 8'd0;
         end else if (s_tvalid && cnt >= 12'd36 && cnt <= 12'd37) begin
-            if (cnt == 12'd36)
-                is_hs <= (d == cfg_hs_port[15:8]);
-            else
-                is_hs <= is_hs && (d == cfg_hs_port[7:0]);
         end else if (s_tvalid) begin
             if (cnt < 12'd6)
                 dmac_r <= {dmac_r[39:0], d};
@@ -60,8 +53,8 @@ module ip_udp_eth_rx (
     wire proto_ok = (cnt == 12'd23) ? (d == 8'h11) : 1'b1;
     wire sport_ok = (cnt == 12'd34) ? ((d == 8'h11) || (d == 8'h11)) :
                     (cnt == 12'd35) ? ((d == 8'h94) || (d == 8'h95)) : 1'b1;
-    wire dport_ok = (cnt == 12'd36) ? ((d == cfg_dst_port[15:8]) || (d == cfg_hs_port[15:8])) :
-                    (cnt == 12'd37) ? ((d == cfg_dst_port[7:0]) || (d == cfg_hs_port[7:0])) : 1'b1;
+    wire dport_ok = (cnt == 12'd36) ? (d == cfg_dst_port[15:8]) :
+                    (cnt == 12'd37) ? (d == cfg_dst_port[7:0]) : 1'b1;
 
     wire bad_here = !etype_ok || !ver_ok || !proto_ok ||
                     !sport_ok || !dport_ok || s_tuser || dmac_bad;
@@ -72,7 +65,6 @@ module ip_udp_eth_rx (
     assign m_tdata  = s_tdata;
     assign m_tvalid = pay && s_tvalid;
     assign m_tlast  = pay && s_tlast;
-    assign m_hs_valid = pay && s_tvalid && is_hs;
     assign s_tready = (state == ST_IDLE) || (state == ST_RX && (!pay || m_tready));
 
     always @(posedge clk or negedge rst_n) begin

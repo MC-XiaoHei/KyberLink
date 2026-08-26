@@ -111,9 +111,10 @@ module bridge_dec_path (
     wire [11:0] pad_ct_w = ct_len - 12'd2;
     wire [3:0]  pad_off_w = pad_ct_w[3:0];
     wire [7:0]  pad_len_w = tail_pt[127 - 8*pad_off_w -: 8];
-    wire [11:0] out_len_w = ct_len - 12'd2 - {8'd0, pad_len_w};
-    wire pad_ok_w = (pad_len_w <= 8'd15) &&
-                    (ct_len >= (12'd2 + {8'd0, pad_len_w} + 12'd1));
+    reg [7:0]   pad_len_r;
+    wire [11:0] out_len_w = ct_len - 12'd2 - {8'd0, pad_len_r};
+    wire pad_ok_w = (pad_len_r <= 8'd15) &&
+                    (ct_len >= (12'd2 + {8'd0, pad_len_r} + 12'd1));
 
     wire tag_ok_w = tag_valid_q && (tag_q[63:0] == tag_w[63:0]) && (tag_q[127:64] == tag_w[127:64]);
 
@@ -135,6 +136,7 @@ module bridge_dec_path (
             iv_r <= 96'd0;
             tail18 <= 144'd0;
             blk_acc <= 128'd0;
+            pad_len_r <= 8'd0;
             frm_wr_pend <= 1'b0;
             frm_wr_addr <= 7'd0;
             frm_wr_data <= 128'd0;
@@ -166,6 +168,7 @@ module bridge_dec_path (
             gcm_aad <= 128'd0;
         end else begin
             gcm_start <= 1'b0;
+            pad_len_r <= pad_len_w;
             tag_ok_r <= tag_ok_r || tag_ok_w;
             tag_ok <= tag_ok_w;
             case (state)

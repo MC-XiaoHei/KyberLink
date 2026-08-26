@@ -46,10 +46,10 @@ module aes256_core_pipe (
                        (rke >> 1) == 4'd6 ? 8'h20 : 8'h40;
 
     wire [7:0] sb0_c, sb1_c, sb2_c, sb3_c;
-    sbox_combo_cf_lut u_sb_k0 (.x(wm1[31:24]), .y(sb0_c));
-    sbox_combo_cf_lut u_sb_k1 (.x(wm1[23:16]), .y(sb1_c));
-    sbox_combo_cf_lut u_sb_k2 (.x(wm1[15:8]),  .y(sb2_c));
-    sbox_combo_cf_lut u_sb_k3 (.x(wm1[7:0]),   .y(sb3_c));
+    sbox_combo_cf_lut u_sb_k0 (.clk(clk), .x(wm1[31:24]), .y(sb0_c));
+    sbox_combo_cf_lut u_sb_k1 (.clk(clk), .x(wm1[23:16]), .y(sb1_c));
+    sbox_combo_cf_lut u_sb_k2 (.clk(clk), .x(wm1[15:8]),  .y(sb2_c));
+    sbox_combo_cf_lut u_sb_k3 (.clk(clk), .x(wm1[7:0]),   .y(sb3_c));
 
     reg [7:0] sb0_r, sb1_r, sb2_r, sb3_r;
     always @(posedge clk) begin
@@ -67,16 +67,16 @@ module aes256_core_pipe (
     wire [31:0] we2 = st_prev2[63:32] ^ we1;
     wire [31:0] we3 = st_prev2[31:0] ^ we2;
 
-    reg [127:0] state [0:2];
-    reg [127:0] sr_r  [0:2];
-    reg [3:0]   rd    [0:2];
+    reg [127:0] state [0:3];
+    reg [127:0] sr_r  [0:3];
+    reg [3:0]   rd    [0:3];
     reg [1:0]   blk_sel;
     reg [1:0]   blk_sel_d;
+    reg [1:0]   blk_sel_dd;
     reg [127:0] out_r;
 
-    wire [1:0] b1 = (blk_sel == 2'd0) ? 2'd2 : blk_sel - 2'd1;
-    wire [1:0] b2 = (blk_sel == 2'd2) ? 2'd0 : (blk_sel == 2'd1) ? 2'd2 : 2'd1;
-    wire [1:0] b1_d = (blk_sel_d == 2'd0) ? 2'd2 : blk_sel_d - 2'd1;
+    wire [1:0] b2 = (blk_sel == 2'd3) ? 2'd0 : blk_sel + 2'd1;
+    wire [1:0] b1_dd = (blk_sel_dd == 2'd0) ? 2'd3 : blk_sel_dd - 2'd1;
 
     wire [127:0] sbox_c;
     wire [127:0] sr_in = {state[blk_sel][127:120], state[blk_sel][87:80], state[blk_sel][47:40], state[blk_sel][7:0],
@@ -85,22 +85,22 @@ module aes256_core_pipe (
                           state[blk_sel][31:24], state[blk_sel][119:112], state[blk_sel][79:72], state[blk_sel][39:32]};
     sb_sbox16 u_sb (.clk(clk), .x(sr_in), .y(sbox_c));
 
-    wire [7:0] m0  = sr_r[b1_d][127:120];
-    wire [7:0] m1  = sr_r[b1_d][119:112];
-    wire [7:0] m2  = sr_r[b1_d][111:104];
-    wire [7:0] m3  = sr_r[b1_d][103:96];
-    wire [7:0] m4  = sr_r[b1_d][95:88];
-    wire [7:0] m5  = sr_r[b1_d][87:80];
-    wire [7:0] m6  = sr_r[b1_d][79:72];
-    wire [7:0] m7  = sr_r[b1_d][71:64];
-    wire [7:0] m8  = sr_r[b1_d][63:56];
-    wire [7:0] m9  = sr_r[b1_d][55:48];
-    wire [7:0] m10 = sr_r[b1_d][47:40];
-    wire [7:0] m11 = sr_r[b1_d][39:32];
-    wire [7:0] m12 = sr_r[b1_d][31:24];
-    wire [7:0] m13 = sr_r[b1_d][23:16];
-    wire [7:0] m14 = sr_r[b1_d][15:8];
-    wire [7:0] m15 = sr_r[b1_d][7:0];
+    wire [7:0] m0  = sr_r[b1_dd][127:120];
+    wire [7:0] m1  = sr_r[b1_dd][119:112];
+    wire [7:0] m2  = sr_r[b1_dd][111:104];
+    wire [7:0] m3  = sr_r[b1_dd][103:96];
+    wire [7:0] m4  = sr_r[b1_dd][95:88];
+    wire [7:0] m5  = sr_r[b1_dd][87:80];
+    wire [7:0] m6  = sr_r[b1_dd][79:72];
+    wire [7:0] m7  = sr_r[b1_dd][71:64];
+    wire [7:0] m8  = sr_r[b1_dd][63:56];
+    wire [7:0] m9  = sr_r[b1_dd][55:48];
+    wire [7:0] m10 = sr_r[b1_dd][47:40];
+    wire [7:0] m11 = sr_r[b1_dd][39:32];
+    wire [7:0] m12 = sr_r[b1_dd][31:24];
+    wire [7:0] m13 = sr_r[b1_dd][23:16];
+    wire [7:0] m14 = sr_r[b1_dd][15:8];
+    wire [7:0] m15 = sr_r[b1_dd][7:0];
 
     wire [7:0] mc_col0[3:0];
     wire [7:0] mc_col1[3:0];
@@ -128,10 +128,10 @@ module aes256_core_pipe (
                             mc_col2[0], mc_col2[1], mc_col2[2], mc_col2[3],
                             mc_col3[0], mc_col3[1], mc_col3[2], mc_col3[3]};
 
-    wire [127:0] mid_cmb = (rd[b1_d] == 4'd14) ? sr_r[b1_d] : mc_comb;
+    wire [127:0] mid_cmb = (rd[b1_dd] == 4'd14) ? sr_r[b1_dd] : mc_comb;
     reg [127:0] rk;
     always @(*) begin
-        case (rd[b1_d])
+        case (rd[b1_dd])
             4'd0:  rk = ksch[0];
             4'd1:  rk = ksch[1];
             4'd2:  rk = ksch[2];
@@ -151,7 +151,7 @@ module aes256_core_pipe (
         endcase
     end
     wire [127:0] state_next = mid_cmb ^ rk;
-    wire [127:0] block_out_comb = (rd[b1_d] == 4'd14) ? state_next : out_r;
+    wire [127:0] block_out_comb = (rd[b1_dd] == 4'd14) ? state_next : out_r;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             block_out <= 128'd0;
@@ -174,11 +174,12 @@ module aes256_core_pipe (
             ax_loaded <= 1'b0;
             st_prev <= 128'd0;
             st_prev2 <= 128'd0;
-            state[0] <= 128'd0; state[1] <= 128'd0; state[2] <= 128'd0;
-            sr_r[0] <= 128'd0; sr_r[1] <= 128'd0; sr_r[2] <= 128'd0;
-            rd[0] <= 4'd0; rd[1] <= 4'd0; rd[2] <= 4'd0;
+            state[0] <= 128'd0; state[1] <= 128'd0; state[2] <= 128'd0; state[3] <= 128'd0;
+            sr_r[0] <= 128'd0; sr_r[1] <= 128'd0; sr_r[2] <= 128'd0; sr_r[3] <= 128'd0;
+            rd[0] <= 4'd0; rd[1] <= 4'd0; rd[2] <= 4'd0; rd[3] <= 4'd0;
             blk_sel <= 2'd0;
             blk_sel_d <= 2'd0;
+            blk_sel_dd <= 2'd0;
             out_r <= 128'd0;
         end else begin
             case (phase)
@@ -236,36 +237,37 @@ module aes256_core_pipe (
                         state[b2] <= block_in ^ ksch[0];
                         rd[b2] <= 4'd1;
                     end
-                    sr_r[blk_sel_d] <= sbox_c;
-                    if (rd[b1_d] == 4'd14) begin
-                        state[b1_d] <= state_next;
+                    sr_r[blk_sel_dd] <= sbox_c;
+                    if (rd[b1_dd] == 4'd14) begin
+                        state[b1_dd] <= state_next;
                         out_r <= state_next;
                         if (blk_valid && (rd[b2] == 4'd1)) begin
-                            rd[b1_d] <= 4'd1;
-                            state[b1_d] <= block_in ^ ksch[0];
+                            rd[b1_dd] <= 4'd1;
+                            state[b1_dd] <= block_in ^ ksch[0];
                         end else begin
-                            rd[b1_d] <= 4'd0;
+                            rd[b1_dd] <= 4'd0;
                         end
-                    end else if (rd[b1_d] != 4'd0) begin
-                        state[b1_d] <= state_next;
-                        rd[b1_d] <= rd[b1_d] + 4'd1;
+                    end else if (rd[b1_dd] != 4'd0) begin
+                        state[b1_dd] <= state_next;
+                        rd[b1_dd] <= rd[b1_dd] + 4'd1;
                     end
                     blk_sel_d <= blk_sel;
-                    blk_sel <= (blk_sel == 2'd2) ? 2'd0 : blk_sel + 2'd1;
+                    blk_sel_dd <= blk_sel_d;
+                    blk_sel <= (blk_sel == 2'd3) ? 2'd0 : blk_sel + 2'd1;
                 end
                 default: phase <= PHASE_IDLE;
             endcase
         end
     end
 
-    assign busy = (rd[0] != 4'd0) && (rd[1] != 4'd0) && (rd[2] != 4'd0);
+    assign busy = (rd[0] != 4'd0) && (rd[1] != 4'd0) && (rd[2] != 4'd0) && (rd[3] != 4'd0);
     assign crypt_rdy = (phase == PHASE_CRYPT) && !busy;
     assign load_rdy = (phase == PHASE_CRYPT) && (rd[b2] == 4'd0);
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             done <= 1'b0;
         end else begin
-            done <= (rd[b1_d] == 4'd14);
+            done <= (rd[b1_dd] == 4'd14);
         end
     end
 

@@ -49,7 +49,7 @@ async def test_sbox16(dut):
         await RisingEdge(dut.clk)
         await Timer(1, unit="ns")
         expect.append(xv)
-        if len(expect) > 0:
+        if len(expect) > 1:
             x_in = expect.pop(0)
             yb = int(dut.y.value).to_bytes(16, "big")
             xb = x_in.to_bytes(16, "big")
