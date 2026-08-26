@@ -74,6 +74,8 @@ module bridge_enc_path (
     reg [31:0]  seq_r;
     reg         first_pkt;
     reg [15:0]  ip_csum_r;
+    reg [15:0]  total_len_q;
+    reg [15:0]  udp_len_q;
     reg [127:0] tx_blk;
     reg [3:0]   tx_b;
     reg         tx_blk_v;
@@ -87,6 +89,10 @@ module bridge_enc_path (
     wire [15:0] frame_n = 16'd78 + {4'd0, pt_len_w};
     wire [15:0] ct_end = 16'd62 + {4'd0, pt_len_w};
     wire [8:0]  nct = {1'b0, pt_len_w[11:4]} + {8'd0, |pt_len_w[3:0]};
+    reg [8:0] nct_q;
+    always @(posedge clk) nct_q <= nct;
+    reg [11:0] pt_len_w_q;
+    always @(posedge clk) pt_len_w_q <= pt_len_w;
 
     function [15:0] fold16(input [31:0] s);
         begin
@@ -94,10 +100,17 @@ module bridge_enc_path (
         end
     endfunction
 
-    wire [15:0] ip_sum = 16'h4500 + total_len + 16'h4000 + 16'h4011
+    wire [15:0] ip_sum = 16'h4500 + total_len_q + 16'h4000 + 16'h4011
                        + cfg_src_ip[31:16] + cfg_src_ip[15:0]
                        + cfg_dst_ip[31:16] + cfg_dst_ip[15:0];
-    wire [15:0] ip_csum_c = ~fold16({16'd0, ip_sum});
+    reg [15:0] ip_sum_q;
+    always @(posedge clk) ip_sum_q <= ip_sum;
+    wire [15:0] ip_csum_c = ~fold16({16'd0, ip_sum_q});
+    reg gcm_start_q1;
+    always @(posedge clk) begin
+        gcm_start_q1 <= gcm_start;
+        if (gcm_start_q1) ip_csum_r <= ip_csum_c;
+    end
     assign gcm_pt_valid = pt_data_v;
     assign gcm_pt_data  = pt_rd_data;
     assign seq_out  = seq_r;
@@ -111,7 +124,7 @@ module bridge_enc_path (
                 pt_rd_data[127 - 8*blk_b -: 8] <= (blk_b < 8) ?
                     frm_hi[pt_rd_addr][63 - 8*blk_b -: 8] :
                     frm_lo[pt_rd_addr][127 - 8*blk_b -: 8];
-            else if (blk_n < pt_len_w) begin
+            else if (blk_n < pt_len_w_q) begin
                 if (blk_n - frm_len == pad_n)
                     pt_rd_data[127 - 8*blk_b -: 8] <= {4'd0, pad_n};
                 else if (blk_n - frm_len == pad_n + 12'd1)
@@ -129,19 +142,17 @@ module bridge_enc_path (
     function [7:0] hdr_byte(input [15:0] o);
         reg [15:0] ipd;
         begin
-            if (o < 16'd6)
-                hdr_byte = cfg_dst_mac[47 - 8*o[2:0] -: 8];
-            else if (o < 16'd12)
-                hdr_byte = cfg_src_mac[47 - 8*(o - 16'd6) -: 8];
-            else if (o < 16'd14)
-                hdr_byte = (o == 16'd12) ? 8'h08 : 8'h00;
-            else if (o < 16'd34) begin
+            case (1'b1)
+                o < 16'd6: hdr_byte = cfg_dst_mac_q[47 - 8*o[2:0] -: 8];
+                o < 16'd12: hdr_byte = cfg_src_mac_q[47 - 8*(o - 16'd6) -: 8];
+                o < 16'd14: hdr_byte = (o == 16'd12) ? 8'h08 : 8'h00;
+                o < 16'd34: begin
                 ipd = o - 16'd14;
                 case (ipd[4:0])
                     5'd0: hdr_byte = 8'h45;
                     5'd1: hdr_byte = 8'h00;
-                    5'd2: hdr_byte = total_len[15:8];
-                    5'd3: hdr_byte = total_len[7:0];
+                    5'd2: hdr_byte = total_len_q[15:8];
+                    5'd3: hdr_byte = total_len_q[7:0];
                     5'd4: hdr_byte = 8'h00;
                     5'd5: hdr_byte = 8'h00;
                     5'd6: hdr_byte = 8'h40;
@@ -150,45 +161,64 @@ module bridge_enc_path (
                     5'd9: hdr_byte = 8'h11;
                     5'd10: hdr_byte = ip_csum_r[15:8];
                     5'd11: hdr_byte = ip_csum_r[7:0];
-                    5'd12: hdr_byte = cfg_src_ip[31:24];
-                    5'd13: hdr_byte = cfg_src_ip[23:16];
-                    5'd14: hdr_byte = cfg_src_ip[15:8];
-                    5'd15: hdr_byte = cfg_src_ip[7:0];
-                    5'd16: hdr_byte = cfg_dst_ip[31:24];
-                    5'd17: hdr_byte = cfg_dst_ip[23:16];
-                    5'd18: hdr_byte = cfg_dst_ip[15:8];
-                    default: hdr_byte = cfg_dst_ip[7:0];
+                    5'd12: hdr_byte = cfg_src_ip_q[31:24];
+                    5'd13: hdr_byte = cfg_src_ip_q[23:16];
+                    5'd14: hdr_byte = cfg_src_ip_q[15:8];
+                    5'd15: hdr_byte = cfg_src_ip_q[7:0];
+                    5'd16: hdr_byte = cfg_dst_ip_q[31:24];
+                    5'd17: hdr_byte = cfg_dst_ip_q[23:16];
+                    5'd18: hdr_byte = cfg_dst_ip_q[15:8];
+                    default: hdr_byte = cfg_dst_ip_q[7:0];
                 endcase
-            end else if (o < 16'd42) begin
+                end
+                o < 16'd42: begin
                 case (o[3:0] - 4'd2)
-                    4'd0: hdr_byte = cfg_src_port[15:8];
-                    4'd1: hdr_byte = cfg_src_port[7:0];
-                    4'd2: hdr_byte = cfg_dst_port[15:8];
-                    4'd3: hdr_byte = cfg_dst_port[7:0];
-                    4'd4: hdr_byte = udp_len[15:8];
-                    4'd5: hdr_byte = udp_len[7:0];
+                    4'd0: hdr_byte = cfg_src_port_q[15:8];
+                    4'd1: hdr_byte = cfg_src_port_q[7:0];
+                    4'd2: hdr_byte = cfg_dst_port_q[15:8];
+                    4'd3: hdr_byte = cfg_dst_port_q[7:0];
+                    4'd4: hdr_byte = udp_len_q[15:8];
+                    4'd5: hdr_byte = udp_len_q[7:0];
                     4'd6: hdr_byte = 8'h00;
                     default: hdr_byte = 8'h00;
                 endcase
-            end else if (o < 16'd46)
-                hdr_byte = cfg_spi[31 - 8*(o - 16'd42) -: 8];
-            else if (o < 16'd50)
-                hdr_byte = seq_r[31 - 8*(o - 16'd46) -: 8];
-            else if (o < 16'd54)
-                hdr_byte = seq_r[31 - 8*(o - 16'd50) -: 8];
-            else
-                hdr_byte = cfg_iv[95 - 8*(o - 16'd54) -: 8];
+                end
+                o < 16'd46: hdr_byte = cfg_spi_q[31 - 8*(o - 16'd42) -: 8];
+                o < 16'd50: hdr_byte = seq_r[31 - 8*(o - 16'd46) -: 8];
+                o < 16'd54: hdr_byte = seq_r[31 - 8*(o - 16'd50) -: 8];
+                default: hdr_byte = cfg_iv_q[95 - 8*(o - 16'd54) -: 8];
+            endcase
         end
     endfunction
 
+    reg [31:0] cfg_src_ip_q;
+    reg [31:0] cfg_dst_ip_q;
+    reg [15:0] cfg_src_port_q;
+    reg [15:0] cfg_dst_port_q;
+    reg [47:0] cfg_src_mac_q;
+    reg [47:0] cfg_dst_mac_q;
+    reg [31:0] cfg_spi_q;
+    reg [95:0] cfg_iv_q;
+    always @(posedge clk) begin
+        cfg_src_ip_q <= cfg_src_ip;
+        cfg_dst_ip_q <= cfg_dst_ip;
+        cfg_src_port_q <= cfg_src_port;
+        cfg_dst_port_q <= cfg_dst_port;
+        cfg_src_mac_q <= cfg_src_mac;
+        cfg_dst_mac_q <= cfg_dst_mac;
+        cfg_spi_q <= cfg_spi;
+        cfg_iv_q <= cfg_iv;
+    end
     reg [7:0] m_byte;
+    reg [15:0] frame_n_q;
+    reg [15:0] ct_end_q;
     always @* begin
         if (tx_cnt < 16'd62)
             m_byte = hdr_byte(tx_cnt);
-        else if (tx_cnt < ct_end)
+        else if (tx_cnt < ct_end_q)
             m_byte = tx_blk[127:120];
         else
-            m_byte = tag_r[127 - 8*(tx_cnt - ct_end) -: 8];
+            m_byte = tag_r[127 - 8*(tx_cnt - ct_end_q) -: 8];
     end
 
     reg [7:0] m_tdata_r;
@@ -201,6 +231,8 @@ module bridge_enc_path (
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             state <= ST_IDLE;
+            frame_n_q <= 16'd0;
+            ct_end_q <= 16'd0;
             m_tvalid_r <= 1'b0;
             blk_acc <= 128'd0;
             fcnt <= 12'd0;
@@ -218,7 +250,8 @@ module bridge_enc_path (
             tag_r <= 128'd0;
             seq_r <= 32'd0;
             first_pkt <= 1'b1;
-            ip_csum_r <= 16'd0;
+            total_len_q <= 16'd0;
+            udp_len_q <= 16'd0;
             tx_blk <= 128'd0;
             tx_b <= 4'd0;
             tx_blk_v <= 1'b0;
@@ -232,6 +265,8 @@ module bridge_enc_path (
         end else begin
             gcm_start <= 1'b0;
             gcm_ct_ready <= 1'b0;
+            frame_n_q <= frame_n;
+            ct_end_q <= ct_end;
             case (state)
                 ST_IDLE: begin
                     m_tvalid_r <= 1'b0;
@@ -297,13 +332,14 @@ module bridge_enc_path (
                         gcm_pt_len <= pt_len_w;
                         gcm_nonce <= {seq_r, cfg_iv[95:32]};
                         gcm_aad <= {cfg_spi, seq_r, 64'd0};
-                        ip_csum_r <= ip_csum_c;
+                        total_len_q <= total_len;
+                        udp_len_q <= udp_len;
                         pt_idx <= 8'd0;
                         pt_req <= 1'b0;
                         pt_data_v <= 1'b0;
                         ct_idx <= 8'd0;
                     end
-                    if (gcm_pt_ready && !pt_req && !pt_data_v && (pt_idx < nct[7:0])) begin
+                    if (gcm_pt_ready && !pt_req && !pt_data_v && (pt_idx < nct_q[7:0])) begin
                         pt_rd_addr <= pt_idx;
                         pt_req <= 1'b1;
                     end
@@ -333,9 +369,9 @@ module bridge_enc_path (
                 ST_TX: begin
                     m_tvalid_r <= 1'b1;
                     m_tdata_r <= m_byte;
-                    m_tlast_r <= (tx_cnt == frame_n - 16'd1);
+                    m_tlast_r <= (tx_cnt == frame_n_q - 16'd1);
                     if (m_tready) begin
-                        if (tx_cnt >= 16'd61 && tx_cnt < ct_end) begin
+                        if (tx_cnt >= 16'd61 && tx_cnt < ct_end_q) begin
                             if (!tx_blk_v) begin
                                 tx_blk <= ct_rd_data;
                                 tx_blk_v <= 1'b1;
@@ -352,7 +388,7 @@ module bridge_enc_path (
                                 end
                             end
                         end
-                        if (tx_cnt == frame_n - 16'd1) begin
+                        if (tx_cnt == frame_n_q - 16'd1) begin
                             seq_r <= seq_r + 32'd1;
                             state <= ST_IDLE;
                         end else begin

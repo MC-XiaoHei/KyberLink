@@ -60,7 +60,7 @@ module bw_enc (
         .pt_valid(enc_gcm_pt_valid), .pt_ready(enc_gcm_pt_ready), .pt_data(enc_gcm_pt_data),
         .ct_valid(enc_gcm_ct_valid), .ct_ready(enc_gcm_ct_ready), .ct_data(enc_gcm_ct_data),
         .tag_valid(enc_gcm_tag_valid), .tag(enc_gcm_tag),
-        .decrypt(1'b0), .tag_in(128'd0), .tag_ok(), .busy(), .done(), .idle()
+        .decrypt(1'b0), .busy(), .done(), .idle()
     );
 
 endmodule

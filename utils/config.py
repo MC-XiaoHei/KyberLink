@@ -113,12 +113,17 @@ MODS = {
                 R("sbox_combo_cf_lut.v"), R("ghash.v"), R("gcm_stream.v")],
         "test": "test_gcm_stream",
     },
+    "sbox": {
+        "top": "sb_sbox16",
+        "src": [R("sb_sbox16.v"), R("sbox_combo_cf_lut.v"), S("gowin_dpb_sim.v")],
+        "test": "test_sbox16",
+    },
     "bridge": {
         "top": "bridge_top",
         "src": [R("axis_pipe1.v"), R("aes256_core_pipe.v"), R("sb_sbox16.v"), S("gowin_dpb_sim.v"),
                 R("sbox_combo_cf_lut.v"), R("ghash.v"), R("gcm_stream.v"), R("gcm_arb.v"),
                 R("bridge_enc_path.v"), R("bridge_dec_path.v"), R("ip_udp_eth_rx.v"),
-                R("lan_rx_mux.v"), R("bridge_top.v"), S("gowin_simlib.v")] +
+                R("bridge_top.v"), S("gowin_simlib.v")] +
                [os.path.join(R("mac"), f) for f in os.listdir(R("mac")) if f.endswith(".v")],
         "test": "test_bridge",
     },
@@ -142,17 +147,12 @@ MODS = {
                 R("bridge_dec_path.v"), S("bw_dec.v")],
         "test": "test_bw_dec",
     },
-    "bw_mux": {
-        "top": "bw_mux",
-        "src": [R("lan_rx_mux.v"), S("bw_mux.v")],
-        "test": "test_bw_mux",
-    },
     "bw_mgmt": {
         "top": "bw_mgmt",
         "src": [R("axis_pipe1.v"), R("aes256_core_pipe.v"), R("sb_sbox16.v"), S("gowin_dpb_sim.v"),
                 R("sbox_combo_cf_lut.v"), R("ghash.v"), R("gcm_stream.v"), R("gcm_arb.v"),
                 R("bridge_enc_path.v"), R("bridge_dec_path.v"), R("ip_udp_eth_rx.v"),
-                R("lan_rx_mux.v"), R("mgmt_buf.v"), R("hs_rx.v"), R("hs_tx.v"), R("mgmt_ctrl.v"),
+                R("mgmt_buf.v"), R("hs_rx.v"), R("hs_tx.v"), R("mgmt_ctrl.v"),
                 R("bridge_top.v"), S("gowin_simlib.v")] +
                [os.path.join(R("mac"), f) for f in sorted(os.listdir(R("mac"))) if f.endswith(".v")] +
                [S("bw_mgmt.v")],
@@ -174,7 +174,7 @@ MODS = {
         "src": [R("axis_pipe1.v"), R("aes256_core_pipe.v"), R("sb_sbox16.v"), S("gowin_dpb_sim.v"),
                 R("sbox_combo_cf_lut.v"), R("ghash.v"), R("gcm_stream.v"), R("gcm_arb.v"),
 R("bridge_enc_path.v"), R("bridge_dec_path.v"), R("ip_udp_eth_rx.v"),
-                R("lan_rx_mux.v"), R("mgmt_buf.v"), R("hs_rx.v"), R("hs_tx.v"), R("mgmt_ctrl.v"),
+                R("mgmt_buf.v"), R("hs_rx.v"), R("hs_tx.v"), R("mgmt_ctrl.v"),
                 R("bridge_top.v"), S("gowin_simlib.v")] +
                [os.path.join(R("mac"), f) for f in os.listdir(R("mac")) if f.endswith(".v")] +
               [os.path.join(BUILD, "neorv32_conv", "neorv32_full_wrapper.v"),
@@ -186,7 +186,7 @@ R("bridge_enc_path.v"), R("bridge_dec_path.v"), R("ip_udp_eth_rx.v"),
         "src": [R("axis_pipe1.v"), R("aes256_core_pipe.v"), R("sb_sbox16.v"), S("gowin_dpb_sim.v"),
                 R("sbox_combo_cf_lut.v"), R("ghash.v"), R("gcm_stream.v"), R("gcm_arb.v"),
 R("bridge_enc_path.v"), R("bridge_dec_path.v"), R("ip_udp_eth_rx.v"),
-                R("lan_rx_mux.v"), R("mgmt_buf.v"), R("hs_rx.v"), R("hs_tx.v"), R("mgmt_ctrl.v"),
+                R("mgmt_buf.v"), R("hs_rx.v"), R("hs_tx.v"), R("mgmt_ctrl.v"),
                 R("bridge_top.v"), S("gowin_simlib.v")] +
                [os.path.join(R("mac"), f) for f in os.listdir(R("mac")) if f.endswith(".v")] +
               [os.path.join(BUILD, "neorv32_conv", "neorv32_full_wrapper.v"),

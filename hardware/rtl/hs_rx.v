@@ -15,9 +15,8 @@ module hs_rx (
     output reg  [12:0] req_len
 );
 
-    localparam DEPTH = 4096;
-    reg [7:0] fifo_mem [0:DEPTH-1];
-    reg       fifo_last [0:DEPTH-1];
+    localparam DEPTH = 2048;
+    reg [8:0] fifo_mem [0:DEPTH-1];
     reg [11:0] wr_ptr;
     reg [11:0] rd_ptr;
     reg [12:0] fifo_cnt;
@@ -33,14 +32,17 @@ module hs_rx (
 
     reg rd_busy;
     reg [12:0] wptr;
+    reg [12:0] waddr;
+    reg req_wen_r;
+    reg rd_last_r;
+    reg [8:0] fifo_rd_q;
 
     wire rd_data = rd_busy && !fifo_empty;
-    wire rd_last = rd_data && fifo_last[rd_ptr];
     wire rd_en   = rd_data;
 
-    assign req_wen   = rd_data;
-    assign req_waddr = wptr;
-    assign req_wdata = fifo_mem[rd_ptr];
+    assign req_wen   = req_wen_r;
+    assign req_waddr = waddr;
+    assign req_wdata = fifo_rd_q[7:0];
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -51,6 +53,10 @@ module hs_rx (
             fifo_cnt <= 13'd0;
             rd_busy <= 1'b0;
             wptr <= 13'd0;
+            waddr <= 13'd0;
+            req_wen_r <= 1'b0;
+            rd_last_r <= 1'b0;
+            fifo_rd_q <= 9'd0;
             req_done_p <= 1'b0;
             req_len <= 13'd0;
         end else begin
@@ -59,10 +65,10 @@ module hs_rx (
             req_done_p <= 1'b0;
 
             if (wr_en) begin
-                fifo_mem[wr_ptr] <= s_tdata;
-                fifo_last[wr_ptr] <= s_tlast;
+                fifo_mem[wr_ptr] <= {s_tlast, s_tdata};
                 wr_ptr <= wr_ptr + 12'd1;
             end
+            fifo_rd_q <= fifo_mem[rd_ptr];
             if (rd_en)
                 rd_ptr <= rd_ptr + 12'd1;
             if (wr_en && !rd_en)
@@ -70,17 +76,19 @@ module hs_rx (
             else if (!wr_en && rd_en)
                 fifo_cnt <= fifo_cnt - 13'd1;
 
-            if (!rd_busy && !pending_s2 && !fifo_empty) begin
+            if (!rd_busy && !pending_s2 && !fifo_empty)
                 rd_busy <= 1'b1;
-                wptr <= 13'd0;
-            end
-            if (rd_last) begin
+            req_wen_r <= rd_data;
+            waddr <= wptr;
+            if (rd_en)
+                wptr <= wptr + 13'd1;
+            rd_last_r <= req_wen_r && fifo_rd_q[8];
+            if (rd_last_r) begin
                 rd_busy <= 1'b0;
-                req_len <= wptr + 13'd1;
+                req_len <= waddr;
                 req_done_p <= 1'b1;
                 wptr <= 13'd0;
-            end else if (rd_en) begin
-                wptr <= wptr + 13'd1;
+                waddr <= 13'd0;
             end
         end
     end

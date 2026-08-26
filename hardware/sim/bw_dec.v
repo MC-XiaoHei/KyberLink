@@ -23,8 +23,6 @@ module bw_dec (
     wire [127:0] dec_gcm_ct_data;
     wire dec_gcm_tag_valid;
     wire [127:0] dec_gcm_tag;
-    wire dec_gcm_tag_ok;
-    wire [127:0] dec_tag_in_w;
 
     bridge_dec_path u_dec (
         .clk(clk), .rst_n(rst_n),
@@ -37,11 +35,11 @@ module bw_dec (
         .gcm_pt_data(dec_gcm_pt_data),
         .gcm_ct_valid(dec_gcm_ct_valid), .gcm_ct_ready(dec_gcm_ct_ready),
         .gcm_ct_data(dec_gcm_ct_data),
-        .gcm_tag_valid(dec_gcm_tag_valid), .gcm_tag(dec_gcm_tag), .gcm_tag_ok(dec_gcm_tag_ok),
+        .gcm_tag_valid(dec_gcm_tag_valid), .gcm_tag(dec_gcm_tag),
         .gcm_busy(), .gcm_done(),
         .m_tdata(m_tdata), .m_tvalid(m_tvalid),
         .m_tlast(m_tlast), .m_tready(m_tready),
-        .tag_ok(tag_ok), .tag_in_w(dec_tag_in_w), .gcm_active()
+        .tag_ok(tag_ok), .gcm_active()
     );
 
     gcm_stream u_gcm (
@@ -51,7 +49,7 @@ module bw_dec (
         .pt_valid(dec_gcm_pt_valid), .pt_ready(dec_gcm_pt_ready), .pt_data(dec_gcm_pt_data),
         .ct_valid(dec_gcm_ct_valid), .ct_ready(dec_gcm_ct_ready), .ct_data(dec_gcm_ct_data),
         .tag_valid(dec_gcm_tag_valid), .tag(dec_gcm_tag),
-        .decrypt(1'b1), .tag_in(dec_tag_in_w), .tag_ok(dec_gcm_tag_ok),
+        .decrypt(1'b1),
         .busy(), .done(), .idle()
     );
 

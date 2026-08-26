@@ -40,15 +40,10 @@ module bridge_top #(
     output wire          dec_tag_ok,
     output wire          rx_err,
 
-    output wire [7:0]    lan_mgmt_data,
-    output wire          lan_mgmt_valid,
-    output wire          lan_mgmt_last,
-    input  wire          lan_mgmt_ready,
     output wire [7:0]    lan_hs_data,
     output wire          lan_hs_valid,
     output wire          lan_hs_last,
     input  wire          lan_hs_ready,
-    input  wire [15:0]   hs_dport,
     input  wire [7:0]    mgmt_tx_data,
     input  wire          mgmt_tx_valid,
     input  wire          mgmt_tx_last,
@@ -84,8 +79,6 @@ module bridge_top #(
     wire [127:0] enc_pt_data;
     wire enc_ct_valid, enc_ct_ready;
     wire [127:0] enc_ct_data;
-    wire enc_tag_valid;
-    wire [127:0] enc_tag;
 
     wire dec_start;
     wire [11:0] dec_pt_len;
@@ -95,10 +88,6 @@ module bridge_top #(
     wire [127:0] dec_pt_data;
     wire dec_ct_valid, dec_ct_ready;
     wire [127:0] dec_ct_data;
-    wire dec_tag_valid;
-    wire [127:0] dec_tag;
-    wire dec_tag_ok_w;
-    wire [127:0] dec_tag_in_w;
 
     wire enc_req_w;
     wire dec_req_w;
@@ -109,7 +98,7 @@ module bridge_top #(
     wire gcm_busy;
     wire dec_sel = dec_active_w;
     wire enc_sel = enc_active_w;
-    wire gcm_pt_ready_w, gcm_ct_valid_w, gcm_tag_valid_w, gcm_tag_ok_w;
+    wire gcm_pt_ready_w, gcm_ct_valid_w, gcm_tag_valid_w;
     wire [127:0] gcm_ct_data_w, gcm_tag_w;
 
     wire [255:0] gcm_key_w = dec_sel ? dec_key : enc_key;
@@ -158,7 +147,7 @@ module bridge_top #(
         .pt_valid(gcm_pt_valid_w), .pt_ready(gcm_pt_ready_w), .pt_data(gcm_pt_data_w),
         .ct_valid(gcm_ct_valid_w), .ct_ready(gcm_ct_ready_w), .ct_data(gcm_ct_data_w),
         .tag_valid(gcm_tag_valid_w), .tag(gcm_tag_w),
-        .decrypt(dec_sel), .tag_in(dec_tag_in_w), .tag_ok(gcm_tag_ok_w),
+        .decrypt(dec_sel),
         .busy(gcm_busy), .done(), .idle()
     );
 
@@ -217,9 +206,17 @@ module bridge_top #(
         .m_tready(esp_rx_ready), .m_hs_valid(wan_hs_valid)
     );
 
-    assign lan_hs_data = esp_rx_data;
-    assign lan_hs_valid = wan_hs_valid;
-    assign lan_hs_last = esp_rx_last;
+    reg [7:0] lan_hs_data_q;
+    reg       lan_hs_valid_q;
+    reg       lan_hs_last_q;
+    always @(posedge clk) begin
+        lan_hs_data_q <= esp_rx_data;
+        lan_hs_valid_q <= wan_hs_valid;
+        lan_hs_last_q <= esp_rx_last;
+    end
+    assign lan_hs_data = lan_hs_data_q;
+    assign lan_hs_valid = lan_hs_valid_q;
+    assign lan_hs_last = lan_hs_last_q;
 
     wire [7:0] lan_p1_data;
     wire       lan_p1_valid, lan_p1_ready, lan_p1_last;
@@ -236,17 +233,10 @@ module bridge_top #(
         .m_tready(lan_p1_ready)
     );
 
-    lan_rx_mux u_lan_mux (
-        .clk(clk), .rst_n(rst_n),
-        .s_tdata(lan_p1_data), .s_tvalid(lan_p1_valid), .s_tlast(lan_p1_last),
-        .s_tready(lan_p1_ready),
-        .hs_dport(hs_dport),
-        .m_enc_data(enc_lan_data), .m_enc_valid(enc_lan_valid),
-        .m_enc_last(enc_lan_last), .m_enc_ready(enc_lan_ready),
-        .m_mgmt_data(lan_mgmt_data), .m_mgmt_valid(lan_mgmt_valid),
-        .m_mgmt_last(lan_mgmt_last), .m_mgmt_ready(lan_mgmt_ready),
-        .m_hs_data(), .m_hs_valid(), .m_hs_last(), .m_hs_ready(1'b0)
-    );
+    assign enc_lan_data = lan_p1_data;
+    assign enc_lan_valid = lan_p1_valid;
+    assign enc_lan_last = lan_p1_last;
+    assign lan_p1_ready = enc_lan_ready;
 
     wire esp_pipe_ready;
 
@@ -265,11 +255,8 @@ module bridge_top #(
 
     assign enc_pt_ready  = gcm_pt_ready_e;
     assign enc_ct_valid  = gcm_ct_valid_e;
-    assign enc_tag_valid = gcm_tag_valid_w;
     assign dec_pt_ready  = gcm_pt_ready_d;
     assign dec_ct_valid  = gcm_ct_valid_d;
-    assign dec_tag_valid = gcm_tag_valid_w;
-    assign dec_tag_ok_w  = gcm_tag_ok_w;
 
     bridge_enc_path u_enc (
         .clk(clk), .rst_n(rst_n),
@@ -286,7 +273,7 @@ module bridge_top #(
         .gcm_pt_data(enc_pt_data),
         .gcm_ct_valid(enc_ct_valid), .gcm_ct_ready(enc_ct_ready),
         .gcm_ct_data(gcm_ct_data_w),
-        .gcm_tag_valid(enc_tag_valid), .gcm_tag(gcm_tag_w),
+        .gcm_tag_valid(gcm_tag_valid_w), .gcm_tag(gcm_tag_w),
         .gcm_busy(), .gcm_done(),
         .m_tdata(enc_wan_tx_data), .m_tvalid(enc_wan_tx_valid),
         .m_tlast(enc_wan_tx_last), .m_tready(enc_wan_tx_ready)
@@ -312,11 +299,11 @@ module bridge_top #(
         .gcm_pt_data(dec_pt_data),
         .gcm_ct_valid(dec_ct_valid), .gcm_ct_ready(dec_ct_ready),
         .gcm_ct_data(gcm_ct_data_w),
-        .gcm_tag_valid(dec_tag_valid), .gcm_tag(gcm_tag_w), .gcm_tag_ok(dec_tag_ok_w),
+        .gcm_tag_valid(gcm_tag_valid_w), .gcm_tag(gcm_tag_w),
         .gcm_busy(), .gcm_done(),
         .m_tdata(dec_tx_data), .m_tvalid(dec_tx_valid), .m_tlast(dec_tx_last),
         .m_tready(dec_tx_ready),
-        .tag_ok(dec_tag_ok), .tag_in_w(dec_tag_in_w), .gcm_active(dec_active_w)
+        .tag_ok(dec_tag_ok), .gcm_active(dec_active_w)
     );
 
     assign lan_tx_data = lan_tx_data_m;

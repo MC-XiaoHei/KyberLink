@@ -56,8 +56,6 @@ module bw_mgmt (
     wire dec_tag_ok;
     wire rx_err;
 
-    wire [7:0] lan_mgmt_data;
-    wire lan_mgmt_valid, lan_mgmt_last, lan_mgmt_ready;
     wire [7:0] lan_hs_data;
     wire lan_hs_valid, lan_hs_last, lan_hs_ready;
     wire [7:0] mgmt_tx_data;
@@ -81,11 +79,8 @@ module bw_mgmt (
         .cfg_src_port(cfg_src_port), .cfg_dst_port(cfg_dst_port),
         .cfg_src_mac(cfg_src_mac), .cfg_dst_mac(cfg_dst_mac),
         .seq_out(seq_out), .dec_tag_ok(dec_tag_ok), .rx_err(rx_err),
-        .lan_mgmt_data(lan_mgmt_data), .lan_mgmt_valid(lan_mgmt_valid),
-        .lan_mgmt_last(lan_mgmt_last), .lan_mgmt_ready(lan_mgmt_ready),
         .lan_hs_data(lan_hs_data), .lan_hs_valid(lan_hs_valid),
         .lan_hs_last(lan_hs_last), .lan_hs_ready(lan_hs_ready),
-        .hs_dport(16'd4501),
         .mgmt_tx_data(mgmt_tx_data), .mgmt_tx_valid(mgmt_tx_valid),
         .mgmt_tx_last(mgmt_tx_last), .mgmt_tx_ready(mgmt_tx_ready)
     );

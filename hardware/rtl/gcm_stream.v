@@ -17,8 +17,6 @@ module gcm_stream (
     output reg           tag_valid,
     output reg  [127:0]  tag,
     input  wire          decrypt,
-    input  wire [127:0]  tag_in,
-    output wire          tag_ok,
     output reg           busy,
     output reg           done,
     output wire          idle
@@ -118,7 +116,6 @@ module gcm_stream (
                       (gh_qcnt < 3'd3) && (pt_cnt < 3'd4);
     assign ct_valid = (out_cnt != 3'd0);
     assign ct_data  = out_q[out_rd];
-    assign tag_ok = tag_valid && decrypt && (tag == tag_in);
 
     wire cb_submit = (phase == PHASE_AES_CB) && out_room && cb_avail &&
         (gh_qcnt < 3'd2) && aes_load_rdy && !aes_start && !aes_done;

@@ -23,7 +23,6 @@ module bridge_dec_path (
     input  wire [127:0]  gcm_ct_data,
     input  wire          gcm_tag_valid,
     input  wire [127:0]  gcm_tag,
-    input  wire          gcm_tag_ok,
     input  wire          gcm_busy,
     input  wire          gcm_done,
 
@@ -32,7 +31,6 @@ module bridge_dec_path (
     output wire          m_tlast,
     input  wire          m_tready,
     output reg           tag_ok,
-    output wire [127:0]  tag_in_w,
     output wire          gcm_active
 );
 
@@ -81,8 +79,9 @@ module bridge_dec_path (
     wire [11:0] ct_len_w = fcnt + 12'd1 - 12'd36;
     wire [8:0]  nct = {1'b0, ct_len_w[11:4]} + {8'd0, |ct_len_w[3:0]};
 
+    reg [127:0] tag_q;
+    reg         tag_valid_q;
     wire [127:0] tag_w = tail18[127:0];
-    assign tag_in_w = tag_w;
     assign gcm_active = grant_used;
 
     assign gcm_pt_valid = pt_data_v;
@@ -96,8 +95,11 @@ module bridge_dec_path (
 
     wire seq_new_w = (seq_r > last_seq_r);
     wire [31:0] seq_back_w = last_seq_r - seq_r;
-    wire seq_rx_ok = seq_new_w ? 1'b1 :
-                     ((seq_back_w < 32'd64) && !win_r[seq_r[5:0]]);
+    wire seq_rx_ok_c = seq_new_w ? 1'b1 :
+                       ((seq_back_w < 32'd64) && !win_r[seq_r[5:0]]);
+    reg seq_rx_ok_q;
+    always @(posedge clk) seq_rx_ok_q <= seq_rx_ok_c;
+    wire seq_rx_ok = seq_rx_ok_q;
 
     reg [7:0] m_tdata_r;
     reg       m_tvalid_r;
@@ -112,6 +114,18 @@ module bridge_dec_path (
     wire [11:0] out_len_w = ct_len - 12'd2 - {8'd0, pad_len_w};
     wire pad_ok_w = (pad_len_w <= 8'd15) &&
                     (ct_len >= (12'd2 + {8'd0, pad_len_w} + 12'd1));
+
+    wire tag_ok_w = tag_valid_q && (tag_q[63:0] == tag_w[63:0]) && (tag_q[127:64] == tag_w[127:64]);
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            tag_q <= 128'd0;
+            tag_valid_q <= 1'b0;
+        end else begin
+            tag_q <= gcm_tag;
+            tag_valid_q <= gcm_tag_valid;
+        end
+    end
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -152,10 +166,8 @@ module bridge_dec_path (
             gcm_aad <= 128'd0;
         end else begin
             gcm_start <= 1'b0;
-            if (gcm_tag_valid) begin
-                tag_ok_r <= gcm_tag_ok;
-                tag_ok <= gcm_tag_ok;
-            end
+            tag_ok_r <= tag_ok_r || tag_ok_w;
+            tag_ok <= tag_ok_w;
             case (state)
                 ST_IDLE: begin
                     m_tvalid_r <= 1'b0;
@@ -272,13 +284,13 @@ module bridge_dec_path (
                         tail_pt <= gcm_ct_data;
                         ct_wr <= ct_wr + 8'd1;
                     end
-                    if (gcm_tag_valid) begin
+                    if (tag_valid_q) begin
                         grant_used <= 1'b0;
-                        if (gcm_tag_ok && pad_ok_w) begin
+                        tx_cnt <= 16'd0;
+                        tx_rd_idx <= 8'd0;
+                        tx_blk_v <= 1'b0;
+                        if (tag_ok_w && pad_ok_w) begin
                             out_len <= out_len_w;
-                            tx_cnt <= 16'd0;
-                            tx_rd_idx <= 8'd0;
-                            tx_blk_v <= 1'b0;
                             state <= ST_TX;
                         end else begin
                             state <= ST_IDLE;

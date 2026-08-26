@@ -24,14 +24,13 @@ async def reset_dut(dut):
     await Timer(1, unit="ns")
 
 
-async def run_crypto(dut, key, nonce, aad, pt_len, decrypt, tag_in, blks):
+async def run_crypto(dut, key, nonce, aad, pt_len, decrypt, blks):
     dut.key.value = int.from_bytes(key, "big")
     dut.nonce.value = int.from_bytes(nonce, "big")
     dut.aad.value = int.from_bytes(aad, "big") << 64
     dut.aad_len.value = 8
     dut.pt_len.value = pt_len
     dut.decrypt.value = 1 if decrypt else 0
-    dut.tag_in.value = int.from_bytes(tag_in, "big") if decrypt else 0
     dut.start.value = 1
     for _ in range(2):
         await RisingEdge(dut.clk)
@@ -57,8 +56,7 @@ async def run_crypto(dut, key, nonce, aad, pt_len, decrypt, tag_in, blks):
         prev_r = cur_r
         if int(dut.tag_valid.value):
             tag = int(dut.tag.value).to_bytes(16, "big")
-            tag_ok = int(dut.tag_ok.value)
-            return out[:pt_len], tag, tag_ok
+            return out[:pt_len], tag
     assert False, "crypto timeout"
 
 
@@ -69,7 +67,6 @@ async def test_gcm_stream_roundtrip(dut):
     dut.ct_ready.value = 1
     dut.start.value = 0
     dut.decrypt.value = 0
-    dut.tag_in.value = 0
     await reset_dut(dut)
 
     with open(VECTORS) as f:
@@ -88,10 +85,10 @@ async def test_gcm_stream_roundtrip(dut):
         ct_tag = aes.encrypt(pt) + aes.digest()
         exp_ct = ct_tag[:-16]
         exp_tag = ct_tag[-16:]
-        ct, tag, _ = await run_crypto(dut, key, iv, aad, L, False, b"", blocks(pt))
+        ct, tag = await run_crypto(dut, key, iv, aad, L, False, blocks(pt))
         dut._log.info(f"len {li} L={L} enc ct={ct == exp_ct} tag={tag == exp_tag}")
         assert ct == exp_ct and tag == exp_tag, f"len {li} enc mismatch"
-        pt2, _, ok = await run_crypto(dut, key, iv, aad, L, True, tag, blocks(ct))
-        dut._log.info(f"len {li} dec pt={pt2 == pt} tag_ok={ok}")
-        assert pt2 == pt and ok == 1, f"len {li} dec mismatch"
+        pt2, _ = await run_crypto(dut, key, iv, aad, L, True, blocks(ct))
+        dut._log.info(f"len {li} dec pt={pt2 == pt}")
+        assert pt2 == pt, f"len {li} dec mismatch"
         dut._log.info(f"len {li} OK")

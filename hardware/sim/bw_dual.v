@@ -12,18 +12,7 @@ module bw_dual (
     input  wire        ct_ready_a,
     output wire [127:0] ct_data_a,
     output wire        tag_valid_a,
-    output wire [127:0] tag_a,
-    input  wire        start_b,
-    input  wire [95:0] nonce_b,
-    input  wire [11:0] pt_len_b,
-    input  wire        pt_valid_b,
-    output wire        pt_ready_b,
-    input  wire [127:0] pt_data_b,
-    output wire        ct_valid_b,
-    input  wire        ct_ready_b,
-    output wire [127:0] ct_data_b,
-    output wire        tag_valid_b,
-    output wire [127:0] tag_b
+    output wire [127:0] tag_a
 );
 
     gcm_stream u_enc (
@@ -34,16 +23,6 @@ module bw_dual (
         .ct_valid(ct_valid_a), .ct_ready(ct_ready_a), .ct_data(ct_data_a),
         .tag_valid(tag_valid_a), .tag(tag_a),
         .decrypt(1'b0), .tag_in(128'd0), .tag_ok(), .busy(), .done()
-    );
-
-    gcm_stream u_dec (
-        .clk(clk), .rst_n(rst_n),
-        .start(start_b), .key_refresh(1'b1), .key(key), .nonce(nonce_b),
-        .aad(128'd0), .aad_len(5'd0), .pt_len(pt_len_b),
-        .pt_valid(pt_valid_b), .pt_ready(pt_ready_b), .pt_data(pt_data_b),
-        .ct_valid(ct_valid_b), .ct_ready(ct_ready_b), .ct_data(ct_data_b),
-        .tag_valid(tag_valid_b), .tag(tag_b),
-        .decrypt(1'b1), .tag_in(128'd0), .tag_ok(), .busy(), .done()
     );
 
 endmodule

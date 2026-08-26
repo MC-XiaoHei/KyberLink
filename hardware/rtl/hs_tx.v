@@ -47,7 +47,9 @@ function [15:0] fold16(input [31:0] s);
     wire [15:0] ip_sum = 16'h4500 + (16'd42 + {3'd0, resp_len}) + 16'h4000 + 16'h4011
                        + hdr_src_ip[31:16] + hdr_src_ip[15:0]
                        + hdr_dst_ip[31:16] + hdr_dst_ip[15:0];
-    wire [15:0] ip_csum_c = ~(fold16({16'd0, ip_sum}));
+    reg [15:0] ip_sum_q;
+    always @(posedge clk) ip_sum_q <= ip_sum;
+    wire [15:0] ip_csum_c = ~(fold16({16'd0, ip_sum_q}));
 
     wire [15:0] udp_len_w = 16'd8 + {3'd0, resp_len};
 

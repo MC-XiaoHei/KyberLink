@@ -9,10 +9,6 @@ NBLK = 94
 DP_PERIOD_NS = 1000.0 / 125.0
 
 
-def nct(pt_len):
-    return (pt_len >> 4) + (1 if (pt_len & 0xf) else 0)
-
-
 async def drive_frame(dut, clk, start_sig, valid_sig, ready_sig, data_sig, nonce_sig,
                       pt_len_sig, tag_sig, pt_len, blk):
     nonce_sig.value = int.from_bytes(NONCE, "big")
@@ -32,14 +28,11 @@ async def drive_frame(dut, clk, start_sig, valid_sig, ready_sig, data_sig, nonce
         await RisingEdge(clk)
 
 
-async def run_bw(dut, dual, pt_len=PT_LEN, blk=NBLK, use_b=False, period=DP_PERIOD_NS):
+async def run_bw(dut, pt_len=PT_LEN, blk=NBLK, period=DP_PERIOD_NS):
     dut.key.value = int.from_bytes(KEY, "big")
     dut.pt_valid_a.value = 0
-    dut.pt_valid_b.value = 0
     dut.ct_ready_a.value = 1
-    dut.ct_ready_b.value = 1
     dut.start_a.value = 0
-    dut.start_b.value = 0
     dut.rst_n.value = 0
     for _ in range(5):
         await RisingEdge(dut.clk)
@@ -47,44 +40,22 @@ async def run_bw(dut, dual, pt_len=PT_LEN, blk=NBLK, use_b=False, period=DP_PERI
     for _ in range(5):
         await RisingEdge(dut.clk)
 
-    async def drive_a():
-        await drive_frame(dut, dut.clk, dut.start_a, dut.pt_valid_a,
-                          dut.pt_ready_a, dut.pt_data_a, dut.nonce_a,
-                          dut.pt_len_a, dut.tag_valid_a, pt_len, blk)
-
-    async def drive_b():
-        await drive_frame(dut, dut.clk, dut.start_b, dut.pt_valid_b,
-                          dut.pt_ready_b, dut.pt_data_b, dut.nonce_b,
-                          dut.pt_len_b, dut.tag_valid_b, pt_len, blk)
-
     t0 = cocotb.utils.get_sim_time(unit="ns")
-    if use_b:
-        await drive_b()
-    elif dual:
-        ta = cocotb.start_soon(drive_a())
-        await drive_b()
-        await ta
-    else:
-        await drive_a()
+    await drive_frame(dut, dut.clk, dut.start_a, dut.pt_valid_a,
+                      dut.pt_ready_a, dut.pt_data_a, dut.nonce_a,
+                      dut.pt_len_a, dut.tag_valid_a, pt_len, blk)
     t1 = cocotb.utils.get_sim_time(unit="ns")
     nclk = (t1 - t0) / period
-    nbit = blk * 128 * (2 if dual else 1)
+    nbit = blk * 128
     per_block = nclk / blk
     gbps = nbit / (t1 - t0)
-    dut._log.info(f"dual={dual} pt_len={pt_len}B blk={blk} cycles={nclk:.0f} "
+    dut._log.info(f"single-core pt_len={pt_len}B blk={blk} cycles={nclk:.0f} "
                   f"per_block={per_block:.2f} measured={gbps:.3f}Gbps @{1000/period:.0f}MHz "
                   f"(extrap@{1000/period:.0f}MHz={nbit/(nclk*period)*1000:.3f})")
     return per_block
 
 
 @cocotb.test
-async def test_bw_dec_only(dut):
-    cocotb.start_soon(Clock(dut.clk, DP_PERIOD_NS, unit="ns").start())
-    await run_bw(dut, dual=False, use_b=True)
-
-
-@cocotb.test
 async def test_bw_1500_mtu(dut):
     cocotb.start_soon(Clock(dut.clk, DP_PERIOD_NS, unit="ns").start())
-    await run_bw(dut, dual=False)
-    await run_bw(dut, dual=True)
+    await run_bw(dut)

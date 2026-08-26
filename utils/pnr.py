@@ -168,6 +168,10 @@ def build_tcl(cfg_path, sdc_path, cst, target, device, dev_ver, place_opt, route
         "set_option -place_option %d" % place_opt,
         "set_option -timing_driven 1",
         "set_option -route_option %d" % route_opt,
+    ]
+    if os.environ.get("PNR_RETIMING"):
+        lines.append("set_option -retiming 1")
+    lines += [
         "set_option -use_sspi_as_gpio 1",
         "set_option -use_cpu_as_gpio 1",
         "set_option -use_mspi_as_gpio 1",
@@ -319,9 +323,11 @@ def pnr(dry_run=False, verify_only=False):
         raise AppError("TARGET_FREQ out of range: %s" % target, 2)
     if boot < 1 or boot > 1400:
         raise AppError("BOOT_FREQ out of range: %s" % boot, 2)
-    work_dir = os.path.join(config.BUILD, "synth", "impl_" + _freq_id(boot))
-    log_path = os.path.join(config.run_dir(), "pnr_%s.log" % _freq_id(boot)) \
-        if config.run_dir() else os.path.join(work_dir, "pnr.log")
+    work_dir = os.path.abspath(os.environ.get("PNR_WORK_DIR") or
+                               os.path.join(config.BUILD, "synth", "impl_" + _freq_id(boot)))
+    log_path = os.path.join(work_dir, "pnr.log") if os.environ.get("PNR_WORK_DIR") \
+        else (os.path.join(config.run_dir(), "pnr_%s.log" % _freq_id(boot))
+              if config.run_dir() else os.path.join(work_dir, "pnr.log"))
     cst = os.path.join(config.SYNTH, "full_top.cst")
     if verify_only:
         pnr_dir = os.path.join(work_dir, "impl", "pnr")
