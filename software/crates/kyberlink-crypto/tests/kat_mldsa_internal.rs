@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 use sha2::{Digest as Sha2Digest, Sha224, Sha256, Sha384, Sha512, Sha512_224, Sha512_256};
 use sha3::digest::{ExtendableOutput, Update, XofReader};
-use sha3::{Shake128, Shake256, Sha3_224, Sha3_256, Sha3_384, Sha3_512};
+use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512, Shake128, Shake256};
 
 use kyberlink_crypto::mldsa_internal as mi;
 
@@ -21,7 +21,10 @@ fn load_json(subdir: &str, file: &str) -> Value {
 }
 
 fn hex_arr<const N: usize>(v: &Value) -> [u8; N] {
-    hex::decode(v.as_str().unwrap()).unwrap().try_into().unwrap()
+    hex::decode(v.as_str().unwrap())
+        .unwrap()
+        .try_into()
+        .unwrap()
 }
 
 fn hex_vec(v: &Value) -> Vec<u8> {
@@ -60,18 +63,42 @@ fn prehash(alg: &str, msg: &[u8]) -> Vec<u8> {
 
 fn oid(alg: &str) -> &'static [u8] {
     match alg {
-        "SHA2-224" => &[0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x04],
-        "SHA2-256" => &[0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01],
-        "SHA2-384" => &[0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02],
-        "SHA2-512" => &[0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03],
-        "SHA2-512/224" => &[0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x05],
-        "SHA2-512/256" => &[0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x06],
-        "SHA3-224" => &[0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x07],
-        "SHA3-256" => &[0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x08],
-        "SHA3-384" => &[0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x09],
-        "SHA3-512" => &[0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0A],
-        "SHAKE-128" => &[0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0B],
-        "SHAKE-256" => &[0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0C],
+        "SHA2-224" => &[
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x04,
+        ],
+        "SHA2-256" => &[
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01,
+        ],
+        "SHA2-384" => &[
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02,
+        ],
+        "SHA2-512" => &[
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03,
+        ],
+        "SHA2-512/224" => &[
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x05,
+        ],
+        "SHA2-512/256" => &[
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x06,
+        ],
+        "SHA3-224" => &[
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x07,
+        ],
+        "SHA3-256" => &[
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x08,
+        ],
+        "SHA3-384" => &[
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x09,
+        ],
+        "SHA3-512" => &[
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0A,
+        ],
+        "SHAKE-128" => &[
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0B,
+        ],
+        "SHAKE-256" => &[
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0C,
+        ],
         other => panic!("unknown hashAlg {}", other),
     }
 }
@@ -91,7 +118,10 @@ fn prehash_m2(pt: &Value) -> Vec<u8> {
 }
 
 fn ctx_of(pt: &Value) -> Vec<u8> {
-    pt["context"].as_str().map(|c| hex::decode(c).unwrap()).unwrap_or_default()
+    pt["context"]
+        .as_str()
+        .map(|c| hex::decode(c).unwrap())
+        .unwrap_or_default()
 }
 
 #[test]
@@ -107,7 +137,12 @@ fn mldsa_keygen() {
         if pg["parameterSet"] != "ML-DSA-65" {
             continue;
         }
-        for (pt, et) in pg["tests"].as_array().unwrap().iter().zip(eg["tests"].as_array().unwrap()) {
+        for (pt, et) in pg["tests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(eg["tests"].as_array().unwrap())
+        {
             let seed = hex_arr::<32>(&pt["seed"]);
             let (vk, sk) = mi::keygen_internal(&seed);
             assert_eq!(hex_vec(&et["pk"]), vk, "tcId={}", pt["tcId"]);
@@ -132,11 +167,18 @@ fn mldsa_siggen() {
         let det = pg["deterministic"].as_bool().unwrap_or(true);
         let pre = pg["preHash"].as_str();
         let ext_mu = pg.get("externalMu").and_then(|v| v.as_bool());
-        for (pt, et) in pg["tests"].as_array().unwrap().iter().zip(eg["tests"].as_array().unwrap()) {
+        for (pt, et) in pg["tests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(eg["tests"].as_array().unwrap())
+        {
             let sk = hex_arr::<4032>(&pt["sk"]);
             let rnd: [u8; 32] = pt.get("rnd").map(hex_arr::<32>).unwrap_or([0u8; 32]);
             let sig = match (pre, ext_mu) {
-                (Some("pure"), _) => mi::sign_rnd_internal(&sk, &hex_vec(&pt["message"]), &ctx_of(pt), &rnd),
+                (Some("pure"), _) => {
+                    mi::sign_rnd_internal(&sk, &hex_vec(&pt["message"]), &ctx_of(pt), &rnd)
+                }
                 (Some("preHash"), _) => {
                     let m2 = prehash_m2(pt);
                     if det {
@@ -152,7 +194,9 @@ fn mldsa_siggen() {
                         mi::sign_mu_internal(&sk, &hex_arr::<64>(&pt["mu"]))
                     }
                 }
-                (None, Some(false)) => mi::sign_prehash_internal(&sk, &hex_vec(&pt["message"]), &rnd),
+                (None, Some(false)) => {
+                    mi::sign_prehash_internal(&sk, &hex_vec(&pt["message"]), &rnd)
+                }
                 (None, None) => {
                     if pt.get("mu").is_some() {
                         mi::sign_mu_internal(&sk, &hex_arr::<64>(&pt["mu"]))
@@ -184,7 +228,12 @@ fn mldsa_sigver() {
         }
         let pre = pg["preHash"].as_str();
         let ext_mu = pg.get("externalMu").and_then(|v| v.as_bool());
-        for (pt, et) in pg["tests"].as_array().unwrap().iter().zip(eg["tests"].as_array().unwrap()) {
+        for (pt, et) in pg["tests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(eg["tests"].as_array().unwrap())
+        {
             let vk = hex_arr::<1952>(&pt["pk"]);
             let sig = hex_arr::<3309>(&pt["signature"]);
             let want = et["testPassed"].as_bool().unwrap();
@@ -194,7 +243,9 @@ fn mldsa_sigver() {
                     mi::verify_prehash_internal(&vk, &m2, &sig)
                 }
                 (None, Some(true)) => mi::verify_mu_internal(&vk, &hex_arr::<64>(&pt["mu"]), &sig),
-                (None, Some(false)) => mi::verify_prehash_internal(&vk, &hex_vec(&pt["message"]), &sig),
+                (None, Some(false)) => {
+                    mi::verify_prehash_internal(&vk, &hex_vec(&pt["message"]), &sig)
+                }
                 _ => mi::verify_internal(&vk, &hex_vec(&pt["message"]), &ctx_of(pt), &sig),
             };
             assert_eq!(want, ok, "tcId={}", pt["tcId"]);

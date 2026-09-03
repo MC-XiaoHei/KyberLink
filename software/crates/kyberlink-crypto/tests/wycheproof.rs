@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 
 use ml_dsa::signature::Verifier;
 use ml_dsa::{MlDsa65, Signature, VerifyingKey};
-use ml_kem::kem::{Ciphertext, FromSeed};
 use ml_kem::{DecapsulationKey, MlKem768};
 use serde_json::Value;
 
@@ -22,7 +21,10 @@ fn load_json(subdir: &str, file: &str) -> Value {
 }
 
 fn hex_arr<const N: usize>(v: &Value) -> [u8; N] {
-    hex::decode(v.as_str().unwrap()).unwrap().try_into().unwrap()
+    hex::decode(v.as_str().unwrap())
+        .unwrap()
+        .try_into()
+        .unwrap()
 }
 
 #[test]
@@ -40,7 +42,7 @@ fn mlkem_decaps_negative() {
             }
             let seed: ml_kem::Seed = hex_arr::<64>(&t["seed"]).into();
             let dk = DecapsulationKey::<MlKem768>::from_seed(seed);
-            let ct: ml_kem::Ciphertext<MlKem768> = ml_kem::Ciphertext::<MlKem768>::from_slice(&c).clone();
+            let ct: ml_kem::Ciphertext<MlKem768> = c.as_slice().try_into().expect("ct len");
             let got = k::decapsulate(&dk, &ct);
             let expect = hex_arr::<32>(&t["K"]);
             if valid {

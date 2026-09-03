@@ -1,6 +1,6 @@
 [package]
 name = "kyberlink-firmware"
-description = "KyberLink Firmware"
+description = "KyberLink MCU Firmware"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,5 @@ license.workspace = true
 [dependencies]
 kyberlink-crypto = { path = "../kyberlink-crypto" }
 
-[build-dependencies]
-
-[profile.release]
-panic = "abort"
+[features]
+std = ["kyberlink-crypto/std"]

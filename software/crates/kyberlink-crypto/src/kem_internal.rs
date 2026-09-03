@@ -1,5 +1,5 @@
-use crate::shake;
 use crate::ntt;
+use crate::shake;
 
 const K: usize = 3;
 const ETA1: usize = 2;
@@ -119,8 +119,8 @@ fn sample_ntt_poly(rho: &[u8; 32], j: u8, i: u8) -> [u16; 256] {
 
 fn cbd_to_poly(c: &[i16; 256]) -> [u16; 256] {
     let mut f = [0u16; 256];
-    for k in 0..256 {
-        f[k] = c[k].rem_euclid(Q as i16) as u16;
+    for (oc, &cc) in f.iter_mut().zip(c.iter()) {
+        *oc = cc.rem_euclid(Q as i16) as u16;
     }
     f
 }
@@ -141,7 +141,8 @@ fn prf_poly(seed: &[u8; 32], b: u8, eta: usize) -> [u16; 256] {
         }
     } else {
         for (idx, b) in out[..64 * eta].chunks(4).enumerate() {
-            let d = b[0] as u32 | ((b[1] as u32) << 8) | ((b[2] as u32) << 16) | ((b[3] as u32) << 24);
+            let d =
+                b[0] as u32 | ((b[1] as u32) << 8) | ((b[2] as u32) << 16) | ((b[3] as u32) << 24);
             for k in 0..8 {
                 let bits = (d >> (4 * k)) & 0xF;
                 let pos = (bits & 0b11).count_ones() as i16;
@@ -155,8 +156,8 @@ fn prf_poly(seed: &[u8; 32], b: u8, eta: usize) -> [u16; 256] {
 
 fn byte_encode(d: usize, coeffs: &[u16; 256], out: &mut [u8]) {
     debug_assert!(out.len() >= 32 * d);
-    for i in 0..256 {
-        let mut a = coeffs[i];
+    for (i, &c) in coeffs.iter().enumerate() {
+        let mut a = c;
         for j in 0..d {
             let idx = i * d + j;
             out[idx / 8] |= ((a & 1) as u8) << (idx % 8);
@@ -167,7 +168,7 @@ fn byte_encode(d: usize, coeffs: &[u16; 256], out: &mut [u8]) {
 
 fn byte_decode(d: usize, bytes: &[u8]) -> [u16; 256] {
     let mut f = [0u16; 256];
-    for i in 0..256 {
+    for (i, o) in f.iter_mut().enumerate() {
         let mut v = 0u16;
         for j in 0..d {
             let idx = i * d + j;
@@ -176,14 +177,14 @@ fn byte_decode(d: usize, bytes: &[u8]) -> [u16; 256] {
         if d == 12 {
             v %= Q;
         }
-        f[i] = v;
+        *o = v;
     }
     f
 }
 
 fn compress(d: usize, x: u16) -> u16 {
     let a = ((x as u64) << d) + 1665;
-    ((a * ((1u64 << 34) / 3329) >> 34) & ((1u64 << d) - 1)) as u16
+    (((a * ((1u64 << 34) / 3329)) >> 34) & ((1u64 << d) - 1)) as u16
 }
 
 fn decompress(d: usize, y: u16) -> u16 {
@@ -201,19 +202,19 @@ fn kpke_keygen(d: &[u8; 32]) -> ([u8; EK_LEN], [u8; DK_PKE_LEN], KeygenMid) {
     sigma.copy_from_slice(&out[32..]);
 
     let mut a = [[0u16; 256]; 9];
-    for i in 0..3 {
-        for j in 0..3 {
-            a[i * 3 + j] = sample_ntt_poly(&rho, j as u8, i as u8);
+    for (i, row) in a.chunks_exact_mut(3).enumerate() {
+        for (j, cell) in row.iter_mut().enumerate() {
+            *cell = sample_ntt_poly(&rho, j as u8, i as u8);
         }
     }
 
     let mut s = [[0u16; 256]; 3];
     let mut e = [[0u16; 256]; 3];
-    for i in 0..3 {
-        s[i] = prf_poly(&sigma, i as u8, ETA1);
+    for (i, p) in s.iter_mut().enumerate() {
+        *p = prf_poly(&sigma, i as u8, ETA1);
     }
-    for i in 0..3 {
-        e[i] = prf_poly(&sigma, (i + 3) as u8, ETA1);
+    for (i, p) in e.iter_mut().enumerate() {
+        *p = prf_poly(&sigma, (i + 3) as u8, ETA1);
     }
 
     let mut sh = s;
@@ -226,9 +227,9 @@ fn kpke_keygen(d: &[u8; 32]) -> ([u8; EK_LEN], [u8; DK_PKE_LEN], KeygenMid) {
     }
 
     let mut th = ntt::matmul(&a, &sh, false);
-    for i in 0..3 {
-        for k in 0..256 {
-            th[i][k] = (th[i][k] + eh[i][k]) % Q;
+    for (tp, ep) in th.iter_mut().zip(eh.iter()) {
+        for (tc, &ec) in tp.iter_mut().zip(ep.iter()) {
+            *tc = (*tc + ec) % Q;
         }
     }
 
@@ -284,26 +285,26 @@ fn dot3(a: &[[u16; 256]; 3], b: &[[u16; 256]; 3]) -> [u16; 256] {
 
 fn kpke_encrypt(ek: &[u8], m: &[u8; 32], r: &[u8; 32]) -> ([u8; CT_LEN], EncapsMid) {
     let mut th = [[0u16; 256]; 3];
-    for i in 0..3 {
-        th[i] = byte_decode(12, &ek[384 * i..384 * i + 384]);
+    for (i, p) in th.iter_mut().enumerate() {
+        *p = byte_decode(12, &ek[384 * i..384 * i + 384]);
     }
     let mut rho = [0u8; 32];
     rho.copy_from_slice(&ek[1152..1184]);
 
     let mut a = [[0u16; 256]; 9];
-    for i in 0..3 {
-        for j in 0..3 {
-            a[i * 3 + j] = sample_ntt_poly(&rho, j as u8, i as u8);
+    for (i, row) in a.chunks_exact_mut(3).enumerate() {
+        for (j, cell) in row.iter_mut().enumerate() {
+            *cell = sample_ntt_poly(&rho, j as u8, i as u8);
         }
     }
 
     let mut y = [[0u16; 256]; 3];
     let mut e1 = [[0u16; 256]; 3];
-    for i in 0..3 {
-        y[i] = prf_poly(r, i as u8, ETA1);
+    for (i, p) in y.iter_mut().enumerate() {
+        *p = prf_poly(r, i as u8, ETA1);
     }
-    for i in 0..3 {
-        e1[i] = prf_poly(r, (i + 3) as u8, ETA2);
+    for (i, p) in e1.iter_mut().enumerate() {
+        *p = prf_poly(r, (i + 3) as u8, ETA2);
     }
     let e2 = prf_poly(r, 6, ETA2);
 
@@ -316,16 +317,16 @@ fn kpke_encrypt(ek: &[u8], m: &[u8; 32], r: &[u8; 32]) -> ([u8; CT_LEN], EncapsM
     for poly in u.iter_mut() {
         ntt::invntt(poly);
     }
-    for i in 0..3 {
-        for k in 0..256 {
-            u[i][k] = (u[i][k] + e1[i][k]) % Q;
+    for (up, e1p) in u.iter_mut().zip(e1.iter()) {
+        for (uc, &ec) in up.iter_mut().zip(e1p.iter()) {
+            *uc = (*uc + ec) % Q;
         }
     }
 
     let mb = byte_decode(1, m);
     let mut mu = [0u16; 256];
-    for k in 0..256 {
-        mu[k] = decompress(1, mb[k]);
+    for (oc, &mc) in mu.iter_mut().zip(mb.iter()) {
+        *oc = decompress(1, mc);
     }
 
     let mut v = dot3(&th, &yh);
@@ -369,21 +370,21 @@ fn kpke_encrypt(ek: &[u8], m: &[u8; 32], r: &[u8; 32]) -> ([u8; CT_LEN], EncapsM
 
 fn kpke_decrypt(dk: &[u8], c: &[u8]) -> ([u8; 32], DecapsMid) {
     let mut u = [[0u16; 256]; 3];
-    for i in 0..3 {
+    for (i, p) in u.iter_mut().enumerate() {
         let mut cu = byte_decode(DU, &c[32 * DU * i..32 * DU * (i + 1)]);
-        for k in 0..256 {
-            cu[k] = decompress(DU, cu[k]);
+        for c_ in cu.iter_mut() {
+            *c_ = decompress(DU, *c_);
         }
-        u[i] = cu;
+        *p = cu;
     }
     let mut cv = byte_decode(DV, &c[32 * DU * 3..32 * DU * 3 + 32 * DV]);
-    for k in 0..256 {
-        cv[k] = decompress(DV, cv[k]);
+    for c_ in cv.iter_mut() {
+        *c_ = decompress(DV, *c_);
     }
 
     let mut sh = [[0u16; 256]; 3];
-    for i in 0..3 {
-        sh[i] = byte_decode(12, &dk[384 * i..384 * i + 384]);
+    for (i, p) in sh.iter_mut().enumerate() {
+        *p = byte_decode(12, &dk[384 * i..384 * i + 384]);
     }
 
     let mut uh = u;
@@ -467,7 +468,11 @@ pub fn decaps_internal(dk: &[u8; DK_LEN], c: &[u8]) -> [u8; 32] {
     jz[32..].copy_from_slice(c);
     let kbar = j(&jz);
     let (cp, _mid) = kpke_encrypt(ek_pke, &m, &rp);
-    if cp == c { kp } else { kbar }
+    if cp == c {
+        kp
+    } else {
+        kbar
+    }
 }
 
 pub fn keygen_mid(d: &[u8; 32], z: &[u8; 32]) -> (([u8; EK_LEN], [u8; DK_LEN]), KeygenMid) {
@@ -481,10 +486,7 @@ pub fn keygen_mid(d: &[u8; 32], z: &[u8; 32]) -> (([u8; EK_LEN], [u8; DK_LEN]), 
     ((ek_pke, dk), mid)
 }
 
-pub fn encaps_mid(
-    ek: &[u8; EK_LEN],
-    m: &[u8; 32],
-) -> (([u8; 32], [u8; CT_LEN]), EncapsMid) {
+pub fn encaps_mid(ek: &[u8; EK_LEN], m: &[u8; 32]) -> (([u8; 32], [u8; CT_LEN]), EncapsMid) {
     let hek = h(ek);
     let mut ginput = [0u8; 64];
     ginput[..32].copy_from_slice(m);

@@ -1,0 +1,11 @@
+-unpacked-dimensions-range-ordering
+-explicit-parameter-storage-type
+-always-comb
+-parameter-name-style=^(_)?[a-z0-9]+(_[a-z0-9]+)*$
+-line-length=125
+-generate-label
+-generate-label-prefix
+-explicit-function-task-parameter-type
+-explicit-function-lifetime
+-pin-connect-empty
+

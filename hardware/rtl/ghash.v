@@ -14,15 +14,16 @@ module ghash (
     output wire [127:0] tag
 );
 
-    localparam PHASE_IDLE = 2'd0;
-    localparam PHASE_RUN  = 2'd1;
-    localparam PHASE_MUL  = 2'd2;
-    localparam PHASE_RED  = 2'd3;
+    localparam PHASE_IDLE = 3'd0;
+    localparam PHASE_RUN  = 3'd1;
+    localparam PHASE_PRE  = 3'd2;
+    localparam PHASE_MUL  = 3'd3;
+    localparam PHASE_RED  = 3'd4;
 
-    reg [1:0] phase;
+    reg [2:0]   phase;
     reg [127:0] yacc;
     reg [7:0] blk;
-    reg [3:0] cnt;
+    reg [2:0]   cnt;
     reg [255:0] prod;
     reg [127:0] a_reg;
     reg [127:0] b_reg;
@@ -42,15 +43,25 @@ module ghash (
         end
     endgenerate
 
-    function [14:0] mul8f(input [7:0] a, input [7:0] b);
+    function [7:0] mul4f(input [3:0] a, input [3:0] b);
         integer bi, bj;
-        reg [14:0] acc;
+        reg [7:0] acc;
         begin
-            acc = 15'd0;
-            for (bi = 0; bi < 8; bi = bi + 1)
-                for (bj = 0; bj < 8; bj = bj + 1)
+            acc = 8'd0;
+            for (bi = 0; bi < 4; bi = bi + 1)
+                for (bj = 0; bj < 4; bj = bj + 1)
                     acc[bi+bj] = acc[bi+bj] ^ (a[bj] & b[bi]);
-            mul8f = acc;
+            mul4f = acc;
+        end
+    endfunction
+
+    function [14:0] mul8f(input [7:0] a, input [7:0] b);
+        reg [7:0] m0, m1, m2;
+        begin
+            m0 = mul4f(a[3:0], b[3:0]);
+            m1 = mul4f(a[7:4], b[7:4]);
+            m2 = mul4f(a[3:0] ^ a[7:4], b[3:0] ^ b[7:4]);
+            mul8f = {8'd0, m0} ^ {4'd0, m0 ^ m1 ^ m2, 4'b0} ^ {m1, 8'b0};
         end
     endfunction
 
@@ -87,24 +98,22 @@ module ghash (
     wire [31:0] b_h2 = b_reg[95:64];
     wire [31:0] b_h3 = b_reg[127:96];
 
-    wire [1:0] ii = cnt[1:0];
-    wire [31:0] ai = (ii == 2'd0) ? a_h0 : (ii == 2'd1) ? a_h1 : (ii == 2'd2) ? a_h2 : a_h3;
-    wire [31:0] bj_0 = b_h0;
-    wire [31:0] bj_1 = b_h1;
-    wire [31:0] bj_2 = b_h2;
-    wire [31:0] bj_3 = b_h3;
-    wire [62:0] mul_0 = mul32f(ai, bj_0);
-    wire [62:0] mul_1 = mul32f(ai, bj_1);
-    wire [62:0] mul_2 = mul32f(ai, bj_2);
-    wire [62:0] mul_3 = mul32f(ai, bj_3);
-    wire [3:0] ij_0 = {2'd0, ii};
-    wire [3:0] ij_1 = {2'd0, ii} + 4'd1;
-    wire [3:0] ij_2 = {2'd0, ii} + 4'd2;
-    wire [3:0] ij_3 = {2'd0, ii} + 4'd3;
-    wire [255:0] shifted = ({193'd0, mul_0} << ({4'd0, ij_0} << 5)) ^
-                           ({193'd0, mul_1} << ({4'd0, ij_1} << 5)) ^
-                           ({193'd0, mul_2} << ({4'd0, ij_2} << 5)) ^
-                           ({193'd0, mul_3} << ({4'd0, ij_3} << 5));
+    wire [2:0] cnt1 = cnt + 3'd1;
+    wire [1:0] nx_i = cnt1[2:1];
+    wire [1:0] nx_0 = {cnt1[0], 1'b0};
+    wire [1:0] nx_1 = {cnt1[0], 1'b1};
+    wire [31:0] nx_w0 = (nx_i == 2'd0) ? a_h0 : (nx_i == 2'd1) ? a_h1 : (nx_i == 2'd2) ? a_h2 : a_h3;
+    wire [31:0] nx_w1 = (nx_0 == 2'd0) ? b_h0 : (nx_0 == 2'd1) ? b_h1 : (nx_0 == 2'd2) ? b_h2 : b_h3;
+    wire [31:0] nx_w2 = (nx_1 == 2'd0) ? b_h0 : (nx_1 == 2'd1) ? b_h1 : (nx_1 == 2'd2) ? b_h2 : b_h3;
+    wire [4:0] nx_s0 = {2'd0, nx_i} + {2'd0, nx_0};
+    wire [4:0] nx_s1 = {2'd0, nx_i} + {2'd0, nx_1};
+
+    reg [31:0] aw_r, bw0_r, bw1_r;
+    reg [4:0] sh0_r, sh1_r;
+    wire [62:0] mul_a = mul32f(aw_r, bw0_r);
+    wire [62:0] mul_b = mul32f(aw_r, bw1_r);
+    wire [255:0] shifted = ({193'd0, mul_a} << ({2'b00, sh0_r, 5'd0})) ^
+                           ({193'd0, mul_b} << ({2'b00, sh1_r, 5'd0}));
 
     reg [255:0] red;
     integer ri;
@@ -125,7 +134,7 @@ module ghash (
             accept <= 1'b0;
             yacc <= 128'd0;
             blk <= 8'd0;
-            cnt <= 4'd0;
+            cnt <= 3'd0;
             prod <= 256'd0;
             a_reg <= 128'd0;
             b_reg <= 128'd0;
@@ -150,16 +159,30 @@ module ghash (
                         a_reg <= yacc ^ d_rev;
                         b_reg <= h_rev;
                         prod <= 256'd0;
-                        cnt <= 4'd0;
-                        phase <= PHASE_MUL;
+                        cnt <= 3'd0;
+                        phase <= PHASE_PRE;
                     end
                 end
+                PHASE_PRE: begin
+                    aw_r <= a_h0;
+                    bw0_r <= b_h0;
+                    bw1_r <= b_h1;
+                    sh0_r <= 5'd0;
+                    sh1_r <= 5'd1;
+                    phase <= PHASE_MUL;
+                end
+
                 PHASE_MUL: begin
                     prod <= prod ^ shifted;
-                    if (cnt == 4'd3) begin
+                    aw_r <= nx_w0;
+                    bw0_r <= nx_w1;
+                    bw1_r <= nx_w2;
+                    sh0_r <= nx_s0;
+                    sh1_r <= nx_s1;
+                    if (cnt == 3'd7) begin
                         phase <= PHASE_RED;
                     end else begin
-                        cnt <= cnt + 4'd1;
+                        cnt <= cnt + 3'd1;
                     end
                 end
                 PHASE_RED: begin

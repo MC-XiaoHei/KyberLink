@@ -18,11 +18,16 @@ fn load_json(subdir: &str, file: &str) -> Value {
 }
 
 fn hex_vec(v: &Value) -> Vec<u8> {
-    v.as_str().map(|s| hex::decode(s).unwrap()).unwrap_or_default()
+    v.as_str()
+        .map(|s| hex::decode(s).unwrap())
+        .unwrap_or_default()
 }
 
 fn hex_arr<const N: usize>(v: &Value) -> [u8; N] {
-    hex::decode(v.as_str().unwrap()).unwrap().try_into().unwrap()
+    hex::decode(v.as_str().unwrap())
+        .unwrap()
+        .try_into()
+        .unwrap()
 }
 
 fn ctx_of(t: &Value) -> Vec<u8> {

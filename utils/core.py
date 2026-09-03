@@ -10,12 +10,35 @@ from . import config
 
 class Tee:
     def __init__(self, path):
-        self.f = open(path, "w", encoding="utf-8", errors="replace")
+        self.f = open(path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
         self.orig = os.dup(1)
         r, w = os.pipe()
         os.dup2(w, 1)
         os.dup2(w, 2)
-        threading.Thread(target=self._pump, args=(r,), daemon=True).start()
+        self.w = w
+        self.pump = threading.Thread(target=self._pump, args=(r,), daemon=True)
+        self.pump.start()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+    def close(self):
+        if self.pump is None:
+            return
+        try:
+            os.close(self.w)
+        except OSError:
+            pass
+        self.pump.join(timeout=5)
+        os.dup2(self.orig, 1)
+        os.dup2(self.orig, 2)
+        os.close(self.orig)
+        self.f.close()
+        self.pump = None
 
     def _pump(self, r):
         while True:
@@ -82,7 +105,10 @@ class Reporter:
             name = os.path.join(d, f"{result.cmd}_report.json")
         else:
             os.makedirs(self.logs_dir, exist_ok=True)
-            name = os.path.join(self.logs_dir,
-                                f"{result.cmd}_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
-        json.dump(result.to_dict(), open(name, "w"), indent=2)
+            name = os.path.join(
+                self.logs_dir,
+                f"{result.cmd}_report_{datetime.now().astimezone().strftime('%Y%m%d_%H%M%S')}.json",
+            )
+        with open(name, "w") as f:
+            json.dump(result.to_dict(), f, indent=2)
         return name

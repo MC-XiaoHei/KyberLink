@@ -9,8 +9,6 @@ module bridge_dec_path (
 
     input  wire [255:0]  key,
 
-    input  wire          gcm_grant,
-    output reg           gcm_req,
     output reg           gcm_start,
     output reg  [11:0]   gcm_pt_len,
     output reg  [95:0]   gcm_nonce,
@@ -30,93 +28,108 @@ module bridge_dec_path (
     output wire          m_tvalid,
     output wire          m_tlast,
     input  wire          m_tready,
-    output reg           tag_ok,
-    output wire          gcm_active
+    output reg           tag_ok
 );
 
-    localparam ST_IDLE = 2'd0;
-    localparam ST_RX   = 2'd1;
-    localparam ST_RUN  = 2'd2;
-    localparam ST_TX   = 2'd3;
+    localparam RX_IDLE = 1'b0;
+    localparam RX_RUN  = 1'b1;
+    localparam DS_IDLE = 2'd0;
+    localparam DS_LOAD = 2'd1;
+    localparam DS_RUN  = 2'd2;
+    localparam DS_TAG  = 2'd3;
+    localparam TS_IDLE = 2'd0;
+    localparam TS_TX   = 2'd1;
 
-    reg [1:0] state;
+    reg        rx_state;
+    reg [1:0]  ds;
+    reg        tag_ok_q;
+    reg [11:0] out_len_c;
+    reg [1:0]  ts;
 
-    (* syn_ramstyle = "block" *) reg [63:0] frm_lo [0:127];
-    (* syn_ramstyle = "block" *) reg [63:0] frm_hi [0:127];
-    (* syn_ramstyle = "block" *) reg [63:0] ct_lo [0:127];
-    (* syn_ramstyle = "block" *) reg [63:0] ct_hi [0:127];
-    reg         frm_wr_pend;
-    reg [6:0]   frm_wr_addr;
-    reg [127:0] frm_wr_data;
-    reg [31:0] spi_r;
-    reg [31:0] seq_r;
-    reg [95:0] iv_r;
+
+    reg [1:0]  rx_sel;
+    reg [1:0]  rx_r_sel;
+    reg        dec_sel;
+    reg        ct_w_sel;
+    reg        ct_r_sel;
+    reg        tx_rs;
+    reg [127:0] ct_rd_data;
+    reg [1:0]  dec_pend;
+    reg [1:0]  ct_avail;
+    reg [1:0]  tx_busy;
     reg [143:0] tail18;
     reg [127:0] blk_acc;
+    reg [3:0]   frm16;
+    reg [6:0]   fb_idx;
     reg [11:0]  fcnt;
-    reg [11:0]  frm_len;
-    reg [11:0]  ct_len;
+    reg         frm_wr_pend;
+    reg [8:0]   frm_wr_addr;
+    reg [127:0] frm_wr_data;
+    reg [11:0]  ct_len_p [0:1];
+    reg [31:0]  spi_p [0:1];
+    reg [31:0]  seq_p [0:1];
+    reg [95:0]  iv_p [0:1];
+    reg [127:0] tag_p [0:1];
+    reg [11:0]  out_len_p [0:1];
     reg [7:0]   pt_idx;
     reg [7:0]   pt_rd_addr;
     reg [127:0] pt_rd_data;
-    reg [3:0]   frm16;
-    reg [7:0]   fb_idx;
     reg         pt_req;
     reg         pt_data_v;
+    reg [8:0]   nct_q;
+    reg [7:0]   ct_idx;
+    reg [7:0]   ct_wr;
+    reg [127:0] tail_pt;
+    reg [7:0]   pad_len_r;
+    reg [15:0]  tx_cnt;
+    reg [7:0]   tx_rd_idx;
     reg [127:0] tx_blk;
     reg [3:0]   tx_b;
     reg         tx_blk_v;
-    reg         grant_used;
-    reg [15:0]  tx_cnt;
-    reg         tag_ok_r;
-    reg [7:0]   ct_wr;
-    reg [127:0] tail_pt;
-    reg [11:0]  out_len;
-    reg [7:0]   tx_rd_idx;
-    reg [63:0]  win_r;
+    reg [11:0]  out_len_q;
     reg [31:0]  last_seq_r;
-
-    wire [11:0] ct_len_w = fcnt + 12'd1 - 12'd36;
-    wire [8:0]  nct = {1'b0, ct_len_w[11:4]} + {8'd0, |ct_len_w[3:0]};
+    reg [63:0]  win_r;
+    reg [7:0]   m_tdata_r;
+    reg         m_tvalid_r;
+    reg         m_tlast_r;
 
     reg [127:0] tag_q;
     reg         tag_valid_q;
-    wire [127:0] tag_w = tail18[127:0];
-    assign gcm_active = grant_used;
-
-    assign gcm_pt_valid = pt_data_v;
-    assign gcm_pt_data  = pt_rd_data;
-    assign s_tready = (state == ST_IDLE) || (state == ST_RX);
-    assign gcm_ct_ready = (ct_wr < 8'd96);
-
-    always @(posedge clk) begin
-        pt_rd_data <= {frm_hi[pt_rd_addr], frm_lo[pt_rd_addr]};
-    end
-
-    wire seq_new_w = (seq_r > last_seq_r);
-    wire [31:0] seq_back_w = last_seq_r - seq_r;
-    wire seq_rx_ok_c = seq_new_w ? 1'b1 :
-                       ((seq_back_w < 32'd64) && !win_r[seq_r[5:0]]);
-    reg seq_rx_ok_q;
-    always @(posedge clk) seq_rx_ok_q <= seq_rx_ok_c;
-    wire seq_rx_ok = seq_rx_ok_q;
-
-    reg [7:0] m_tdata_r;
-    reg       m_tvalid_r;
-    reg       m_tlast_r;
-    assign m_tdata = m_tdata_r;
-    assign m_tvalid = m_tvalid_r;
-    assign m_tlast = m_tlast_r;
-
-    wire [11:0] pad_ct_w = ct_len - 12'd2;
+    wire [127:0] tag_w = tag_p[dec_sel];
+    wire [11:0] ct_len_w = fcnt + 12'd1 - 12'd36;
+    wire [8:0]  nct = {1'b0, ct_len_p[dec_sel][11:4]} + {8'd0, |ct_len_p[dec_sel][3:0]};
+    wire [8:0]  tx_nct_w = {1'b0, out_len_q[11:4]} + {8'd0, |out_len_q[3:0]};
+    wire [11:0] pad_ct_w = ct_len_p[dec_sel] - 12'd2;
     wire [3:0]  pad_off_w = pad_ct_w[3:0];
     wire [7:0]  pad_len_w = tail_pt[127 - 8*pad_off_w -: 8];
-    reg [7:0]   pad_len_r;
-    wire [11:0] out_len_w = ct_len - 12'd2 - {8'd0, pad_len_r};
+    wire [11:0] out_len_w = ct_len_p[dec_sel] - 12'd2 - {8'd0, pad_len_r};
     wire pad_ok_w = (pad_len_r <= 8'd15) &&
-                    (ct_len >= (12'd2 + {8'd0, pad_len_r} + 12'd1));
-
+                    (ct_len_p[dec_sel] >= (12'd2 + {8'd0, pad_len_r} + 12'd1));
     wire tag_ok_w = tag_valid_q && (tag_q[63:0] == tag_w[63:0]) && (tag_q[127:64] == tag_w[127:64]);
+    (* syn_ramstyle = "block_ram" *) reg [127:0] frm [0:255];
+    (* syn_ramstyle = "block_ram" *) reg [127:0] ct  [0:255];
+    wire seq_new_w = (seq_p[rx_sel] > last_seq_r);
+    wire [31:0] seq_back_w = last_seq_r - seq_p[rx_sel];
+    wire seq_rx_ok_c = seq_new_w ? 1'b1 :
+                       ((seq_back_w < 32'd64) && !win_r[seq_p[rx_sel][5:0]]);
+    reg seq_rx_ok_q;
+    wire seq_rx_ok = seq_rx_ok_q;
+
+    always @(posedge clk) begin
+        pt_rd_data <= frm[{dec_sel, pt_rd_addr[6:0]}];
+    end
+    assign gcm_pt_valid = pt_data_v;
+    assign gcm_pt_data  = pt_rd_data;
+    assign gcm_ct_ready = (ct_wr < 8'd96);
+    assign m_tdata = m_tdata_r;
+    assign m_tvalid = m_tvalid_r;
+    assign s_tready = (rx_state == RX_RUN) || ((rx_state == RX_IDLE) && !dec_pend[rx_sel]);
+    assign m_tlast = m_tlast_r;
+
+
+    always @(posedge clk) begin
+        seq_rx_ok_q <= seq_rx_ok_c;
+    end
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -130,38 +143,60 @@ module bridge_dec_path (
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            state <= ST_IDLE;
-            spi_r <= 32'd0;
-            seq_r <= 32'd0;
-            iv_r <= 96'd0;
+            rx_state <= RX_IDLE;
+            ds <= DS_IDLE;
+            ts <= TS_IDLE;
+            rx_sel <= 2'd0;
+            rx_r_sel <= 2'd0;
+            dec_sel <= 1'b0;
+            ct_w_sel <= 1'b0;
+            ct_r_sel <= 1'b0;
+            tx_rs <= 1'b0;
+            dec_pend <= 2'd0;
+            ct_avail <= 2'd0;
+            tx_busy <= 2'd0;
             tail18 <= 144'd0;
             blk_acc <= 128'd0;
-            pad_len_r <= 8'd0;
-            frm_wr_pend <= 1'b0;
-            frm_wr_addr <= 7'd0;
-            frm_wr_data <= 128'd0;
+            frm16 <= 4'd0;
+            fb_idx <= 7'd0;
             fcnt <= 12'd0;
-            frm_len <= 12'd0;
-            ct_len <= 12'd0;
+            frm_wr_pend <= 1'b0;
+            frm_wr_addr <= 9'd0;
+            frm_wr_data <= 128'd0;
+            ct_len_p[0] <= 12'd0;
+            ct_len_p[1] <= 12'd0;
+            spi_p[0] <= 32'd0;
+            spi_p[1] <= 32'd0;
+            seq_p[0] <= 32'd0;
+            seq_p[1] <= 32'd0;
+            iv_p[0] <= 96'd0;
+            iv_p[1] <= 96'd0;
+            tag_p[0] <= 128'd0;
+            tag_p[1] <= 128'd0;
+            out_len_p[0] <= 12'd0;
+            out_len_p[1] <= 12'd0;
             pt_idx <= 8'd0;
             pt_rd_addr <= 8'd0;
             pt_req <= 1'b0;
             pt_data_v <= 1'b0;
+            nct_q <= 9'd0;
+            ct_idx <= 8'd0;
+            ct_wr <= 8'd0;
+            tail_pt <= 128'd0;
+            pad_len_r <= 8'd0;
+            tx_cnt <= 16'd0;
+            tx_rd_idx <= 8'd0;
             tx_blk <= 128'd0;
             tx_b <= 4'd0;
             tx_blk_v <= 1'b0;
-            ct_wr <= 8'd0;
-            tail_pt <= 128'd0;
-            out_len <= 12'd0;
-            tx_rd_idx <= 8'd0;
-            grant_used <= 1'b0;
-            tx_cnt <= 16'd0;
-            m_tvalid_r <= 1'b0;
-            tag_ok_r <= 1'b0;
-            tag_ok <= 1'b0;
-            win_r <= 64'd0;
+            out_len_q <= 12'd0;
             last_seq_r <= 32'd0;
-            gcm_req <= 1'b0;
+            win_r <= 64'd0;
+            m_tdata_r <= 8'd0;
+            m_tvalid_r <= 1'b0;
+            m_tlast_r <= 1'b0;
+            tag_ok <= 1'b0;
+            tag_ok_q <= 1'b0;
             gcm_start <= 1'b0;
             gcm_pt_len <= 12'd0;
             gcm_nonce <= 96'd0;
@@ -169,35 +204,37 @@ module bridge_dec_path (
         end else begin
             gcm_start <= 1'b0;
             pad_len_r <= pad_len_w;
-            tag_ok_r <= tag_ok_r || tag_ok_w;
-            tag_ok <= tag_ok_w;
-            case (state)
-                ST_IDLE: begin
-                    m_tvalid_r <= 1'b0;
-                    if (s_tvalid) begin
+            tag_ok <= tag_ok_q;
+            if (frm_wr_pend) begin
+                frm[frm_wr_addr] <= frm_wr_data;
+                frm_wr_pend <= 1'b0;
+            end else if (rx_state == RX_RUN && s_tvalid && s_tready && (frm16 == 4'd15)) begin
+                frm[{rx_sel, fb_idx}] <= {blk_acc[119:56], blk_acc[55:0], s_tdata};
+            end
+            case (rx_state)
+                RX_IDLE: begin
+                    if (s_tvalid && s_tready) begin
                         tail18 <= {tail18[135:0], s_tdata};
-                        spi_r[31 - 8*fcnt[1:0] -: 8] <= s_tdata;
+                        spi_p[rx_sel][31:24] <= s_tdata;
                         fcnt <= 12'd1;
                         blk_acc <= {120'd0, s_tdata};
                         frm16 <= 4'd0;
-                        fb_idx <= 8'd0;
-                        state <= ST_RX;
+                        fb_idx <= 7'd0;
+                        rx_state <= RX_RUN;
                     end
                 end
-                ST_RX: begin
-                    if (s_tvalid) begin
+                RX_RUN: begin
+                    if (s_tvalid && s_tready) begin
                         tail18 <= {tail18[135:0], s_tdata};
                         if (fcnt < 12'd4)
-                            spi_r[31 - 8*fcnt[1:0] -: 8] <= s_tdata;
+                            spi_p[rx_sel][31 - 8*fcnt[1:0] -: 8] <= s_tdata;
                         else if (fcnt < 12'd8)
-                            seq_r[31 - 8*(fcnt - 12'd4) -: 8] <= s_tdata;
+                            seq_p[rx_sel][31 - 8*(fcnt - 12'd4) -: 8] <= s_tdata;
                         else if (fcnt < 12'd20)
-                            iv_r[95 - 8*(fcnt - 12'd8) -: 8] <= s_tdata;
+                            iv_p[rx_sel][95 - 8*(fcnt - 12'd8) -: 8] <= s_tdata;
                         else begin
                             if (frm16 == 4'd15) begin
-                                frm_lo[fb_idx] <= {blk_acc[55:0], s_tdata};
-                                frm_hi[fb_idx] <= blk_acc[119:56];
-                                fb_idx <= fb_idx + 8'd1;
+                                fb_idx <= fb_idx + 7'd1;
                                 frm16 <= 4'd0;
                             end else if (frm16 == 4'd0) begin
                                 frm16 <= 4'd1;
@@ -210,7 +247,7 @@ module bridge_dec_path (
                         if (s_tlast) begin
                             if (frm16 != 4'd15) begin
                                 frm_wr_pend <= 1'b1;
-                                frm_wr_addr <= fb_idx;
+                                frm_wr_addr <= {rx_sel, fb_idx};
                                 case (frm16)
                                     4'd0:  frm_wr_data <= {s_tdata, 120'd0};
                                     4'd1:  frm_wr_data <= {blk_acc[7:0], s_tdata, 112'd0};
@@ -230,103 +267,138 @@ module bridge_dec_path (
                                     default: frm_wr_data <= {s_tdata, 120'd0};
                                 endcase
                             end
-                            frm_len <= fcnt + 12'd1;
-                            ct_len <= fcnt + 12'd1 - 12'd36;
+                            ct_len_p[rx_sel] <= fcnt + 12'd1 - 12'd36;
+                            tag_p[rx_sel] <= {tail18[119:0], s_tdata};
                             if (seq_rx_ok) begin
-                                gcm_req <= 1'b1;
-                                state <= ST_RUN;
+                                dec_pend[rx_sel] <= 1'b1;
                                 if (seq_new_w)
-                                    last_seq_r <= seq_r;
+                                    last_seq_r <= seq_p[rx_sel];
                                 else
-                                    win_r[seq_r[5:0]] <= 1'b1;
-                            end else begin
-                                state <= ST_IDLE;
+                                    win_r[seq_p[rx_sel][5:0]] <= 1'b1;
                             end
+                            rx_sel <= rx_sel + 2'd1;
+                            rx_state <= RX_IDLE;
                         end else begin
                             fcnt <= fcnt + 12'd1;
                         end
                     end
                 end
-                ST_RUN: begin
-                    if (frm_wr_pend) begin
-                        frm_lo[frm_wr_addr] <= frm_wr_data[63:0];
-                        frm_hi[frm_wr_addr] <= frm_wr_data[127:64];
-                        frm_wr_pend <= 1'b0;
-                    end
-                    if (gcm_grant && !grant_used) begin
-                        grant_used <= 1'b1;
-                        gcm_req <= 1'b0;
-                        gcm_start <= 1'b1;
-                        gcm_pt_len <= ct_len;
-                        gcm_nonce <= iv_r;
-                        gcm_aad <= {spi_r, seq_r, 64'd0};
-                        pt_idx <= 8'd0;
-                        pt_req <= 1'b0;
-                        pt_data_v <= 1'b0;
-                        tx_cnt <= 16'd0;
-                        tx_blk_v <= 1'b0;
-                        ct_wr <= 8'd0;
-                        tail_pt <= 128'd0;
-                        tag_ok_r <= 1'b0;
-                    end
-                    if (gcm_pt_ready && !pt_req && !pt_data_v && (pt_idx < nct[7:0])) begin
-                        pt_rd_addr <= pt_idx;
-                        pt_req <= 1'b1;
-                    end
-                    if (pt_req && !pt_data_v) begin
-                        pt_data_v <= 1'b1;
-                    end
-                    if (pt_data_v && gcm_pt_ready) begin
-                        pt_req <= 1'b0;
-                        pt_data_v <= 1'b0;
-                        pt_idx <= pt_idx + 8'd1;
-                    end
-                    if (gcm_ct_valid && gcm_ct_ready) begin
-                        ct_lo[ct_wr] <= gcm_ct_data[63:0];
-                        ct_hi[ct_wr] <= gcm_ct_data[127:64];
-                        tail_pt <= gcm_ct_data;
-                        ct_wr <= ct_wr + 8'd1;
-                    end
-                    if (tag_valid_q) begin
-                        grant_used <= 1'b0;
-                        tx_cnt <= 16'd0;
-                        tx_rd_idx <= 8'd0;
-                        tx_blk_v <= 1'b0;
-                        if (tag_ok_w && pad_ok_w) begin
-                            out_len <= out_len_w;
-                            state <= ST_TX;
-                        end else begin
-                            state <= ST_IDLE;
-                        end
-                    end
-                end
-                ST_TX: begin
-                    m_tdata_r <= tx_blk[127:120];
-                    m_tvalid_r <= tx_blk_v;
-                    m_tlast_r <= tx_blk_v && (tx_cnt == out_len - 16'd1);
-                    if (m_tready && tx_blk_v) begin
-                        if (tx_cnt == out_len - 16'd1) begin
-                            state <= ST_IDLE;
-                        end else begin
-                            tx_cnt <= tx_cnt + 16'd1;
-                            tx_blk <= {tx_blk[119:0], 8'd0};
-                            if (tx_b == 4'd15) begin
-                                tx_blk_v <= 1'b0;
-                                tx_b <= 4'd0;
-                            end else begin
-                                tx_b <= tx_b + 4'd1;
-                            end
-                        end
-                    end
-                    if (!tx_blk_v && (tx_rd_idx < nct[7:0])) begin
-                        tx_blk <= {ct_hi[tx_rd_idx], ct_lo[tx_rd_idx]};
-                        tx_rd_idx <= tx_rd_idx + 8'd1;
-                        tx_blk_v <= 1'b1;
-                        tx_b <= 4'd0;
-                    end
-                end
-                default: state <= ST_IDLE;
+                default: rx_state <= RX_IDLE;
             endcase
+            if (ds == DS_IDLE) begin
+                if (dec_pend[rx_r_sel] && !tx_busy[rx_r_sel]) begin
+                    dec_sel <= rx_r_sel;
+                    rx_r_sel <= rx_r_sel + 2'd1;
+                    ds <= DS_LOAD;
+                end
+            end
+            if (ds == DS_LOAD) begin
+                ct_idx <= 8'd0;
+                ct_wr <= 8'd0;
+                pt_idx <= 8'd0;
+                pt_rd_addr <= 8'd0;
+                pt_req <= 1'b0;
+                pt_data_v <= 1'b0;
+                tail_pt <= 128'd0;
+                pad_len_r <= 8'd0;
+                nct_q <= nct;
+                gcm_start <= 1'b1;
+                gcm_pt_len <= ct_len_p[dec_sel];
+                gcm_nonce <= iv_p[dec_sel];
+                gcm_aad <= {spi_p[dec_sel], seq_p[dec_sel], 64'd0};
+                ds <= DS_RUN;
+            end
+            if (ds == DS_RUN) begin
+                if (gcm_pt_ready && !pt_req && !pt_data_v && (pt_idx < nct_q[7:0])) begin
+                    pt_rd_addr <= pt_idx;
+                    pt_req <= 1'b1;
+                end
+                if (pt_req && !pt_data_v) begin
+                    pt_data_v <= 1'b1;
+                end
+                if (pt_data_v && gcm_pt_ready) begin
+                    pt_req <= 1'b0;
+                    pt_data_v <= 1'b0;
+                    pt_idx <= pt_idx + 8'd1;
+                end
+                if (gcm_ct_valid && gcm_ct_ready) begin
+                    ct[{ct_w_sel, ct_idx[6:0]}] <= gcm_ct_data;
+                    ct_idx <= ct_idx + 8'd1;
+                    ct_wr <= ct_wr + 8'd1;
+                    tail_pt <= gcm_ct_data;
+                end
+                if (tag_valid_q) begin
+                    tag_ok_q <= tag_ok_w && pad_ok_w;
+                    out_len_c <= out_len_w;
+                    ds <= DS_TAG;
+                end
+            end
+            if (ds == DS_TAG) begin
+                if (tag_ok_q) begin
+                    out_len_p[ct_w_sel] <= out_len_c;
+                    ct_avail[ct_w_sel] <= 1'b1;
+                    ct_w_sel <= ct_w_sel + 1'd1;
+                end
+                dec_pend[dec_sel] <= 1'b0;
+                ds <= DS_IDLE;
+            end
+            if (ts == TS_TX) begin
+                m_tdata_r <= tx_blk[127:120];
+                m_tvalid_r <= tx_blk_v;
+                m_tlast_r <= tx_blk_v && (tx_cnt == out_len_q - 16'd1);
+                if (m_tready && tx_blk_v) begin
+                    if (tx_cnt == out_len_q - 16'd1) begin
+                        if (ct_avail[ct_r_sel]) begin
+                            ct_avail[ct_r_sel] <= 1'b0;
+                            tx_busy[tx_rs] <= 1'b0;
+                            tx_busy[ct_r_sel] <= 1'b1;
+                            out_len_q <= out_len_p[ct_r_sel];
+                            tx_rs <= ct_r_sel;
+                            ct_r_sel <= ct_r_sel + 1'd1;
+                            tx_cnt <= 16'd0;
+                            tx_rd_idx <= 8'd0;
+                            tx_blk_v <= 1'b0;
+                        end else begin
+                            ts <= TS_IDLE;
+                            tx_busy[tx_rs] <= 1'b0;
+                        end
+                    end else begin
+                        tx_cnt <= tx_cnt + 16'd1;
+                        if (tx_b == 4'd15) begin
+                            tx_blk <= ct_rd_data;
+                            tx_rd_idx <= tx_rd_idx + 8'd1;
+                            tx_b <= 4'd0;
+                        end else begin
+                            tx_blk <= {tx_blk[119:0], 8'd0};
+                            tx_b <= tx_b + 4'd1;
+                        end
+                    end
+                end
+                if (!tx_blk_v && (tx_rd_idx < tx_nct_w[7:0])) begin
+                    tx_blk <= ct_rd_data;
+                    tx_rd_idx <= tx_rd_idx + 8'd1;
+                    tx_blk_v <= 1'b1;
+                    tx_b <= 4'd0;
+                end
+            end
+            if (ts == TS_IDLE) begin
+                m_tvalid_r <= 1'b0;
+            end
+            ct_rd_data <= ct[(ct_avail[ct_r_sel] && (ts == TS_IDLE ||
+                            (ts == TS_TX && tx_cnt == out_len_q - 16'd1))) ?
+                            {ct_r_sel, 9'd0} : {tx_rs, tx_rd_idx[6:0]}];
+            if (ct_avail[ct_r_sel] && (ts == TS_IDLE)) begin
+                ct_avail[ct_r_sel] <= 1'b0;
+                tx_busy[ct_r_sel] <= 1'b1;
+                out_len_q <= out_len_p[ct_r_sel];
+                tx_rs <= ct_r_sel;
+                ct_r_sel <= ct_r_sel + 1'd1;
+                tx_cnt <= 16'd0;
+                tx_rd_idx <= 8'd0;
+                tx_blk_v <= 1'b0;
+                m_tlast_r <= 1'b0;
+                ts <= TS_TX;
+            end
         end
     end
 

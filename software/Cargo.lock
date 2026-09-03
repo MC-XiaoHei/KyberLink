@@ -276,9 +276,11 @@ dependencies = [
 name = "kyberlink-vecgen"
 version = "0.1.0"
 dependencies = [
+ "aes",
  "aes-gcm",
  "ghash",
  "hex",
+ "kyberlink-crypto",
  "serde_json",
  "sha3 0.10.9",
 ]

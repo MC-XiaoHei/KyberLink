@@ -1,7 +1,9 @@
 __pycache__/
 *.pyc
+.ruff_cache/
 .venv/
 docs/
 logs/
 build/
 .env
+target/

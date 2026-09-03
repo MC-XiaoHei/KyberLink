@@ -10,7 +10,8 @@ N = 500
 
 def cross(mode="gen"):
     import oqs
-    out = os.path.join(config.VECTORS, "cross")
+
+    out = os.path.join(config.VECTORS, "generated")
     os.makedirs(out, exist_ok=True)
     rng = random.Random(0x4B21)
 
@@ -22,14 +23,16 @@ def cross(mode="gen"):
                 ek = k.generate_keypair_seed(seed)
                 dk = k.export_secret_key()
                 ct, ss = k.encap_secret(ek)
-                kem.append({
-                    "index": i,
-                    "seed": seed.hex(),
-                    "ek": ek.hex(),
-                    "dk": dk.hex(),
-                    "ct": ct.hex(),
-                    "ss": ss.hex(),
-                })
+                kem.append(
+                    {
+                        "index": i,
+                        "seed": seed.hex(),
+                        "ek": ek.hex(),
+                        "dk": dk.hex(),
+                        "ct": ct.hex(),
+                        "ss": ss.hex(),
+                    }
+                )
         with open(os.path.join(out, "kem.json"), "w") as f:
             json.dump(kem, f)
 
@@ -41,20 +44,24 @@ def cross(mode="gen"):
                 sk = s.export_secret_key()
                 sig = s.sign(msg)
                 assert s.verify(msg, sig, pk)
-                dsa.append({
-                    "index": i,
-                    "msg": msg.hex(),
-                    "pk": pk.hex(),
-                    "sk": sk.hex(),
-                    "sig": sig.hex(),
-                })
+                dsa.append(
+                    {
+                        "index": i,
+                        "msg": msg.hex(),
+                        "pk": pk.hex(),
+                        "sk": sk.hex(),
+                        "sig": sig.hex(),
+                    }
+                )
         with open(os.path.join(out, "dsa.json"), "w") as f:
             json.dump(dsa, f)
         print(f"generated {len(kem)} kem + {len(dsa)} dsa vectors -> {out}")
-        return Result("cross", config={"mode": mode},
-                      metrics={"kem": len(kem), "dsa": len(dsa)},
-                      artifacts={"kem": os.path.join(out, "kem.json"),
-                                 "dsa": os.path.join(out, "dsa.json")})
+        return Result(
+            "cross",
+            config={"mode": mode},
+            metrics={"kem": len(kem), "dsa": len(dsa)},
+            artifacts={"kem": os.path.join(out, "kem.json"), "dsa": os.path.join(out, "dsa.json")},
+        )
 
     if mode == "verify":
         kem_in = json.load(open(os.path.join(out, "kem.json")))
@@ -68,8 +75,9 @@ def cross(mode="gen"):
 
         with oqs.Signature("ML-DSA-65") as s:
             for v in json.load(open(os.path.join(out, "dsa_out.json"))):
-                assert s.verify(bytes.fromhex(v["msg"]), bytes.fromhex(v["sig"]), bytes.fromhex(v["pk"])), \
-                    f"dsa {v['index']}"
+                assert s.verify(
+                    bytes.fromhex(v["msg"]), bytes.fromhex(v["sig"]), bytes.fromhex(v["pk"])
+                ), f"dsa {v['index']}"
         print("dsa_out verified (rust sign -> liboqs verify)")
         return Result("cross", config={"mode": mode})
 

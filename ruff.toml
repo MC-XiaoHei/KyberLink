@@ -1,0 +1,14 @@
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",
+    "SIM115",
+    "PLW1510",
+    "RUF059",
+]
+
+[lint.per-file-ignores]
+"sim.py" = ["F821"]

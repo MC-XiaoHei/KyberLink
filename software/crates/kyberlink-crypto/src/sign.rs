@@ -1,4 +1,4 @@
-use ml_dsa::signature::{Keypair, Signer, SignatureEncoding, Verifier};
+use ml_dsa::signature::{Keypair, SignatureEncoding, Signer, Verifier};
 use ml_dsa::{KeyExport, MlDsa65, SigningKey, VerifyingKey};
 
 pub type Signature = ml_dsa::Signature<MlDsa65>;
@@ -25,7 +25,11 @@ pub fn sign(sk: &SigningKey<MlDsa65>, msg: &[u8]) -> Signature {
     sk.sign(msg)
 }
 
-pub fn verify(vk: &VerifyingKey<MlDsa65>, msg: &[u8], sig: &Signature) -> Result<(), VerificationError> {
+pub fn verify(
+    vk: &VerifyingKey<MlDsa65>,
+    msg: &[u8],
+    sig: &Signature,
+) -> Result<(), VerificationError> {
     vk.verify(msg, sig)
 }
 
@@ -68,7 +72,8 @@ mod tests {
         let msg = b"attack at dawn";
         let mut sig = sig_bytes(&sign(&kp.sk, msg));
         sig[0] ^= 1;
-        let sig = sig_from_bytes(&sig).unwrap();        assert!(verify(&kp.vk, msg, &sig).is_err());
+        let sig = sig_from_bytes(&sig).unwrap();
+        assert!(verify(&kp.vk, msg, &sig).is_err());
     }
 
     #[test]

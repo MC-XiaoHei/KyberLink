@@ -18,7 +18,10 @@ fn load_json(subdir: &str, file: &str) -> Value {
 }
 
 fn hex_arr<const N: usize>(v: &Value) -> [u8; N] {
-    hex::decode(v.as_str().unwrap()).unwrap().try_into().unwrap()
+    hex::decode(v.as_str().unwrap())
+        .unwrap()
+        .try_into()
+        .unwrap()
 }
 
 fn hex_vec(v: &Value) -> Vec<u8> {
@@ -37,7 +40,12 @@ fn kem_keygen() {
         if pg["parameterSet"] != "ML-KEM-768" {
             continue;
         }
-        for (pt, et) in pg["tests"].as_array().unwrap().iter().zip(eg["tests"].as_array().unwrap()) {
+        for (pt, et) in pg["tests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(eg["tests"].as_array().unwrap())
+        {
             let d = hex_arr::<32>(&pt["d"]);
             let z = hex_arr::<32>(&pt["z"]);
             let (ek, dk) = ki::keygen_internal(&d, &z);
@@ -55,7 +63,12 @@ fn kem_encap() {
         if pg["parameterSet"] != "ML-KEM-768" || pg["function"] != "encapsulation" {
             continue;
         }
-        for (pt, et) in pg["tests"].as_array().unwrap().iter().zip(eg["tests"].as_array().unwrap()) {
+        for (pt, et) in pg["tests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(eg["tests"].as_array().unwrap())
+        {
             let ek = hex_arr::<1184>(&pt["ek"]);
             let m = hex_arr::<32>(&pt["m"]);
             let (k, c) = ki::encaps_internal(&ek, &m);
@@ -73,7 +86,12 @@ fn kem_decap() {
         if pg["parameterSet"] != "ML-KEM-768" || pg["function"] != "decapsulation" {
             continue;
         }
-        for (pt, et) in pg["tests"].as_array().unwrap().iter().zip(eg["tests"].as_array().unwrap()) {
+        for (pt, et) in pg["tests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(eg["tests"].as_array().unwrap())
+        {
             let dk = hex_arr::<2400>(&pt["dk"]);
             let c = hex_vec(&pt["c"]);
             let k = ki::decaps_internal(&dk, &c);

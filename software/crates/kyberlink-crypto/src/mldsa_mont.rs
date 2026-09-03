@@ -15,11 +15,7 @@ fn bitrev8(x: u64) -> u64 {
 }
 
 fn zetas() -> [u64; 256] {
-    let mut z = [0u64; 256];
-    for i in 0..256 {
-        z[i] = pow_mod(1753, bitrev8(i as u64));
-    }
-    z
+    core::array::from_fn(|i| pow_mod(1753, bitrev8(i as u64)))
 }
 
 const Q_U32: u32 = 8380417;
@@ -69,9 +65,17 @@ pub fn ntt(a: &mut [u64; 256]) {
             for j in start..start + len {
                 let t = mont_mul(zi, a[j + len] as u32) as u64;
                 let d = a[j] + Q_U32 as u64 - t;
-                a[j + len] = if d >= Q_U32 as u64 { d - Q_U32 as u64 } else { d };
+                a[j + len] = if d >= Q_U32 as u64 {
+                    d - Q_U32 as u64
+                } else {
+                    d
+                };
                 let s2 = a[j] + t;
-                a[j] = if s2 >= Q_U32 as u64 { s2 - Q_U32 as u64 } else { s2 };
+                a[j] = if s2 >= Q_U32 as u64 {
+                    s2 - Q_U32 as u64
+                } else {
+                    s2
+                };
             }
             start += 2 * len;
         }
@@ -101,9 +105,17 @@ pub fn invntt(a: &mut [u64; 256]) {
             for j in start..start + len {
                 let t = a[j];
                 let s3 = t + a[j + len];
-                a[j] = if s3 >= Q_U32 as u64 { s3 - Q_U32 as u64 } else { s3 };
+                a[j] = if s3 >= Q_U32 as u64 {
+                    s3 - Q_U32 as u64
+                } else {
+                    s3
+                };
                 let d = t + Q_U32 as u64 - a[j + len];
-                let d = if d >= Q_U32 as u64 { d - Q_U32 as u64 } else { d };
+                let d = if d >= Q_U32 as u64 {
+                    d - Q_U32 as u64
+                } else {
+                    d
+                };
                 a[j + len] = mont_mul(zi, d as u32) as u64;
             }
             start += 2 * len;
@@ -125,16 +137,17 @@ mod tests {
         for x in [0u64, 1, 2, 1000, 8380416, 4190208] {
             assert_eq!(from_mont(to_mont(x)), x, "x={}", x);
         }
-        let a = 12345u64; let b = 67890u64;
-        let am = to_mont(a); let bm = to_mont(b);
+        let a = 12345u64;
+        let b = 67890u64;
+        let am = to_mont(a);
+        let bm = to_mont(b);
         let p = mont_mul(am as u32, bm as u32) as u64;
         assert_eq!(from_mont(p), (a * b) % Q_U32 as u64);
     }
 
     #[test]
     fn ntt_roundtrip() {
-        let mut f = [0u64; 256];
-        for i in 0..256 { f[i] = ((i * 7 + 3) % Q_U32 as usize) as u64; }
+        let mut f: [u64; 256] = core::array::from_fn(|i| ((i * 7 + 3) % Q_U32 as usize) as u64);
         let orig = f;
         ntt(&mut f);
         invntt(&mut f);

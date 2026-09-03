@@ -1,24 +1,159 @@
 import os
-import shutil
-import subprocess
-import sys
+import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RTL = os.path.join(REPO, "hardware", "rtl")
-SIM = os.path.join(REPO, "hardware", "sim")
+TEST_DIR = os.path.join(REPO, "hardware", "test")
 SYNTH = os.path.join(REPO, "hardware", "synth")
+VECTORS = os.path.join(REPO, "vectors")
 BUILD = os.path.join(REPO, "build")
 LOGS = os.path.join(REPO, "logs")
-VECTORS = os.path.join(REPO, "vectors")
+
+WNO = [
+    "--timing",
+    "-Wno-WIDTH",
+    "-Wno-MULTIDRIVEN",
+    "-Wno-SELRANGE",
+    "-Wno-PINMISSING",
+    "-Wno-TIMESCALEMOD",
+    "-Wno-CASEINCOMPLETE",
+]
 
 
-def run_dir():
-    ts = os.environ.get("RUN_TS")
-    if ts:
-        d = os.path.join(LOGS, os.environ.get("RUN_CMD", "run"), ts)
-        os.makedirs(d, exist_ok=True)
-        return d
-    return None
+def R(*p):
+    return os.path.join(RTL, *p)
+
+
+def S(*p):
+    return os.path.join(TEST_DIR, *p)
+
+
+UNIT = ["aes", "aes_bw", "gcm", "spi", "eth", "bram"]
+INTG = ["bridge", "bw", "full_single", "full_dual"]
+
+BRIDGE_SRC = [
+    R("sbox8.v"),
+    R("sbox8_dist.v"),
+    R("sbox16.v"),
+    R("aes256_core.v"),
+    R("ghash.v"),
+    R("gcm_enc.v"),
+    R("gcm_dec.v"),
+    R("bram_128x256.v"),
+    R("bridge_enc_path.v"),
+    R("bridge_dec_path.v"),
+    R("bridge_top.v"),
+    S("gowin_dpb_sim.v"),
+]
+FULL_CORE = [
+    R("sbox8.v"),
+    R("sbox8_dist.v"),
+    R("sbox16.v"),
+    R("aes256_core.v"),
+    R("ghash.v"),
+    R("gcm_enc.v"),
+    R("gcm_dec.v"),
+    R("bridge_enc_path.v"),
+    R("bridge_dec_path.v"),
+    R("bridge_top.v"),
+    R("bram_128x256.v"),
+    R("bram_32x2048.v"),
+    R("spi_slave.v"),
+    R("spi_regs.v"),
+    R("spi_top.v"),
+    R("ip_udp_eth_rx.v"),
+    R("ip_udp_eth_tx.v"),
+    R("full_top.v"),
+]
+MAC = [
+    R("mac/eth_mac_1g.v"),
+    R("mac/eth_mac_1g_rgmii.v"),
+    R("mac/eth_mac_1g_rgmii_fifo.v"),
+    R("mac/axis_adapter.v"),
+    R("mac/axis_async_fifo.v"),
+    R("mac/axis_async_fifo_adapter.v"),
+    R("mac/axis_eth_fcs.v"),
+    R("mac/axis_eth_fcs_check.v"),
+    R("mac/axis_eth_fcs_insert.v"),
+    R("mac/axis_gmii_rx.v"),
+    R("mac/axis_gmii_tx.v"),
+    R("mac/iddr.v"),
+    R("mac/oddr.v"),
+    R("mac/rgmii_phy_if.v"),
+    R("mac/lfsr.v"),
+    R("mac/ssio_ddr_in.v"),
+    R("mac/ssio_ddr_out.v"),
+    R("mac/ssio_sdr_in.v"),
+    R("mac/ssio_sdr_out.v"),
+]
+
+CONF = {
+    "aes": {
+        "top": "aes256_core",
+        "src": [
+            R("sbox8.v"),
+            R("sbox8_dist.v"),
+            R("sbox16.v"),
+            R("aes256_core.v"),
+            R("bram_128x256.v"),
+            S("gowin_dpb_sim.v"),
+        ],
+    },
+    "aes_bw": {
+        "top": "aes256_core",
+        "src": [
+            R("sbox8.v"),
+            R("sbox8_dist.v"),
+            R("sbox16.v"),
+            R("aes256_core.v"),
+            R("bram_128x256.v"),
+            S("gowin_dpb_sim.v"),
+        ],
+    },
+    "gcm": {
+        "top": "gcm_stream",
+        "src": [
+            R("sbox8.v"),
+            R("sbox8_dist.v"),
+            R("sbox16.v"),
+            R("aes256_core.v"),
+            R("ghash.v"),
+            R("gcm_stream.v"),
+            R("bram_128x256.v"),
+            S("gowin_dpb_sim.v"),
+        ],
+    },
+    "bridge": {
+        "top": "bridge_top",
+        "src": BRIDGE_SRC,
+    },
+    "bw": {
+        "top": "bridge_top",
+        "src": BRIDGE_SRC,
+    },
+    "spi": {
+        "top": "spi_top",
+        "src": [R("spi_slave.v"), R("spi_regs.v"), R("spi_top.v")],
+    },
+    "eth": {
+        "top": "eth_top",
+        "src": [R("ip_udp_eth_rx.v"), R("ip_udp_eth_tx.v"), R("eth_top.v")],
+    },
+    "bram": {
+        "top": "bram_128x256",
+        "src": [R("bram_128x256.v"), S("gowin_dpb_sim.v")],
+    },
+    "full_single": {
+        "top": "full_top",
+        "test_module": "tb_full",
+        "src": FULL_CORE + [S("gowin_dpb_sim.v")],
+    },
+    "full_dual": {
+        "top": "dual_top",
+        "test_module": "tb_dual",
+        "src": FULL_CORE + MAC + [S("gowin_dpb_sim.v"), S("dual_top.v")],
+    },
+}
 
 
 def load_env():
@@ -34,153 +169,13 @@ def load_env():
             os.environ.setdefault(k.strip(), v.strip())
 
 
-def find_tool(env, name):
-    p = os.environ.get(env)
-    if p and os.path.exists(p):
-        return p
-    w = shutil.which(name)
-    if w:
-        return w
-    sys.exit(f"tool {name} not found: set env {env} or add to PATH")
-
-
-def verilator():
-    return find_tool("VERILATOR", "verilator")
-
-
 def gw_sh():
-    gh = os.environ.get("GOWIN_HOME")
-    if gh:
-        p = os.path.join(gh, "IDE", "bin", "gw_sh.exe")
-        if os.path.exists(p):
-            return p
-    return find_tool("GW_SH", "gw_sh")
+    gh = os.environ.get("GOWIN_HOME", "")
+    return os.path.join(gh, "IDE", "bin", "gw_sh.exe") if gh else "gw_sh"
 
 
-def cocotb_config():
-    exe = "cocotb-config" + (".exe" if os.name == "nt" else "")
-    return os.environ.get("COCOTB_CONFIG", os.path.join(os.path.dirname(sys.executable), exe))
-
-
-def cocotb_lib_dir():
-    return subprocess.check_output([cocotb_config(), "--lib-dir"], text=True).strip()
-
-
-def verilator_env():
-    v = verilator()
-    env = dict(os.environ)
-    os.environ.pop("VERILATOR_ROOT", None)
-    env.pop("VERILATOR_ROOT", None)
-    root = os.environ.get("VERILATOR_ROOT")
-    if root and not os.path.exists(os.path.join(root, "bin", "verilator_bin")):
-        root = None
-    base = os.path.dirname(os.path.dirname(v))
-    if not root:
-        for cand in (os.path.join(base, "share", "verilator"), base):
-            if os.path.exists(os.path.join(cand, "bin", "verilator_bin")):
-                root = cand
-                break
-    if root and os.path.exists(os.path.join(root, "include", "verilated_std.sv")):
-        env["VERILATOR_ROOT"] = root
-        os.environ["VERILATOR_ROOT"] = root
-    path = []
-    for p in [os.path.join(BUILD, "bin")] + [p for p in os.environ.get("TOOLCHAIN_BIN", "").split(os.pathsep) if p]:
-        if os.path.isdir(p):
-            path.append(p)
-    libs = os.environ.get("COCOTB_LIBS") or cocotb_lib_dir()
-    if os.path.isdir(libs):
-        path.append(libs)
-    for seg in os.environ.get("PATH", "").split(os.pathsep):
-        seg = seg.strip()
-        if seg and os.path.isdir(seg) and seg not in path:
-            path.append(seg)
-    env["PATH"] = os.pathsep.join(path)
-    return env
-
-
-R = lambda *p: os.path.join(RTL, *p)
-S = lambda *p: os.path.join(SIM, *p)
-
-MODS = {
-    "aes_pipe": {
-        "top": "aes256_core_pipe",
-        "src": [R("aes256_core_pipe.v"), R("sb_sbox16.v"), S("gowin_dpb_sim.v"), R("sbox_combo_cf_lut.v")],
-        "test": "test_aes_pipe",
-    },
-    "gcm_stream": {
-        "top": "gcm_stream",
-        "src": [R("aes256_core_pipe.v"), R("sb_sbox16.v"), S("gowin_dpb_sim.v"),
-                R("sbox_combo_cf_lut.v"), R("ghash.v"), R("gcm_stream.v")],
-        "test": "test_gcm_stream",
-    },
-    "sbox": {
-        "top": "sb_sbox16",
-        "src": [R("sb_sbox16.v"), R("sbox_combo_cf_lut.v"), S("gowin_dpb_sim.v")],
-        "test": "test_sbox16",
-    },
-    "bridge": {
-        "top": "bridge_top",
-        "src": [R("axis_pipe1.v"), R("aes256_core_pipe.v"), R("sb_sbox16.v"), S("gowin_dpb_sim.v"),
-                R("sbox_combo_cf_lut.v"), R("ghash.v"), R("gcm_stream.v"), R("gcm_arb.v"),
-                R("bridge_enc_path.v"), R("bridge_dec_path.v"), R("ip_udp_eth_rx.v"),
-                R("bridge_top.v"), S("gowin_simlib.v")] +
-               [os.path.join(R("mac"), f) for f in os.listdir(R("mac")) if f.endswith(".v")],
-        "test": "test_bridge",
-    },
-    "bw": {
-        "top": "bw_dual",
-        "src": [R("aes256_core_pipe.v"), R("sb_sbox16.v"), S("gowin_dpb_sim.v"),
-                R("sbox_combo_cf_lut.v"), R("ghash.v"), R("gcm_stream.v"), S("bw_dual.v")],
-        "test": "test_bw",
-    },
-    "bw_enc": {
-        "top": "bw_enc",
-        "src": [R("axis_pipe1.v"), R("aes256_core_pipe.v"), R("sb_sbox16.v"), S("gowin_dpb_sim.v"),
-                R("sbox_combo_cf_lut.v"), R("ghash.v"), R("gcm_stream.v"), R("gcm_arb.v"),
-                R("bridge_enc_path.v"), S("bw_enc.v")],
-        "test": "test_bw_enc",
-    },
-    "bw_dec": {
-        "top": "bw_dec",
-        "src": [R("axis_pipe1.v"), R("aes256_core_pipe.v"), R("sb_sbox16.v"), S("gowin_dpb_sim.v"),
-                R("sbox_combo_cf_lut.v"), R("ghash.v"), R("gcm_stream.v"), R("gcm_arb.v"),
-                R("bridge_dec_path.v"), S("bw_dec.v")],
-        "test": "test_bw_dec",
-    },
-    "ghash": {
-        "top": "ghash",
-        "src": [R("ghash.v")],
-        "test": "test_ghash",
-    },
-    "nrv_xip": {
-        "top": "nrv_xip_top",
-        "src": [os.path.join(BUILD, "neorv32_conv", "neorv32_wrapper.v"),
-                S("nrv_xip_top.v"), S("w25q64_model.v")],
-        "test": "test_nrv_xip",
-    },
-    "full_sim": {
-        "top": "full_top_sim",
-        "src": [R("axis_pipe1.v"), R("aes256_core_pipe.v"), R("sb_sbox16.v"), S("gowin_dpb_sim.v"),
-                R("sbox_combo_cf_lut.v"), R("ghash.v"), R("gcm_stream.v"), R("gcm_arb.v"),
-R("bridge_enc_path.v"), R("bridge_dec_path.v"), R("ip_udp_eth_rx.v"),
-                R("bridge_top.v"), S("gowin_simlib.v")] +
-               [os.path.join(R("mac"), f) for f in os.listdir(R("mac")) if f.endswith(".v")] +
-              [os.path.join(BUILD, "neorv32_conv", "neorv32_full_wrapper.v"),
-                 R("neorv32", "bridge_ctrl.v"), S("w25q64_model.v"), S("full_top_sim.v")],
-        "test": "test_full_sim",
-    },
-    "dual": {
-        "top": "dual_full_top_sim",
-        "src": [R("axis_pipe1.v"), R("aes256_core_pipe.v"), R("sb_sbox16.v"), S("gowin_dpb_sim.v"),
-                R("sbox_combo_cf_lut.v"), R("ghash.v"), R("gcm_stream.v"), R("gcm_arb.v"),
-R("bridge_enc_path.v"), R("bridge_dec_path.v"), R("ip_udp_eth_rx.v"),
-                R("bridge_top.v"), S("gowin_simlib.v")] +
-               [os.path.join(R("mac"), f) for f in os.listdir(R("mac")) if f.endswith(".v")] +
-              [os.path.join(BUILD, "neorv32_conv", "neorv32_full_wrapper.v"),
-                 R("neorv32", "bridge_ctrl.v"), S("w25q64_model.v"),
-                 S("full_top_sim.v"), S("dual_full_top_sim.v")],
-        "test": "test_dual_stub",
-    },
-}
-
-WNO = ["--timing", "-Wno-fatal", "-Wno-SELRANGE", "-Wno-WIDTH", "-Wno-UNOPTFLAT"]
+def run_dir(suite="run"):
+    ts = os.environ.get("RUN_TS", f"{time.strftime('%y%m%d')}/{time.strftime('%H%M')}")
+    d = os.path.join(LOGS, ts, suite)
+    os.makedirs(d, exist_ok=True)
+    return d

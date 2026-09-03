@@ -11,9 +11,6 @@ use cipher::GcmCipher;
 
 const BASE: &[u8] = b"KyberLink vector generator v1";
 
-
-
-
 fn shake(out: &mut [u8], label: &[u8], i: u64) {
     let mut x = Shake256::default();
     x.update(BASE);
@@ -41,15 +38,6 @@ fn repo_root() -> PathBuf {
         .unwrap()
         .to_path_buf()
 }
-
-
-
-
-
-
-
-
-
 
 fn write_vectors(out_dir: &Path, name: &str, v: &[Value]) {
     let path = out_dir.join(format!("{}.json", name));
@@ -102,23 +90,130 @@ fn gen_shake(n: u64, out_dir: &Path) {
 fn gen_aes(n: u64, out_dir: &Path) {
     use aes::cipher::generic_array::GenericArray;
     use aes::cipher::{BlockEncrypt, KeyInit};
-    let mut v = Vec::new();
+    let kat_keys: [[u8; 32]; 2] = [
+        hex::decode("603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4")
+            .unwrap()
+            .try_into()
+            .unwrap(),
+        hex::decode("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+            .unwrap()
+            .try_into()
+            .unwrap(),
+    ];
+    let kat_blocks: [[u8; 16]; 2] = [
+        hex::decode("6bc1bee22e409f96e93d7e117393172a")
+            .unwrap()
+            .try_into()
+            .unwrap(),
+        hex::decode("00112233445566778899aabbccddeeff")
+            .unwrap()
+            .try_into()
+            .unwrap(),
+    ];
+    let mut kat = Vec::new();
+    for (key, block) in kat_keys.iter().zip(kat_blocks.iter()) {
+        let cipher = aes::Aes256::new_from_slice(key).unwrap();
+        let mut gb = *GenericArray::from_slice(block);
+        cipher.encrypt_block(&mut gb);
+        kat.push(json!({
+            "key": hex::encode(key),
+            "block": hex::encode(block),
+            "ciphertext": hex::encode(gb.as_slice()),
+        }));
+    }
+    let ksch = [
+        "000102030405060708090a0b0c0d0e0f",
+        "101112131415161718191a1b1c1d1e1f",
+        "a573c29fa176c498a97fce93a572c09c",
+        "1651a8cd0244beda1a5da4c10640bade",
+        "ae87dff00ff11b68a68ed5fb03fc1567",
+        "6de1f1486fa54f9275f8eb5373b8518d",
+        "c656827fc9a799176f294cec6cd5598b",
+        "3de23a75524775e727bf9eb45407cf39",
+        "0bdc905fc27b0948ad5245a4c1871c2f",
+        "45f5a66017b2d387300d4d33640a820a",
+        "7ccff71cbeb4fe5413e6bbf0d261a7df",
+        "f01afafee7a82979d7a5644ab3afe640",
+        "2541fe719bf500258813bbd55a721c0a",
+        "4e5a6699a9f24fe07e572baacdf8cdea",
+        "24fc79ccbf0979e9371ac23c6d68de36",
+    ];
+    let mut random = Vec::new();
     for i in 0..n {
         let mut key = [0u8; 32];
         shake(&mut key, b"aes-key", i);
         let mut block = [0u8; 16];
         shake(&mut block, b"aes-block", i);
         let cipher = aes::Aes256::new_from_slice(&key).unwrap();
-        let mut gb = GenericArray::from_slice(&block).clone();
+        let mut gb = *GenericArray::from_slice(&block);
         cipher.encrypt_block(&mut gb);
-        v.push(json!({
+        random.push(json!({
             "index": i,
             "key": hex::encode(key),
             "block": hex::encode(block),
             "ciphertext": hex::encode(gb.as_slice()),
         }));
     }
-    write_vectors(out_dir, "aes", &v);
+    let obj = json!({"kat": kat, "ksch": ksch, "random": random});
+    fs::write(
+        out_dir.join("aes.json"),
+        serde_json::to_string_pretty(&obj).unwrap(),
+    )
+    .unwrap();
+    println!(
+        "aes: {} kat + {} ksch + {} random",
+        kat.len(),
+        ksch.len(),
+        random.len()
+    );
+}
+
+fn gen_gcm(out_dir: &Path) {
+    let key: [u8; 32] = (0u8..32).collect::<Vec<_>>().try_into().unwrap();
+    let nonce = [0u8; 12];
+    let p7 = |j: usize| ((j * 7 + 3) & 0xFF) as u8;
+    let p11 = |j: usize| ((j * 11 + 5) & 0xFF) as u8;
+    let pts: Vec<Vec<u8>> = vec![
+        vec![],
+        (0..16).map(|j| j as u8).collect(),
+        (0..32).map(|j| j as u8).collect(),
+        (0..16).map(|j| j as u8).collect(),
+        (0..16).map(p7).collect(),
+        (0..16).map(p7).collect(),
+        (0..32).map(p7).collect(),
+        (0..48).map(p7).collect(),
+    ];
+    let aads: Vec<Vec<u8>> = vec![
+        vec![],
+        vec![],
+        vec![],
+        (0..8).map(|j| j as u8).collect(),
+        (0..8).map(p11).collect(),
+        (0..16).map(p11).collect(),
+        (0..8).map(p11).collect(),
+        (0..16).map(p11).collect(),
+    ];
+    let c = GcmCipher::new(&key);
+    let mut vectors = Vec::new();
+    for (pt, aad) in pts.iter().zip(aads.iter()) {
+        let mut buffer = pt.clone();
+        let mut tag = [0u8; 16];
+        c.encrypt_in_place(&nonce, aad, &mut buffer, &mut tag)
+            .unwrap();
+        vectors.push(json!({
+            "pt": hex::encode(pt),
+            "ct": hex::encode(&buffer),
+            "aad": hex::encode(aad),
+            "tag": hex::encode(tag),
+        }));
+    }
+    let obj = json!({"key": hex::encode(key), "vectors": vectors});
+    fs::write(
+        out_dir.join("gcm.json"),
+        serde_json::to_string_pretty(&obj).unwrap(),
+    )
+    .unwrap();
+    println!("gcm: {} vectors", vectors.len());
 }
 
 fn gen_ghash(n: u64, out_dir: &Path) {
@@ -140,7 +235,7 @@ fn gen_ghash(n: u64, out_dir: &Path) {
         v.push(json!({
             "index": i,
             "h": hex::encode(h),
-            "blocks": blocks.iter().map(|b| hex::encode(b)).collect::<Vec<_>>(),
+            "blocks": blocks.iter().map(hex::encode).collect::<Vec<_>>(),
             "tag": hex::encode(tag.as_slice()),
         }));
     }
@@ -161,7 +256,8 @@ fn gen_cipher(n: u64, out_dir: &Path) {
         let mut buffer = pt.clone();
         let mut tag = [0u8; 16];
         let c = GcmCipher::new(&key);
-        c.encrypt_in_place(&nonce, &aad, &mut buffer, &mut tag).unwrap();
+        c.encrypt_in_place(&nonce, &aad, &mut buffer, &mut tag)
+            .unwrap();
         v.push(json!({
             "index": i,
             "key": hex::encode(key),
@@ -197,7 +293,8 @@ fn gen_esp(n: u64, out_dir: &Path) {
         let mut tag = [0u8; 16];
         let aad = [spi, seq].concat();
         let c = GcmCipher::new(&key);
-        c.encrypt_in_place(&iv, &aad, &mut buffer, &mut tag).unwrap();
+        c.encrypt_in_place(&iv, &aad, &mut buffer, &mut tag)
+            .unwrap();
         let mut frame = Vec::with_capacity(38 + pt_len);
         frame.extend_from_slice(&spi);
         frame.extend_from_slice(&seq);
@@ -219,6 +316,54 @@ fn gen_esp(n: u64, out_dir: &Path) {
     write_vectors(out_dir, "esp", &v);
 }
 
+fn gen_handshake(out_dir: &Path) {
+    use kyberlink_crypto::handshake as hs;
+
+    let (mut st_i, m1) =
+        hs::initiator_start(&[0x11u8; 32], &[0x12u8; 32], &[0x22u8; 32], &[0x55u8; 32]);
+    let fp_i = hs::fingerprint(&st_i.vk_i);
+    let (mut st_r, m2) = hs::responder_start(
+        &[0xa1u8; 32],
+        &[0xa2u8; 32],
+        &[0xa3u8; 32],
+        &[0xa5u8; 32],
+        &m1,
+        &fp_i,
+    )
+    .unwrap();
+    let fp_r = hs::fingerprint(&st_r.vk_r);
+    let (m3, spi_i) = hs::initiator_recv_m2(&mut st_i, &m2, &fp_r).unwrap();
+    let (m4, sa_r) = hs::responder_recv_m3(&mut st_r, &m3, spi_i).unwrap();
+    let sa_i = hs::initiator_recv_m4(&mut st_i, &m4, spi_i).unwrap();
+    assert_eq!(sa_i.spi_i, sa_r.spi_i);
+    assert_eq!(sa_i.spi_r, sa_r.spi_r);
+    assert_eq!(sa_i.sk_ei, sa_r.sk_ei);
+    assert_eq!(sa_i.sk_er, sa_r.sk_er);
+    assert_eq!(sa_i.sa_salt, sa_r.sa_salt);
+
+    let sa_json = |sa: &hs::SaParams| {
+        json!({
+            "spi_i": hex::encode(sa.spi_i.to_be_bytes()),
+            "spi_r": hex::encode(sa.spi_r.to_be_bytes()),
+            "sk_ei": hex::encode(sa.sk_ei),
+            "sk_er": hex::encode(sa.sk_er),
+            "sa_salt": hex::encode(sa.sa_salt),
+        })
+    };
+    let v = vec![json!({
+        "initiator": {
+            "tx": [hex::encode(m1), hex::encode(m3)],
+            "rx": [hex::encode(m2), hex::encode(m4)],
+            "sa": sa_json(&sa_i),
+        },
+        "responder": {
+            "rx": [hex::encode(m1), hex::encode(m3)],
+            "tx": [hex::encode(m2), hex::encode(m4)],
+            "sa": sa_json(&sa_r),
+        },
+    })];
+    write_vectors(out_dir, "handshake", &v);
+}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -230,15 +375,19 @@ fn main() {
     match mode {
         "shake" => gen_shake(n, &out_dir),
         "aes" => gen_aes(n, &out_dir),
+        "gcm" => gen_gcm(&out_dir),
         "ghash" => gen_ghash(n, &out_dir),
         "cipher" => gen_cipher(n, &out_dir),
         "esp" => gen_esp(n, &out_dir),
+        "handshake" => gen_handshake(&out_dir),
         _ => {
             gen_shake(n, &out_dir);
             gen_aes(n, &out_dir);
+            gen_gcm(&out_dir);
             gen_ghash(n, &out_dir);
             gen_cipher(n, &out_dir);
             gen_esp(n, &out_dir);
+            gen_handshake(&out_dir);
         }
     }
 }

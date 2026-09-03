@@ -1,11 +1,8 @@
 import glob
-import json
 import os
 import re
 import shutil
 import subprocess
-import sys
-from concurrent.futures import ThreadPoolExecutor
 
 from . import config
 from .core import AppError, Result
@@ -25,8 +22,7 @@ def _gen_all():
                 if f < 1 or f > 1400:
                     continue
                 seen[round(f, 4)] = (mdiv, od0, frac, mdiv // 2)
-    _gen_cache = sorted((f, mdiv, od0, frac, od1)
-                        for f, (mdiv, od0, frac, od1) in seen.items())
+    _gen_cache = sorted((f, mdiv, od0, frac, od1) for f, (mdiv, od0, frac, od1) in seen.items())
     return _gen_cache
 
 
@@ -41,8 +37,14 @@ def _match(target):
 
 def _match_info(req):
     dist, (f, mdiv, od0, frac, od1) = _match(req)
-    return {"req_freq": req, "freq": f, "mdiv": mdiv, "odiv0": od0,
-            "odiv0_frac": frac, "freq_error": abs(f - req)}
+    return {
+        "req_freq": req,
+        "freq": f,
+        "mdiv": mdiv,
+        "odiv0": od0,
+        "odiv0_frac": frac,
+        "freq_error": abs(f - req),
+    }
 
 
 def _freq_id(f):
@@ -61,43 +63,6 @@ def _gcd(a, b):
     return a
 
 
-def analyze():
-    fs = sorted(glob.glob(os.path.join(config.LOGS, "pnr", "*", "pnr_report.json")))
-    r = None
-    for f in reversed(fs):
-        cand = json.load(open(f))
-        runs = cand.get("config", {}).get("runs")
-        if runs or cand.get("metrics", {}).get("worst_slack") is not None:
-            r, src = cand, f
-            break
-    if r is None:
-        raise AppError("no pnr report with runs/worst_slack under %s" % config.LOGS, 2)
-    cfg = r.get("config", {})
-    target = cfg.get("target") or cfg.get("freq")
-    runs = cfg.get("runs")
-    if target is None:
-        raise AppError(f"latest report {src} lacks target/freq", 2)
-    print(f"source: {src}")
-    print(f"constraint target={target}MHz")
-    if runs is None:
-        worst = r["metrics"]["worst_slack"]
-        dmax = 1000.0 / target - worst
-        print(f"worst_slack={worst:+.3f}ns  D_max={dmax:.3f}ns  max freq ~= {1000.0 / dmax:.1f}MHz")
-        return Result("pnr", config={"analyze": True, "source": src,
-                                     "target": target, "d_max_ns": dmax})
-    hdr = "%-8s %-10s %-8s %-7s %-10s %-10s %-9s %s" % (
-        "req", "matched", "MDIV", "ODIV", "errorMHz", "slack", "D_max", "maxMHz")
-    print(hdr)
-    for rn in runs:
-        dmax = rn.get("d_max_ns")
-        mx = 1000.0 / dmax if dmax else float("nan")
-        print(f"{rn['req_freq']:<8.1f} {rn.get('freq', float('nan')):<10.4f} {rn['mdiv']:<8d} {rn['odiv0']:<7d} "
-              f"{rn.get('freq_error', float('nan')):<10.4f} {rn.get('worst_slack', float('nan')):+10.3f} "
-              f"{dmax if dmax is not None else float('nan'):<9.3f} {mx:.1f}  {rn.get('status', '')}")
-    return Result("pnr", config={"analyze": True, "source": src,
-                                 "target": target, "runs": runs})
-
-
 def gen_clk_cfg(boot, out_dir):
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, "hw_clk_cfg.v")
@@ -105,8 +70,11 @@ def gen_clk_cfg(boot, out_dir):
     mac_f = 125.0
     _, (cf, cm, co0, cfr, co1) = _match(cpu_boot)
     _, (mf, mm, mo0, mfr, mo1) = _match(mac_f)
-    dm, do0, dfr = _match_info(boot)["mdiv"], _match_info(boot)["odiv0"], \
-        _match_info(boot)["odiv0_frac"]
+    dm, do0, dfr = (
+        _match_info(boot)["mdiv"],
+        _match_info(boot)["odiv0"],
+        _match_info(boot)["odiv0_frac"],
+    )
     with open(path, "w") as f:
         f.write("`define CPU_CLOCK_HZ %d\n" % int(cpu_boot * 1e6))
         f.write("`define DATA_MDIV %d\n" % dm)
@@ -117,8 +85,10 @@ def gen_clk_cfg(boot, out_dir):
         f.write("`define CLK_ODIV0 %d\n" % do0)
         f.write("`define CLK_ODIV0_FRAC %d\n" % dfr)
         f.write("`define CLK_ODIV1 %d\n" % (dm // 2))
-        for pfx, (pm, po0, pfr, po1) in (("CPU", (cm, co0, cfr, co1)),
-                                          ("MAC", (mm, mo0, mfr, mo1))):
+        for pfx, (pm, po0, pfr, po1) in (
+            ("CPU", (cm, co0, cfr, co1)),
+            ("MAC", (mm, mo0, mfr, mo1)),
+        ):
             f.write("`define %s_MDIV %d\n" % (pfx, pm))
             f.write("`define %s_ODIV0 %d\n" % (pfx, po0))
             f.write("`define %s_ODIV0_FRAC %d\n" % (pfx, pfr))
@@ -159,7 +129,8 @@ def build_tcl(cfg_path, sdc_path, cst, target, device, dev_ver, place_opt, route
         files.append(os.path.abspath(top_src).replace("\\", "/"))
     files = sorted(files)
     lines = [
-        "set_device %s -name %s -device_version %s" % (device, os.environ.get("DEVICE_NAME", "GW5A-25"), dev_ver),
+        "set_device %s -name %s -device_version %s"
+        % (device, os.environ.get("DEVICE_NAME", "GW5A-25"), dev_ver),
         "set_option -global_freq %s" % target,
         "set_option -include_path %s" % os.path.dirname(cfg_path).replace("\\", "/"),
         "set_option -top_module full_top",
@@ -179,7 +150,7 @@ def build_tcl(cfg_path, sdc_path, cst, target, device, dev_ver, place_opt, route
         "set_option -use_done_as_gpio 1",
     ]
     for i in range(0, len(files), 8):
-        lines.append("add_file " + " ".join(files[i:i + 8]))
+        lines.append("add_file " + " ".join(files[i : i + 8]))
     lines.append("add_file " + sdc_path.replace("\\", "/"))
     if os.path.exists(cst):
         lines.append("add_file " + cst.replace("\\", "/"))
@@ -235,14 +206,14 @@ def report(timing, rpt):
         print(f"{s['type']} {s['slack']:+.3f}")
     for k, v in res.items():
         print(f"{k} {v}")
-    return worst >= 0, res, worst, \
-        [{"type": s["type"], "slack": s["slack"]} for s in secs]
+    return worst >= 0, res, worst, [{"type": s["type"], "slack": s["slack"]} for s in secs]
 
 
 def force_rmtree(path):
     def onerr(func, p, exc):
         os.chmod(p, 0o666)
         func(p)
+
     shutil.rmtree(path, onerror=onerr)
 
 
@@ -270,49 +241,48 @@ def _archive_artifacts(work_dir, fid):
                 shutil.copy2(p, os.path.join(rd, "pnr_%s_%s" % (fid, nm)))
 
 
-def pnr_run(freq, target, place_opt, route_opt, device, dev_ver,
-            work_dir, log_path, dry_run=False, cst=None):
+def pnr_run(freq, target, place_opt, route_opt, device, dev_ver, work_dir, log_path, cst=None):
     mi = _match_info(freq)
     if os.path.isdir(work_dir):
         force_rmtree(work_dir)
     os.makedirs(work_dir)
     cfg_path = gen_clk_cfg(mi["freq"], work_dir)
     sdc_path = gen_sdc(target, work_dir)
-    tcl_text, files = build_tcl(cfg_path, sdc_path, cst, target, device, dev_ver,
-                                place_opt, route_opt)
-    if dry_run:
-        print(f"freq={mi['freq']:.4f} matched mdiv={mi['mdiv']} odiv0={mi['odiv0']} frac={mi['odiv0_frac']}")
-        print(f"work={work_dir}")
-        print(f"log={log_path}")
-        print(f"--- build.tcl ({len(files)} sources) ---")
-        print(tcl_text)
-        return mi
+    tcl_text, files = build_tcl(
+        cfg_path, sdc_path, cst, target, device, dev_ver, place_opt, route_opt
+    )
     tcl_path = os.path.join(work_dir, "build.tcl")
     with open(tcl_path, "w") as f:
         f.write(tcl_text)
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     with open(log_path, "w") as log:
-        rc = subprocess.run([config.gw_sh(), tcl_path], cwd=work_dir,
-                            stdout=log, stderr=subprocess.STDOUT).returncode
+        rc = subprocess.run(
+            [config.gw_sh(), tcl_path], cwd=work_dir, stdout=log, stderr=subprocess.STDOUT
+        ).returncode
     pnr_dir = os.path.join(work_dir, "impl", "pnr")
     timing = os.path.join(pnr_dir, "project.timing_paths")
     rpt = os.path.join(pnr_dir, "project.rpt.html")
     run = dict(mi)
     _archive_artifacts(work_dir, _freq_id(freq))
     if rc != 0:
-        run.update({"status": "fail", "worst_slack": None, "paths": [],
-                    "log": log_path})
+        run.update({"status": "fail", "worst_slack": None, "paths": [], "log": log_path})
         return run
     ok, res, worst, paths = report(timing, rpt)
-    run.update({"status": "ok" if ok else "fail",
-                "worst_slack": worst, "paths": paths,
-                "timing": timing, "log": log_path})
+    run.update(
+        {
+            "status": "ok" if ok else "fail",
+            "worst_slack": worst,
+            "paths": paths,
+            "timing": timing,
+            "log": log_path,
+        }
+    )
     if worst is not None:
         run["d_max_ns"] = round(1000.0 / target - worst, 4)
     return run
 
 
-def pnr(dry_run=False, verify_only=False):
+def pnr():
     device = os.environ.get("DEVICE", "GW5A-LV25MG121NC1/I0")
     dev_ver = os.environ.get("DEVICE_VERSION", "A")
     place_opt = int(os.environ.get("PLACE_OPTION", "1"))
@@ -323,72 +293,36 @@ def pnr(dry_run=False, verify_only=False):
         raise AppError("TARGET_FREQ out of range: %s" % target, 2)
     if boot < 1 or boot > 1400:
         raise AppError("BOOT_FREQ out of range: %s" % boot, 2)
-    work_dir = os.path.abspath(os.environ.get("PNR_WORK_DIR") or
-                               os.path.join(config.BUILD, "synth", "impl_" + _freq_id(boot)))
-    log_path = os.path.join(work_dir, "pnr.log") if os.environ.get("PNR_WORK_DIR") \
-        else (os.path.join(config.run_dir(), "pnr_%s.log" % _freq_id(boot))
-              if config.run_dir() else os.path.join(work_dir, "pnr.log"))
+    work_dir = os.path.abspath(
+        os.environ.get("PNR_WORK_DIR")
+        or os.path.join(config.BUILD, "synth", "impl_" + _freq_id(boot))
+    )
+    log_path = (
+        os.path.join(work_dir, "pnr.log")
+        if os.environ.get("PNR_WORK_DIR")
+        else (
+            os.path.join(config.run_dir(), "pnr_%s.log" % _freq_id(boot))
+            if config.run_dir()
+            else os.path.join(work_dir, "pnr.log")
+        )
+    )
     cst = os.path.join(config.SYNTH, "full_top.cst")
-    if verify_only:
-        pnr_dir = os.path.join(work_dir, "impl", "pnr")
-        ok, res, worst, paths = report(
-            os.path.join(pnr_dir, "project.timing_paths"),
-            os.path.join(pnr_dir, "project.rpt.html"))
-        run = {"req_freq": boot, "freq": boot, "mdiv": 0, "odiv0": 0,
-               "odiv0_frac": 0, "freq_error": 0.0, "status": "ok" if ok else "fail",
-               "worst_slack": worst, "paths": paths}
-        return Result("pnr", "ok" if ok else "fail",
-                      config={"target": target, "mode": "single", "runs": [run]},
-                      metrics={"worst_slack": worst, "paths": paths},
-                      artifacts=res,
-                      error=None if ok else "timing failed").finish()
-    run = pnr_run(boot, target, place_opt, route_opt, device, dev_ver,
-                  work_dir, log_path, dry_run=dry_run, cst=cst)
-    if dry_run:
-        return Result("pnr", config={"target": target, "boot": boot,
-                                     "place": place_opt, "route": route_opt,
-                                     "dry": True, "runs": [run]})
-    cfg = {"target": target, "boot": boot, "mode": "single",
-           "place": place_opt, "route": route_opt, "runs": [run]}
+    run = pnr_run(boot, target, place_opt, route_opt, device, dev_ver, work_dir, log_path, cst=cst)
+    cfg = {
+        "target": target,
+        "boot": boot,
+        "mode": "single",
+        "place": place_opt,
+        "route": route_opt,
+        "runs": [run],
+    }
     ok = run["status"] == "ok"
     worst = run.get("worst_slack")
-    return Result("pnr", "ok" if ok else "fail", config=cfg,
-                  metrics={"worst_slack": worst, "paths": run.get("paths", [])},
-                  artifacts={"timing": run.get("timing"), "log": run.get("log")},
-                  error=None if ok else "timing failed").finish()
-
-
-def pnr_multi(freqs, jobs=None, dry_run=False):
-    if not freqs:
-        raise AppError("--freqs needs at least one value", 2)
-    target = float(os.environ.get("TARGET_FREQ", "125.0"))
-    device = os.environ.get("DEVICE", "GW5A-LV25MG121NC1/I0")
-    dev_ver = os.environ.get("DEVICE_VERSION", "A")
-    place_opt = int(os.environ.get("PLACE_OPTION", "1"))
-    route_opt = int(os.environ.get("ROUTE_OPTION", "2"))
-    jobs = jobs or len(freqs)
-    cst = os.path.join(config.SYNTH, "full_top.cst")
-
-    def one(freq):
-        fid = _freq_id(freq)
-        work_dir = os.path.join(config.BUILD, "synth", "impl_" + fid)
-        log_path = os.path.join(config.run_dir(), "pnr_%s.log" % fid) \
-            if config.run_dir() else os.path.join(work_dir, "pnr.log")
-        return pnr_run(freq, target, place_opt, route_opt, device, dev_ver,
-                       work_dir, log_path, dry_run=dry_run, cst=cst)
-
-    with ThreadPoolExecutor(max_workers=jobs) as ex:
-        runs = list(ex.map(one, freqs))
-    ok = all(r.get("status") == "ok" for r in runs)
-    worst = min((r.get("worst_slack") for r in runs
-                 if r.get("worst_slack") is not None), default=None)
-    cfg = {"target": target, "mode": "multi", "runs": runs}
-    metrics = {"worst_slack": worst,
-               "runs": [{"req_freq": r["req_freq"], "freq": r.get("freq"),
-                         "worst_slack": r.get("worst_slack"),
-                         "status": r.get("status")} for r in runs]}
-    arts = {"logs": [os.path.join(config.run_dir(), "pnr_%s.log" % _freq_id(f))
-                     for f in freqs if config.run_dir()]}
-    return Result("pnr", "ok" if ok or dry_run else "fail",
-                  config=cfg, metrics=metrics, artifacts=arts,
-                  error=None if ok or dry_run else "timing failed").finish()
+    return Result(
+        "pnr",
+        "ok" if ok else "fail",
+        config=cfg,
+        metrics={"worst_slack": worst, "paths": run.get("paths", [])},
+        artifacts={"timing": run.get("timing"), "log": run.get("log")},
+        error=None if ok else "timing failed",
+    ).finish()

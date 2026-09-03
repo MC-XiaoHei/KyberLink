@@ -1,0 +1,72 @@
+import os
+import subprocess
+
+from . import config
+from .core import AppError, Result
+
+
+def run(args, reporter):
+    if args.level == "unit":
+        return unit(args.name)
+    return intg(args.name)
+
+
+def _cargo_test():
+    from .wsl import wsl_path
+
+    script = (
+        f"cd {wsl_path(config.REPO)}/software && cargo test --workspace "
+        f"--target x86_64-unknown-linux-gnu --features kyberlink-crypto/std,"
+        f"kyberlink-firmware/std"
+    )
+    rc = subprocess.call(["wsl", "--", "bash", "-lc", script])
+    if rc != 0:
+        raise AppError(f"cargo test failed rc={rc}", rc)
+
+
+def _cross_verify():
+    from .cross import cross
+
+    cross("verify")
+
+
+def _test_group(mods):
+    from .test_sim import sim_all
+
+    if os.name == "nt":
+        from .wsl import wsl_sim
+
+        for mod in mods:
+            rc = wsl_sim(mod)
+            if rc != 0:
+                raise AppError(f"test {mod} failed rc={rc}", rc)
+        return
+    _, ok, failed = sim_all(mods)
+    if not ok:
+        raise AppError(f"test failed: {failed}", 1)
+
+
+def unit(name=None):
+    if name is None:
+        _cargo_test()
+        _cross_verify()
+        _test_group(config.UNIT)
+        return Result("test unit", metrics={"cargo": "ok", "cross": "ok", "test": config.UNIT})
+    if name not in config.UNIT:
+        raise AppError(f"{name} not in test unit: {', '.join(config.UNIT)}", 2)
+    _test_group([name])
+    return Result("test unit", metrics={"test": [name]})
+
+
+def intg(name=None):
+    mods = [name] if name else config.INTG
+    if name and name not in config.INTG:
+        raise AppError(f"{name} not in test intg: {', '.join(config.INTG)}", 2)
+    _test_group(mods)
+    return Result("test intg", metrics={"test": mods})
+
+
+def add_args(sub):
+    p = sub.add_parser("test")
+    p.add_argument("level", choices=["unit", "intg"])
+    p.add_argument("name", nargs="?", default=None)

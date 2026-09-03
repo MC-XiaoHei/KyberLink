@@ -1,5 +1,5 @@
 use sha3::digest::{ExtendableOutput, Update, XofReader};
-use sha3::{Digest, Shake128, Shake256, Sha3_256, Sha3_512};
+use sha3::{Digest, Sha3_256, Sha3_512, Shake128, Shake256};
 
 pub fn sha3_256(data: &[u8]) -> [u8; 32] {
     Sha3_256::digest(data).into()

@@ -225,6 +225,7 @@ always @* begin
                 2'd1: m_axis_tdata_int = ~crc_state[15:8];
                 2'd2: m_axis_tdata_int = ~crc_state[23:16];
                 2'd3: m_axis_tdata_int = ~crc_state[31:24];
+                default: m_axis_tdata_int = 8'd0;
             endcase
             m_axis_tvalid_int = 1'b1;
             m_axis_tlast_int = 1'b0;
@@ -245,6 +246,9 @@ always @* begin
             end else begin
                 state_next = STATE_FCS;
             end
+        end
+        default: begin
+            state_next = STATE_IDLE;
         end
     endcase
 end

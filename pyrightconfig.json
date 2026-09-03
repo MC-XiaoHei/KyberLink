@@ -1,0 +1,5 @@
+{
+  "include": ["run.py", "utils"],
+  "typeCheckingMode": "basic",
+  "executionEnvironments": [{"root": ".", "extraPaths": ["."]}]
+}

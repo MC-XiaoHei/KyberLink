@@ -1,5 +1,5 @@
 use ml_kem::kem::Seed;
-use ml_kem::{Decapsulate, Encapsulate, FromSeed, Kem, KeyExport, MlKem768};
+use ml_kem::{Decapsulate, FromSeed, KeyExport, MlKem768};
 
 pub type DecapsulationKey = ml_kem::DecapsulationKey<MlKem768>;
 pub type EncapsulationKey = ml_kem::EncapsulationKey<MlKem768>;

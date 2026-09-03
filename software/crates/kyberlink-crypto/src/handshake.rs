@@ -51,15 +51,17 @@ pub fn hkdf_extract(salt: &[u8], ikm: &[u8]) -> [u8; 32] {
 
 pub fn hkdf_expand(prk: &[u8; 32], info: &[u8], out: &mut [u8]) {
     let mut t = [0u8; 32];
+    let mut t_len = 0usize;
     let mut buf = [0u8; 64];
     let mut done = 0usize;
     let mut counter = 1u8;
     while done < out.len() {
-        buf[..32].copy_from_slice(&t);
-        buf[32..32 + info.len()].copy_from_slice(info);
-        let n = 32 + info.len();
+        buf[..t_len].copy_from_slice(&t[..t_len]);
+        buf[t_len..t_len + info.len()].copy_from_slice(info);
+        let n = t_len + info.len();
         buf[n] = counter;
         t = hmac_sha3_256(prk, &buf[..n + 1]);
+        t_len = 32;
         let take = core::cmp::min(32, out.len() - done);
         out[done..done + take].copy_from_slice(&t[..take]);
         done += take;
@@ -182,7 +184,11 @@ pub fn initiator_recv_m2(
     Ok((m3, spi_i))
 }
 
-pub fn initiator_recv_m4(st: &mut InitiatorState, m4: &[u8], spi_i: u32) -> Result<SaParams, &'static str> {
+pub fn initiator_recv_m4(
+    st: &mut InitiatorState,
+    m4: &[u8],
+    spi_i: u32,
+) -> Result<SaParams, &'static str> {
     if m4.len() != M4_LEN {
         return Err("bad m4 len");
     }
@@ -320,6 +326,7 @@ pub fn responder_recv_m3(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::vec::Vec;
 
     #[test]
     fn m1_m4_handshake() {
@@ -339,16 +346,66 @@ mod tests {
     }
 
     #[test]
+    fn hmac_sha3_256_kat() {
+        let key: Vec<u8> = (1u8..=32).collect();
+        let mac = hkdf_extract(&key, b"attack at dawn");
+        assert_eq!(
+            mac,
+            [
+                0x5a, 0xc7, 0x03, 0x80, 0xad, 0x1c, 0x10, 0x9a, 0xbb, 0xef, 0xd8, 0x4d, 0x59, 0x3c,
+                0x6a, 0x0a, 0x40, 0x36, 0xeb, 0xf6, 0x37, 0xee, 0xca, 0xed, 0x3a, 0x70, 0x57, 0x94,
+                0x81, 0xe3, 0x07, 0x27
+            ]
+        );
+    }
+
+    #[test]
+    fn hkdf_kat() {
+        let h4: Vec<u8> = (32u8..64).collect();
+        let ss_i: Vec<u8> = (64u8..96).collect();
+        let ss_r: Vec<u8> = (96u8..128).collect();
+        let mut ikm = Vec::with_capacity(64);
+        ikm.extend_from_slice(&ss_i);
+        ikm.extend_from_slice(&ss_r);
+        let prk = hkdf_extract(&h4, &ikm);
+        assert_eq!(
+            prk,
+            [
+                0x53, 0x9f, 0xc7, 0x43, 0x83, 0x00, 0x8f, 0x43, 0xb5, 0x49, 0x7a, 0xf1, 0xf0, 0xb5,
+                0xeb, 0xda, 0xde, 0xf3, 0xf2, 0x0b, 0x85, 0x9b, 0xd3, 0x19, 0x3d, 0xf6, 0x76, 0x24,
+                0xf4, 0x8a, 0x8e, 0xbc
+            ]
+        );
+        let mut info = Vec::new();
+        info.extend_from_slice(b"KyberLink-v1-SA");
+        info.extend_from_slice(&0x11223344u32.to_be_bytes());
+        info.extend_from_slice(&0xaabbccddu32.to_be_bytes());
+        let mut okm = [0u8; 96];
+        hkdf_expand(&prk, &info, &mut okm);
+        assert_eq!(
+            &okm,
+            &[
+                0x6c, 0x50, 0x78, 0xc2, 0x39, 0x65, 0xc6, 0x6b, 0xd1, 0xcf, 0x13, 0xda, 0xdb, 0xab,
+                0xd5, 0xda, 0x19, 0x92, 0x32, 0x61, 0x1b, 0xf9, 0x4f, 0x1a, 0x89, 0x20, 0x1c, 0xfc,
+                0x64, 0x8e, 0x44, 0xad, 0x90, 0x45, 0xdc, 0x93, 0x2b, 0x0c, 0xb3, 0xac, 0xfe, 0xbd,
+                0xc6, 0x9d, 0x5a, 0xcc, 0xd0, 0xfc, 0x4e, 0xc9, 0x72, 0xcb, 0x5e, 0x42, 0x48, 0x5c,
+                0xbf, 0x6e, 0x01, 0x86, 0x02, 0xc8, 0xe8, 0xc2, 0x8e, 0xde, 0xaa, 0x04, 0xf1, 0xbe,
+                0xff, 0x43, 0xe6, 0xaa, 0x54, 0x98, 0xcd, 0xef, 0x14, 0xd1, 0x93, 0x0a, 0x82, 0xda,
+                0xd4, 0xba, 0x28, 0x51, 0x1d, 0x85, 0x19, 0xfb, 0x26, 0x6d, 0xb4, 0x5d
+            ]
+        );
+    }
+
+    #[test]
     fn tamper_m2_fails() {
         let (mut ia, m1) = initiator_start(&[1u8; 32], &[2u8; 32], &[3u8; 32], &[4u8; 32]);
         let fp_i = fingerprint(&ia.vk_i);
-        let (mut rb, mut m2) =
+        let (rb, mut m2) =
             responder_start(&[5u8; 32], &[6u8; 32], &[7u8; 32], &[8u8; 32], &m1, &fp_i).unwrap();
         m2[100] ^= 0xff;
         let fp_r = fingerprint(&rb.vk_r);
         assert!(initiator_recv_m2(&mut ia, &m2, &fp_r).is_err());
     }
-
 
     #[test]
     fn wrong_fp_rejected() {

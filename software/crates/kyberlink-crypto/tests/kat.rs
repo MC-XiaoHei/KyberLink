@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use ml_dsa::signature::{Signer, Verifier};
+use ml_dsa::signature::Signer;
 use ml_dsa::{ExpandedSigningKey, MlDsa65, Signature, SignatureEncoding, VerifyingKey};
 use ml_kem::kem::{Ciphertext, Decapsulate};
+#[allow(deprecated)]
 use ml_kem::{ExpandedKeyEncoding, MlKem768};
 use serde_json::Value;
 
@@ -23,7 +24,10 @@ fn load_json(subdir: &str, file: &str) -> Value {
 }
 
 fn hex_arr<const N: usize>(v: &Value) -> [u8; N] {
-    hex::decode(v.as_str().unwrap()).unwrap().try_into().unwrap()
+    hex::decode(v.as_str().unwrap())
+        .unwrap()
+        .try_into()
+        .unwrap()
 }
 
 fn hex_vec(v: &Value) -> Vec<u8> {
@@ -46,7 +50,12 @@ fn kem_keygen() {
         if pg["parameterSet"] != "ML-KEM-768" {
             continue;
         }
-        for (pt, et) in pg["tests"].as_array().unwrap().iter().zip(eg["tests"].as_array().unwrap()) {
+        for (pt, et) in pg["tests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(eg["tests"].as_array().unwrap())
+        {
             let d = hex_arr::<32>(&pt["d"]);
             let z = hex_arr::<32>(&pt["z"]);
             let mut seed = [0u8; 64];
@@ -55,7 +64,9 @@ fn kem_keygen() {
             let kp = k::KemKeyPair::from_seed(&seed);
             assert_eq!(hex_arr::<1184>(&et["ek"]), k::encaps_key_bytes(&kp.ek));
             let dk_bytes =
-                <ml_kem::DecapsulationKey<MlKem768> as ExpandedKeyEncoding>::to_expanded_bytes(&kp.dk);
+                <ml_kem::DecapsulationKey<MlKem768> as ExpandedKeyEncoding>::to_expanded_bytes(
+                    &kp.dk,
+                );
             assert_eq!(hex_vec(&et["dk"]), dk_bytes.as_slice());
         }
     }
@@ -71,7 +82,12 @@ fn kem_encap_decap() {
             continue;
         }
         let func = pg["function"].as_str().unwrap();
-        for (pt, et) in pg["tests"].as_array().unwrap().iter().zip(eg["tests"].as_array().unwrap()) {
+        for (pt, et) in pg["tests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(eg["tests"].as_array().unwrap())
+        {
             if func == "encapsulation" {
                 let ek = k::encaps_key_from_bytes(&hex_arr::<1184>(&pt["ek"])).unwrap();
                 let (ct, ss) = k::encapsulate_deterministic(&ek, &hex_arr::<32>(&pt["m"]));
@@ -106,7 +122,12 @@ fn dsa_keygen() {
         if !pg["deterministic"].as_bool().unwrap_or(true) {
             continue;
         }
-        for (pt, et) in pg["tests"].as_array().unwrap().iter().zip(eg["tests"].as_array().unwrap()) {
+        for (pt, et) in pg["tests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(eg["tests"].as_array().unwrap())
+        {
             let kp = s::SignKeyPair::from_seed(&hex_arr::<32>(&pt["seed"]));
             assert_eq!(hex_arr::<1952>(&et["pk"]), s::vk_bytes(&kp.vk));
             let enc_sk = kp.sk.expanded_key().to_expanded();
@@ -133,7 +154,12 @@ fn dsa_siggen() {
         if pg["signatureInterface"].as_str() == Some("internal") {
             continue;
         }
-        for (pt, et) in pg["tests"].as_array().unwrap().iter().zip(eg["tests"].as_array().unwrap()) {
+        for (pt, et) in pg["tests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(eg["tests"].as_array().unwrap())
+        {
             let esk =
                 ExpandedSigningKey::<MlDsa65>::from_expanded(&hex_arr::<4032>(&pt["sk"]).into());
             let msg = hex_vec(&pt["message"]);
@@ -162,7 +188,12 @@ fn dsa_sigver() {
         if pg["signatureInterface"].as_str() == Some("internal") {
             continue;
         }
-        for (pt, et) in pg["tests"].as_array().unwrap().iter().zip(eg["tests"].as_array().unwrap()) {
+        for (pt, et) in pg["tests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(eg["tests"].as_array().unwrap())
+        {
             let vk = VerifyingKey::<MlDsa65>::decode(&hex_arr::<1952>(&pt["pk"]).into());
             let expected = et["testPassed"].as_bool().unwrap();
             let got = match Signature::<MlDsa65>::decode(&hex_arr::<3309>(&pt["signature"]).into())

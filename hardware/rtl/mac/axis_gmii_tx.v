@@ -355,6 +355,7 @@ always @* begin
                     2'd1: gmii_txd_next = ~crc_state[15:8];
                     2'd2: gmii_txd_next = ~crc_state[23:16];
                     2'd3: gmii_txd_next = ~crc_state[31:24];
+                    default: gmii_txd_next = 8'd0;
                 endcase
                 gmii_tx_en_next = 1'b1;
                 gmii_tx_er_next = frame_error_reg;
@@ -378,6 +379,9 @@ always @* begin
                 end else begin
                     state_next = STATE_IDLE;
                 end
+            end
+            default: begin
+                state_next = STATE_IDLE;
             end
         endcase
 
