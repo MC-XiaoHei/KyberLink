@@ -29,106 +29,103 @@ THE SOFTWARE.
 `default_nettype none
 
 
-module axis_eth_fcs #
-(
+module axis_eth_fcs #(
 
     parameter DATA_WIDTH = 8,
 
 
-    parameter KEEP_ENABLE = (DATA_WIDTH>8),
+    parameter KEEP_ENABLE = (DATA_WIDTH > 8),
 
-    parameter KEEP_WIDTH = (DATA_WIDTH/8)
-)
-(
-    input  wire                   clk,
-    input  wire                   rst,
-
-
-    input  wire [DATA_WIDTH-1:0]  s_axis_tdata,
-    input  wire [KEEP_WIDTH-1:0]  s_axis_tkeep,
-    input  wire                   s_axis_tvalid,
-    output wire                   s_axis_tready,
-    input  wire                   s_axis_tlast,
-    input  wire                   s_axis_tuser,
+    parameter KEEP_WIDTH = (DATA_WIDTH / 8)
+) (
+    input wire clk,
+    input wire rst,
 
 
-    output wire [31:0]            output_fcs,
-    output wire                   output_fcs_valid
+    input  wire [DATA_WIDTH-1:0] s_axis_tdata,
+    input  wire [KEEP_WIDTH-1:0] s_axis_tkeep,
+    input  wire                  s_axis_tvalid,
+    output wire                  s_axis_tready,
+    input  wire                  s_axis_tlast,
+    input  wire                  s_axis_tuser,
+
+
+    output wire [31:0] output_fcs,
+    output wire        output_fcs_valid
 );
 
 
-initial begin
+  initial begin
     if (KEEP_WIDTH * 8 != DATA_WIDTH) begin
-        $error("Error: AXI stream interface requires byte (8-bit) granularity (instance %m)");
-        $finish;
+      $error("Error: AXI stream interface requires byte (8-bit) granularity (instance %m)");
+      $finish;
     end
-end
+  end
 
-reg [31:0] crc_state = 32'hFFFFFFFF;
-reg [31:0] fcs_reg = 32'h00000000;
-reg fcs_valid_reg = 1'b0;
+  reg [31:0] crc_state = 32'hFFFFFFFF;
+  reg [31:0] fcs_reg = 32'h00000000;
+  reg fcs_valid_reg = 1'b0;
 
-wire [31:0] crc_next[KEEP_WIDTH-1:0];
+  wire [31:0] crc_next[KEEP_WIDTH-1:0];
 
-assign s_axis_tready = 1;
-assign output_fcs = fcs_reg;
-assign output_fcs_valid = fcs_valid_reg;
+  assign s_axis_tready = 1;
+  assign output_fcs = fcs_reg;
+  assign output_fcs_valid = fcs_valid_reg;
 
-generate
+  generate
 
     genvar n;
 
     for (n = 0; n < KEEP_WIDTH; n = n + 1) begin : crc
 
-        lfsr #(
-            .LFSR_WIDTH(32),
-            .LFSR_POLY(32'h4c11db7),
-            .LFSR_CONFIG("GALOIS"),
-            .LFSR_FEED_FORWARD(0),
-            .REVERSE(1),
-            .DATA_WIDTH(DATA_WIDTH/KEEP_WIDTH*(n+1)),
-            .STYLE("AUTO")
-        )
-        eth_crc_inst (
-            .data_in(s_axis_tdata[DATA_WIDTH/KEEP_WIDTH*(n+1)-1:0]),
-            .state_in(crc_state),
-            .data_out(),
-            .state_out(crc_next[n])
-        );
+      lfsr #(
+          .LFSR_WIDTH(32),
+          .LFSR_POLY(32'h4c11db7),
+          .LFSR_CONFIG("GALOIS"),
+          .LFSR_FEED_FORWARD(0),
+          .REVERSE(1),
+          .DATA_WIDTH(DATA_WIDTH / KEEP_WIDTH * (n + 1)),
+          .STYLE("AUTO")
+      ) eth_crc_inst (
+          .data_in  (s_axis_tdata[DATA_WIDTH/KEEP_WIDTH*(n+1)-1:0]),
+          .state_in (crc_state),
+          .data_out (),
+          .state_out(crc_next[n])
+      );
 
     end
 
-endgenerate
+  endgenerate
 
-integer i;
+  integer i;
 
-always @(posedge clk) begin
+  always @(posedge clk) begin
     fcs_valid_reg <= 1'b0;
 
     if (s_axis_tvalid) begin
-        crc_state <= crc_next[KEEP_WIDTH-1];
+      crc_state <= crc_next[KEEP_WIDTH-1];
 
-        if (s_axis_tlast) begin
-            crc_state <= 32'hFFFFFFFF;
-            if (KEEP_ENABLE) begin
-                fcs_reg <= ~crc_next[0];
-                for (i = 0; i < KEEP_WIDTH; i = i + 1) begin
-                    if (s_axis_tkeep[i]) begin
-                        fcs_reg <= ~crc_next[i];
-                    end
-                end
-            end else begin
-                fcs_reg <= ~crc_next[KEEP_WIDTH-1];
+      if (s_axis_tlast) begin
+        crc_state <= 32'hFFFFFFFF;
+        if (KEEP_ENABLE) begin
+          fcs_reg <= ~crc_next[0];
+          for (i = 0; i < KEEP_WIDTH; i = i + 1) begin
+            if (s_axis_tkeep[i]) begin
+              fcs_reg <= ~crc_next[i];
             end
-            fcs_valid_reg <= 1'b1;
+          end
+        end else begin
+          fcs_reg <= ~crc_next[KEEP_WIDTH-1];
         end
+        fcs_valid_reg <= 1'b1;
+      end
     end
 
     if (rst) begin
-        crc_state <= 32'hFFFFFFFF;
-        fcs_valid_reg <= 1'b0;
+      crc_state <= 32'hFFFFFFFF;
+      fcs_valid_reg <= 1'b0;
     end
-end
+  end
 
 endmodule
 

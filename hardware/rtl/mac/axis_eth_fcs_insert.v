@@ -29,83 +29,76 @@ THE SOFTWARE.
 `default_nettype none
 
 
-module axis_eth_fcs_insert #
-(
-    parameter ENABLE_PADDING = 0,
+module axis_eth_fcs_insert #(
+    parameter ENABLE_PADDING   = 0,
     parameter MIN_FRAME_LENGTH = 64
-)
-(
-    input  wire        clk,
-    input  wire        rst,
+) (
+    input wire clk,
+    input wire rst,
 
 
-    input  wire [7:0]  s_axis_tdata,
-    input  wire        s_axis_tvalid,
-    output wire        s_axis_tready,
-    input  wire        s_axis_tlast,
-    input  wire        s_axis_tuser,
+    input  wire [7:0] s_axis_tdata,
+    input  wire       s_axis_tvalid,
+    output wire       s_axis_tready,
+    input  wire       s_axis_tlast,
+    input  wire       s_axis_tuser,
 
 
-    output wire [7:0]  m_axis_tdata,
-    output wire        m_axis_tvalid,
-    input  wire        m_axis_tready,
-    output wire        m_axis_tlast,
-    output wire        m_axis_tuser,
+    output wire [7:0] m_axis_tdata,
+    output wire       m_axis_tvalid,
+    input  wire       m_axis_tready,
+    output wire       m_axis_tlast,
+    output wire       m_axis_tuser,
 
 
-    output wire        busy
+    output wire busy
 );
 
-localparam [1:0]
-    STATE_IDLE = 2'd0,
-    STATE_PAYLOAD = 2'd1,
-    STATE_PAD = 2'd2,
-    STATE_FCS = 2'd3;
+  localparam [1:0] STATE_IDLE = 2'd0, STATE_PAYLOAD = 2'd1, STATE_PAD = 2'd2, STATE_FCS = 2'd3;
 
-reg [1:0] state_reg = STATE_IDLE, state_next;
+  reg [1:0] state_reg = STATE_IDLE, state_next;
 
 
-reg reset_crc;
-reg update_crc;
+  reg reset_crc;
+  reg update_crc;
 
-reg [15:0] frame_ptr_reg = 16'd0, frame_ptr_next;
+  reg [15:0] frame_ptr_reg = 16'd0, frame_ptr_next;
 
-reg busy_reg = 1'b0;
+  reg busy_reg = 1'b0;
 
-reg s_axis_tready_reg = 1'b0, s_axis_tready_next;
+  reg s_axis_tready_reg = 1'b0, s_axis_tready_next;
 
-reg [31:0] crc_state = 32'hFFFFFFFF;
-wire [31:0] crc_next;
+  reg  [31:0] crc_state = 32'hFFFFFFFF;
+  wire [31:0] crc_next;
 
 
-reg [7:0] m_axis_tdata_int;
-reg       m_axis_tvalid_int;
-reg       m_axis_tready_int_reg = 1'b0;
-reg       m_axis_tlast_int;
-reg       m_axis_tuser_int;
-wire      m_axis_tready_int_early;
+  reg  [ 7:0] m_axis_tdata_int;
+  reg         m_axis_tvalid_int;
+  reg         m_axis_tready_int_reg = 1'b0;
+  reg         m_axis_tlast_int;
+  reg         m_axis_tuser_int;
+  wire        m_axis_tready_int_early;
 
-assign s_axis_tready = s_axis_tready_reg;
+  assign s_axis_tready = s_axis_tready_reg;
 
-assign busy = busy_reg;
+  assign busy = busy_reg;
 
-lfsr #(
-    .LFSR_WIDTH(32),
-    .LFSR_POLY(32'h4c11db7),
-    .LFSR_CONFIG("GALOIS"),
-    .LFSR_FEED_FORWARD(0),
-    .REVERSE(1),
-    .DATA_WIDTH(8),
-    .STYLE("AUTO")
-)
-eth_crc_8 (
-    .data_in(m_axis_tdata_int),
-    .state_in(crc_state),
-    .data_out(),
-    .state_out(crc_next)
-);
+  lfsr #(
+      .LFSR_WIDTH(32),
+      .LFSR_POLY(32'h4c11db7),
+      .LFSR_CONFIG("GALOIS"),
+      .LFSR_FEED_FORWARD(0),
+      .REVERSE(1),
+      .DATA_WIDTH(8),
+      .STYLE("AUTO")
+  ) eth_crc_8 (
+      .data_in  (m_axis_tdata_int),
+      .state_in (crc_state),
+      .data_out (),
+      .state_out(crc_next)
+  );
 
-always @* begin
+  always @* begin
     state_next = STATE_IDLE;
 
     reset_crc = 1'b0;
@@ -121,192 +114,192 @@ always @* begin
     m_axis_tuser_int = 1'b0;
 
     case (state_reg)
-        STATE_IDLE: begin
+      STATE_IDLE: begin
 
-            s_axis_tready_next = m_axis_tready_int_early;
-            frame_ptr_next = 16'd0;
-            reset_crc = 1'b1;
+        s_axis_tready_next = m_axis_tready_int_early;
+        frame_ptr_next = 16'd0;
+        reset_crc = 1'b1;
 
-            m_axis_tdata_int = s_axis_tdata;
-            m_axis_tvalid_int = s_axis_tvalid;
-            m_axis_tlast_int = 1'b0;
-            m_axis_tuser_int = 1'b0;
+        m_axis_tdata_int = s_axis_tdata;
+        m_axis_tvalid_int = s_axis_tvalid;
+        m_axis_tlast_int = 1'b0;
+        m_axis_tuser_int = 1'b0;
 
-            if (s_axis_tready && s_axis_tvalid) begin
-                frame_ptr_next = 16'd1;
-                reset_crc = 1'b0;
-                update_crc = 1'b1;
-                if (s_axis_tlast) begin
-                    if (s_axis_tuser) begin
-                        m_axis_tlast_int = 1'b1;
-                        m_axis_tuser_int = 1'b1;
-                        reset_crc = 1'b1;
-                        frame_ptr_next = 16'd0;
-                        state_next = STATE_IDLE;
-                    end else begin
-                        s_axis_tready_next = 1'b0;
-                        if (ENABLE_PADDING && frame_ptr_reg < MIN_FRAME_LENGTH-5) begin
-                            state_next = STATE_PAD;
-                        end else begin
-                            frame_ptr_next = 16'd0;
-                            state_next = STATE_FCS;
-                        end
-                    end
-                end else begin
-                    state_next = STATE_PAYLOAD;
-                end
+        if (s_axis_tready && s_axis_tvalid) begin
+          frame_ptr_next = 16'd1;
+          reset_crc = 1'b0;
+          update_crc = 1'b1;
+          if (s_axis_tlast) begin
+            if (s_axis_tuser) begin
+              m_axis_tlast_int = 1'b1;
+              m_axis_tuser_int = 1'b1;
+              reset_crc = 1'b1;
+              frame_ptr_next = 16'd0;
+              state_next = STATE_IDLE;
             end else begin
-                state_next = STATE_IDLE;
-            end
-        end
-        STATE_PAYLOAD: begin
-
-            s_axis_tready_next = m_axis_tready_int_early;
-
-            m_axis_tdata_int = s_axis_tdata;
-            m_axis_tvalid_int = s_axis_tvalid;
-            m_axis_tlast_int = 1'b0;
-            m_axis_tuser_int = 1'b0;
-
-            if (s_axis_tready && s_axis_tvalid) begin
-                frame_ptr_next = frame_ptr_reg + 16'd1;
-                update_crc = 1'b1;
-                if (s_axis_tlast) begin
-                    if (s_axis_tuser) begin
-                        m_axis_tlast_int = 1'b1;
-                        m_axis_tuser_int = 1'b1;
-                        reset_crc = 1'b1;
-                        frame_ptr_next = 16'd0;
-                        state_next = STATE_IDLE;
-                    end else begin
-                        s_axis_tready_next = 1'b0;
-                        if (ENABLE_PADDING && frame_ptr_reg < MIN_FRAME_LENGTH-5) begin
-                            state_next = STATE_PAD;
-                        end else begin
-                            frame_ptr_next = 16'd0;
-                            state_next = STATE_FCS;
-                        end
-                    end
-                end else begin
-                    state_next = STATE_PAYLOAD;
-                end
-            end else begin
-                state_next = STATE_PAYLOAD;
-            end
-        end
-        STATE_PAD: begin
-
-            s_axis_tready_next = 1'b0;
-
-            m_axis_tdata_int = 8'd0;
-            m_axis_tvalid_int = 1'b1;
-            m_axis_tlast_int = 1'b0;
-            m_axis_tuser_int = 1'b0;
-
-            if (m_axis_tready_int_reg) begin
-                frame_ptr_next = frame_ptr_reg + 16'd1;
-                update_crc = 1'b1;
-                if (frame_ptr_reg < MIN_FRAME_LENGTH-5) begin
-                    state_next = STATE_PAD;
-                end else begin
-                    frame_ptr_next = 16'd0;
-                    state_next = STATE_FCS;
-                end
-            end else begin
+              s_axis_tready_next = 1'b0;
+              if (ENABLE_PADDING && frame_ptr_reg < MIN_FRAME_LENGTH - 5) begin
                 state_next = STATE_PAD;
-            end
-        end
-        STATE_FCS: begin
-
-            s_axis_tready_next = 1'b0;
-
-            case (frame_ptr_reg)
-                2'd0: m_axis_tdata_int = ~crc_state[7:0];
-                2'd1: m_axis_tdata_int = ~crc_state[15:8];
-                2'd2: m_axis_tdata_int = ~crc_state[23:16];
-                2'd3: m_axis_tdata_int = ~crc_state[31:24];
-                default: m_axis_tdata_int = 8'd0;
-            endcase
-            m_axis_tvalid_int = 1'b1;
-            m_axis_tlast_int = 1'b0;
-            m_axis_tuser_int = 1'b0;
-
-            if (m_axis_tready_int_reg) begin
-                frame_ptr_next = frame_ptr_reg + 16'd1;
-
-                if (frame_ptr_reg < 16'd3) begin
-                    state_next = STATE_FCS;
-                end else begin
-                    reset_crc = 1'b1;
-                    frame_ptr_next = 16'd0;
-                    m_axis_tlast_int = 1'b1;
-                    s_axis_tready_next = m_axis_tready_int_early;
-                    state_next = STATE_IDLE;
-                end
-            end else begin
+              end else begin
+                frame_ptr_next = 16'd0;
                 state_next = STATE_FCS;
+              end
             end
+          end else begin
+            state_next = STATE_PAYLOAD;
+          end
+        end else begin
+          state_next = STATE_IDLE;
         end
-        default: begin
+      end
+      STATE_PAYLOAD: begin
+
+        s_axis_tready_next = m_axis_tready_int_early;
+
+        m_axis_tdata_int   = s_axis_tdata;
+        m_axis_tvalid_int  = s_axis_tvalid;
+        m_axis_tlast_int   = 1'b0;
+        m_axis_tuser_int   = 1'b0;
+
+        if (s_axis_tready && s_axis_tvalid) begin
+          frame_ptr_next = frame_ptr_reg + 16'd1;
+          update_crc = 1'b1;
+          if (s_axis_tlast) begin
+            if (s_axis_tuser) begin
+              m_axis_tlast_int = 1'b1;
+              m_axis_tuser_int = 1'b1;
+              reset_crc = 1'b1;
+              frame_ptr_next = 16'd0;
+              state_next = STATE_IDLE;
+            end else begin
+              s_axis_tready_next = 1'b0;
+              if (ENABLE_PADDING && frame_ptr_reg < MIN_FRAME_LENGTH - 5) begin
+                state_next = STATE_PAD;
+              end else begin
+                frame_ptr_next = 16'd0;
+                state_next = STATE_FCS;
+              end
+            end
+          end else begin
+            state_next = STATE_PAYLOAD;
+          end
+        end else begin
+          state_next = STATE_PAYLOAD;
+        end
+      end
+      STATE_PAD: begin
+
+        s_axis_tready_next = 1'b0;
+
+        m_axis_tdata_int   = 8'd0;
+        m_axis_tvalid_int  = 1'b1;
+        m_axis_tlast_int   = 1'b0;
+        m_axis_tuser_int   = 1'b0;
+
+        if (m_axis_tready_int_reg) begin
+          frame_ptr_next = frame_ptr_reg + 16'd1;
+          update_crc = 1'b1;
+          if (frame_ptr_reg < MIN_FRAME_LENGTH - 5) begin
+            state_next = STATE_PAD;
+          end else begin
+            frame_ptr_next = 16'd0;
+            state_next = STATE_FCS;
+          end
+        end else begin
+          state_next = STATE_PAD;
+        end
+      end
+      STATE_FCS: begin
+
+        s_axis_tready_next = 1'b0;
+
+        case (frame_ptr_reg)
+          2'd0: m_axis_tdata_int = ~crc_state[7:0];
+          2'd1: m_axis_tdata_int = ~crc_state[15:8];
+          2'd2: m_axis_tdata_int = ~crc_state[23:16];
+          2'd3: m_axis_tdata_int = ~crc_state[31:24];
+          default: m_axis_tdata_int = 8'd0;
+        endcase
+        m_axis_tvalid_int = 1'b1;
+        m_axis_tlast_int  = 1'b0;
+        m_axis_tuser_int  = 1'b0;
+
+        if (m_axis_tready_int_reg) begin
+          frame_ptr_next = frame_ptr_reg + 16'd1;
+
+          if (frame_ptr_reg < 16'd3) begin
+            state_next = STATE_FCS;
+          end else begin
+            reset_crc = 1'b1;
+            frame_ptr_next = 16'd0;
+            m_axis_tlast_int = 1'b1;
+            s_axis_tready_next = m_axis_tready_int_early;
             state_next = STATE_IDLE;
+          end
+        end else begin
+          state_next = STATE_FCS;
         end
+      end
+      default: begin
+        state_next = STATE_IDLE;
+      end
     endcase
-end
+  end
 
-always @(posedge clk) begin
+  always @(posedge clk) begin
     if (rst) begin
-        state_reg <= STATE_IDLE;
+      state_reg <= STATE_IDLE;
 
-        frame_ptr_reg <= 1'b0;
+      frame_ptr_reg <= 1'b0;
 
-        s_axis_tready_reg <= 1'b0;
+      s_axis_tready_reg <= 1'b0;
 
-        busy_reg <= 1'b0;
+      busy_reg <= 1'b0;
 
-        crc_state <= 32'hFFFFFFFF;
+      crc_state <= 32'hFFFFFFFF;
     end else begin
-        state_reg <= state_next;
+      state_reg <= state_next;
 
-        frame_ptr_reg <= frame_ptr_next;
+      frame_ptr_reg <= frame_ptr_next;
 
-        s_axis_tready_reg <= s_axis_tready_next;
+      s_axis_tready_reg <= s_axis_tready_next;
 
-        busy_reg <= state_next != STATE_IDLE;
+      busy_reg <= state_next != STATE_IDLE;
 
 
-        if (reset_crc) begin
-            crc_state <= 32'hFFFFFFFF;
-        end else if (update_crc) begin
-            crc_state <= crc_next;
-        end
+      if (reset_crc) begin
+        crc_state <= 32'hFFFFFFFF;
+      end else if (update_crc) begin
+        crc_state <= crc_next;
+      end
     end
-end
+  end
 
 
-reg [7:0] m_axis_tdata_reg = 8'd0;
-reg       m_axis_tvalid_reg = 1'b0, m_axis_tvalid_next;
-reg       m_axis_tlast_reg = 1'b0;
-reg       m_axis_tuser_reg = 1'b0;
+  reg [7:0] m_axis_tdata_reg = 8'd0;
+  reg m_axis_tvalid_reg = 1'b0, m_axis_tvalid_next;
+  reg       m_axis_tlast_reg = 1'b0;
+  reg       m_axis_tuser_reg = 1'b0;
 
-reg [7:0] temp_m_axis_tdata_reg = 8'd0;
-reg       temp_m_axis_tvalid_reg = 1'b0, temp_m_axis_tvalid_next;
-reg       temp_m_axis_tlast_reg = 1'b0;
-reg       temp_m_axis_tuser_reg = 1'b0;
-
-
-reg store_axis_int_to_output;
-reg store_axis_int_to_temp;
-reg store_axis_temp_to_output;
-
-assign m_axis_tdata = m_axis_tdata_reg;
-assign m_axis_tvalid = m_axis_tvalid_reg;
-assign m_axis_tlast = m_axis_tlast_reg;
-assign m_axis_tuser = m_axis_tuser_reg;
+  reg [7:0] temp_m_axis_tdata_reg = 8'd0;
+  reg temp_m_axis_tvalid_reg = 1'b0, temp_m_axis_tvalid_next;
+  reg temp_m_axis_tlast_reg = 1'b0;
+  reg temp_m_axis_tuser_reg = 1'b0;
 
 
-assign m_axis_tready_int_early = m_axis_tready || (!temp_m_axis_tvalid_reg && !m_axis_tvalid_reg);
+  reg store_axis_int_to_output;
+  reg store_axis_int_to_temp;
+  reg store_axis_temp_to_output;
 
-always @* begin
+  assign m_axis_tdata = m_axis_tdata_reg;
+  assign m_axis_tvalid = m_axis_tvalid_reg;
+  assign m_axis_tlast = m_axis_tlast_reg;
+  assign m_axis_tuser = m_axis_tuser_reg;
+
+
+  assign m_axis_tready_int_early = m_axis_tready || (!temp_m_axis_tvalid_reg && !m_axis_tvalid_reg);
+
+  always @* begin
 
     m_axis_tvalid_next = m_axis_tvalid_reg;
     temp_m_axis_tvalid_next = temp_m_axis_tvalid_reg;
@@ -317,51 +310,51 @@ always @* begin
 
     if (m_axis_tready_int_reg) begin
 
-        if (m_axis_tready || !m_axis_tvalid_reg) begin
+      if (m_axis_tready || !m_axis_tvalid_reg) begin
 
-            m_axis_tvalid_next = m_axis_tvalid_int;
-            store_axis_int_to_output = 1'b1;
-        end else begin
+        m_axis_tvalid_next = m_axis_tvalid_int;
+        store_axis_int_to_output = 1'b1;
+      end else begin
 
-            temp_m_axis_tvalid_next = m_axis_tvalid_int;
-            store_axis_int_to_temp = 1'b1;
-        end
+        temp_m_axis_tvalid_next = m_axis_tvalid_int;
+        store_axis_int_to_temp  = 1'b1;
+      end
     end else if (m_axis_tready) begin
 
-        m_axis_tvalid_next = temp_m_axis_tvalid_reg;
-        temp_m_axis_tvalid_next = 1'b0;
-        store_axis_temp_to_output = 1'b1;
+      m_axis_tvalid_next = temp_m_axis_tvalid_reg;
+      temp_m_axis_tvalid_next = 1'b0;
+      store_axis_temp_to_output = 1'b1;
     end
-end
+  end
 
-always @(posedge clk) begin
+  always @(posedge clk) begin
     m_axis_tvalid_reg <= m_axis_tvalid_next;
     m_axis_tready_int_reg <= m_axis_tready_int_early;
     temp_m_axis_tvalid_reg <= temp_m_axis_tvalid_next;
 
 
     if (store_axis_int_to_output) begin
-        m_axis_tdata_reg <= m_axis_tdata_int;
-        m_axis_tlast_reg <= m_axis_tlast_int;
-        m_axis_tuser_reg <= m_axis_tuser_int;
+      m_axis_tdata_reg <= m_axis_tdata_int;
+      m_axis_tlast_reg <= m_axis_tlast_int;
+      m_axis_tuser_reg <= m_axis_tuser_int;
     end else if (store_axis_temp_to_output) begin
-        m_axis_tdata_reg <= temp_m_axis_tdata_reg;
-        m_axis_tlast_reg <= temp_m_axis_tlast_reg;
-        m_axis_tuser_reg <= temp_m_axis_tuser_reg;
+      m_axis_tdata_reg <= temp_m_axis_tdata_reg;
+      m_axis_tlast_reg <= temp_m_axis_tlast_reg;
+      m_axis_tuser_reg <= temp_m_axis_tuser_reg;
     end
 
     if (store_axis_int_to_temp) begin
-        temp_m_axis_tdata_reg <= m_axis_tdata_int;
-        temp_m_axis_tlast_reg <= m_axis_tlast_int;
-        temp_m_axis_tuser_reg <= m_axis_tuser_int;
+      temp_m_axis_tdata_reg <= m_axis_tdata_int;
+      temp_m_axis_tlast_reg <= m_axis_tlast_int;
+      temp_m_axis_tuser_reg <= m_axis_tuser_int;
     end
 
     if (rst) begin
-        m_axis_tvalid_reg <= 1'b0;
-        m_axis_tready_int_reg <= 1'b0;
-        temp_m_axis_tvalid_reg <= 1'b0;
+      m_axis_tvalid_reg <= 1'b0;
+      m_axis_tready_int_reg <= 1'b0;
+      temp_m_axis_tvalid_reg <= 1'b0;
     end
-end
+  end
 
 endmodule
 

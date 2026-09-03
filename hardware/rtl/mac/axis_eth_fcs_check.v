@@ -29,90 +29,86 @@ THE SOFTWARE.
 `default_nettype none
 
 
-module axis_eth_fcs_check
-(
-    input  wire        clk,
-    input  wire        rst,
+module axis_eth_fcs_check (
+    input wire clk,
+    input wire rst,
 
 
-    input  wire [7:0]  s_axis_tdata,
-    input  wire        s_axis_tvalid,
-    output wire        s_axis_tready,
-    input  wire        s_axis_tlast,
-    input  wire        s_axis_tuser,
+    input  wire [7:0] s_axis_tdata,
+    input  wire       s_axis_tvalid,
+    output wire       s_axis_tready,
+    input  wire       s_axis_tlast,
+    input  wire       s_axis_tuser,
 
 
-    output wire [7:0]  m_axis_tdata,
-    output wire        m_axis_tvalid,
-    input  wire        m_axis_tready,
-    output wire        m_axis_tlast,
-    output wire        m_axis_tuser,
+    output wire [7:0] m_axis_tdata,
+    output wire       m_axis_tvalid,
+    input  wire       m_axis_tready,
+    output wire       m_axis_tlast,
+    output wire       m_axis_tuser,
 
 
-    output wire        busy,
-    output wire        error_bad_fcs
+    output wire busy,
+    output wire error_bad_fcs
 );
 
-localparam [1:0]
-    STATE_IDLE = 2'd0,
-    STATE_PAYLOAD = 2'd1;
+  localparam [1:0] STATE_IDLE = 2'd0, STATE_PAYLOAD = 2'd1;
 
-reg [1:0] state_reg = STATE_IDLE, state_next;
+  reg [1:0] state_reg = STATE_IDLE, state_next;
 
 
-reg reset_crc;
-reg update_crc;
-reg shift_in;
-reg shift_reset;
+  reg reset_crc;
+  reg update_crc;
+  reg shift_in;
+  reg shift_reset;
 
-reg [7:0] s_axis_tdata_d0 = 8'd0;
-reg [7:0] s_axis_tdata_d1 = 8'd0;
-reg [7:0] s_axis_tdata_d2 = 8'd0;
-reg [7:0] s_axis_tdata_d3 = 8'd0;
+  reg [7:0] s_axis_tdata_d0 = 8'd0;
+  reg [7:0] s_axis_tdata_d1 = 8'd0;
+  reg [7:0] s_axis_tdata_d2 = 8'd0;
+  reg [7:0] s_axis_tdata_d3 = 8'd0;
 
-reg s_axis_tvalid_d0 = 1'b0;
-reg s_axis_tvalid_d1 = 1'b0;
-reg s_axis_tvalid_d2 = 1'b0;
-reg s_axis_tvalid_d3 = 1'b0;
+  reg s_axis_tvalid_d0 = 1'b0;
+  reg s_axis_tvalid_d1 = 1'b0;
+  reg s_axis_tvalid_d2 = 1'b0;
+  reg s_axis_tvalid_d3 = 1'b0;
 
-reg busy_reg = 1'b0;
-reg error_bad_fcs_reg = 1'b0, error_bad_fcs_next;
+  reg busy_reg = 1'b0;
+  reg error_bad_fcs_reg = 1'b0, error_bad_fcs_next;
 
-reg s_axis_tready_reg = 1'b0, s_axis_tready_next;
+  reg s_axis_tready_reg = 1'b0, s_axis_tready_next;
 
-reg [31:0] crc_state = 32'hFFFFFFFF;
-wire [31:0] crc_next;
+  reg  [31:0] crc_state = 32'hFFFFFFFF;
+  wire [31:0] crc_next;
 
 
-reg [7:0] m_axis_tdata_int;
-reg       m_axis_tvalid_int;
-reg       m_axis_tready_int_reg = 1'b0;
-reg       m_axis_tlast_int;
-reg       m_axis_tuser_int;
-wire      m_axis_tready_int_early;
+  reg  [ 7:0] m_axis_tdata_int;
+  reg         m_axis_tvalid_int;
+  reg         m_axis_tready_int_reg = 1'b0;
+  reg         m_axis_tlast_int;
+  reg         m_axis_tuser_int;
+  wire        m_axis_tready_int_early;
 
-assign s_axis_tready = s_axis_tready_reg;
+  assign s_axis_tready = s_axis_tready_reg;
 
-assign busy = busy_reg;
-assign error_bad_fcs = error_bad_fcs_reg;
+  assign busy = busy_reg;
+  assign error_bad_fcs = error_bad_fcs_reg;
 
-lfsr #(
-    .LFSR_WIDTH(32),
-    .LFSR_POLY(32'h4c11db7),
-    .LFSR_CONFIG("GALOIS"),
-    .LFSR_FEED_FORWARD(0),
-    .REVERSE(1),
-    .DATA_WIDTH(8),
-    .STYLE("AUTO")
-)
-eth_crc_8 (
-    .data_in(s_axis_tdata_d3),
-    .state_in(crc_state),
-    .data_out(),
-    .state_out(crc_next)
-);
+  lfsr #(
+      .LFSR_WIDTH(32),
+      .LFSR_POLY(32'h4c11db7),
+      .LFSR_CONFIG("GALOIS"),
+      .LFSR_FEED_FORWARD(0),
+      .REVERSE(1),
+      .DATA_WIDTH(8),
+      .STYLE("AUTO")
+  ) eth_crc_8 (
+      .data_in  (s_axis_tdata_d3),
+      .state_in (crc_state),
+      .data_out (),
+      .state_out(crc_next)
+  );
 
-always @* begin
+  always @* begin
     state_next = STATE_IDLE;
 
     reset_crc = 1'b0;
@@ -130,155 +126,155 @@ always @* begin
     error_bad_fcs_next = 1'b0;
 
     case (state_reg)
-        STATE_IDLE: begin
+      STATE_IDLE: begin
 
-            s_axis_tready_next = m_axis_tready_int_early;
-            reset_crc = 1'b1;
+        s_axis_tready_next = m_axis_tready_int_early;
+        reset_crc = 1'b1;
 
-            m_axis_tdata_int = s_axis_tdata_d3;
-            m_axis_tvalid_int = s_axis_tvalid_d3 && s_axis_tvalid;
-            m_axis_tlast_int = 1'b0;
-            m_axis_tuser_int = 1'b0;
+        m_axis_tdata_int = s_axis_tdata_d3;
+        m_axis_tvalid_int = s_axis_tvalid_d3 && s_axis_tvalid;
+        m_axis_tlast_int = 1'b0;
+        m_axis_tuser_int = 1'b0;
 
-            if (s_axis_tready && s_axis_tvalid) begin
-                shift_in = 1'b1;
+        if (s_axis_tready && s_axis_tvalid) begin
+          shift_in = 1'b1;
 
-                if (s_axis_tvalid_d3) begin
-                    reset_crc = 1'b0;
-                    update_crc = 1'b1;
-                    if (s_axis_tlast) begin
-                        shift_reset = 1'b1;
-                        reset_crc = 1'b1;
-                        m_axis_tlast_int = 1'b1;
-                        m_axis_tuser_int = s_axis_tuser;
-                        if ({s_axis_tdata, s_axis_tdata_d0, s_axis_tdata_d1, s_axis_tdata_d2} != ~crc_next) begin
-                            m_axis_tuser_int = 1'b1;
-                            error_bad_fcs_next = 1'b1;
-                        end
-                        s_axis_tready_next = m_axis_tready_int_early;
-                        state_next = STATE_IDLE;
-                    end else begin
-                        state_next = STATE_PAYLOAD;
-                    end
-                end else begin
-                    state_next = STATE_IDLE;
-                end
+          if (s_axis_tvalid_d3) begin
+            reset_crc  = 1'b0;
+            update_crc = 1'b1;
+            if (s_axis_tlast) begin
+              shift_reset = 1'b1;
+              reset_crc = 1'b1;
+              m_axis_tlast_int = 1'b1;
+              m_axis_tuser_int = s_axis_tuser;
+              if ({s_axis_tdata, s_axis_tdata_d0, s_axis_tdata_d1, s_axis_tdata_d2} != ~crc_next) begin
+                m_axis_tuser_int   = 1'b1;
+                error_bad_fcs_next = 1'b1;
+              end
+              s_axis_tready_next = m_axis_tready_int_early;
+              state_next = STATE_IDLE;
             end else begin
-                state_next = STATE_IDLE;
+              state_next = STATE_PAYLOAD;
             end
-        end
-        STATE_PAYLOAD: begin
-
-            s_axis_tready_next = m_axis_tready_int_early;
-
-            m_axis_tdata_int = s_axis_tdata_d3;
-            m_axis_tvalid_int = s_axis_tvalid_d3 && s_axis_tvalid;
-            m_axis_tlast_int = 1'b0;
-            m_axis_tuser_int = 1'b0;
-
-            if (s_axis_tready && s_axis_tvalid) begin
-                shift_in = 1'b1;
-                update_crc = 1'b1;
-                if (s_axis_tlast) begin
-                    shift_reset = 1'b1;
-                    reset_crc = 1'b1;
-                    m_axis_tlast_int = 1'b1;
-                    m_axis_tuser_int = s_axis_tuser;
-                    if ({s_axis_tdata, s_axis_tdata_d0, s_axis_tdata_d1, s_axis_tdata_d2} != ~crc_next) begin
-                        m_axis_tuser_int = 1'b1;
-                        error_bad_fcs_next = 1'b1;
-                    end
-                    s_axis_tready_next = m_axis_tready_int_early;
-                    state_next = STATE_IDLE;
-                end else begin
-                    state_next = STATE_PAYLOAD;
-                end
-            end else begin
-                state_next = STATE_PAYLOAD;
-            end
-        end
-        default: begin
+          end else begin
             state_next = STATE_IDLE;
+          end
+        end else begin
+          state_next = STATE_IDLE;
         end
+      end
+      STATE_PAYLOAD: begin
+
+        s_axis_tready_next = m_axis_tready_int_early;
+
+        m_axis_tdata_int   = s_axis_tdata_d3;
+        m_axis_tvalid_int  = s_axis_tvalid_d3 && s_axis_tvalid;
+        m_axis_tlast_int   = 1'b0;
+        m_axis_tuser_int   = 1'b0;
+
+        if (s_axis_tready && s_axis_tvalid) begin
+          shift_in   = 1'b1;
+          update_crc = 1'b1;
+          if (s_axis_tlast) begin
+            shift_reset = 1'b1;
+            reset_crc = 1'b1;
+            m_axis_tlast_int = 1'b1;
+            m_axis_tuser_int = s_axis_tuser;
+            if ({s_axis_tdata, s_axis_tdata_d0, s_axis_tdata_d1, s_axis_tdata_d2} != ~crc_next) begin
+              m_axis_tuser_int   = 1'b1;
+              error_bad_fcs_next = 1'b1;
+            end
+            s_axis_tready_next = m_axis_tready_int_early;
+            state_next = STATE_IDLE;
+          end else begin
+            state_next = STATE_PAYLOAD;
+          end
+        end else begin
+          state_next = STATE_PAYLOAD;
+        end
+      end
+      default: begin
+        state_next = STATE_IDLE;
+      end
     endcase
-end
+  end
 
-always @(posedge clk) begin
+  always @(posedge clk) begin
     if (rst) begin
-        state_reg <= STATE_IDLE;
+      state_reg <= STATE_IDLE;
 
-        s_axis_tready_reg <= 1'b0;
+      s_axis_tready_reg <= 1'b0;
 
-        busy_reg <= 1'b0;
-        error_bad_fcs_reg <= 1'b0;
+      busy_reg <= 1'b0;
+      error_bad_fcs_reg <= 1'b0;
 
+      s_axis_tvalid_d0 <= 1'b0;
+      s_axis_tvalid_d1 <= 1'b0;
+      s_axis_tvalid_d2 <= 1'b0;
+      s_axis_tvalid_d3 <= 1'b0;
+
+      crc_state <= 32'hFFFFFFFF;
+    end else begin
+      state_reg <= state_next;
+
+      s_axis_tready_reg <= s_axis_tready_next;
+
+      busy_reg <= state_next != STATE_IDLE;
+      error_bad_fcs_reg <= error_bad_fcs_next;
+
+
+      if (reset_crc) begin
+        crc_state <= 32'hFFFFFFFF;
+      end else if (update_crc) begin
+        crc_state <= crc_next;
+      end
+
+      if (shift_reset) begin
         s_axis_tvalid_d0 <= 1'b0;
         s_axis_tvalid_d1 <= 1'b0;
         s_axis_tvalid_d2 <= 1'b0;
         s_axis_tvalid_d3 <= 1'b0;
-
-        crc_state <= 32'hFFFFFFFF;
-    end else begin
-        state_reg <= state_next;
-
-        s_axis_tready_reg <= s_axis_tready_next;
-
-        busy_reg <= state_next != STATE_IDLE;
-        error_bad_fcs_reg <= error_bad_fcs_next;
-
-
-        if (reset_crc) begin
-            crc_state <= 32'hFFFFFFFF;
-        end else if (update_crc) begin
-            crc_state <= crc_next;
-        end
-
-        if (shift_reset) begin
-            s_axis_tvalid_d0 <= 1'b0;
-            s_axis_tvalid_d1 <= 1'b0;
-            s_axis_tvalid_d2 <= 1'b0;
-            s_axis_tvalid_d3 <= 1'b0;
-        end else if (shift_in) begin
-            s_axis_tvalid_d0 <= s_axis_tvalid;
-            s_axis_tvalid_d1 <= s_axis_tvalid_d0;
-            s_axis_tvalid_d2 <= s_axis_tvalid_d1;
-            s_axis_tvalid_d3 <= s_axis_tvalid_d2;
-        end
+      end else if (shift_in) begin
+        s_axis_tvalid_d0 <= s_axis_tvalid;
+        s_axis_tvalid_d1 <= s_axis_tvalid_d0;
+        s_axis_tvalid_d2 <= s_axis_tvalid_d1;
+        s_axis_tvalid_d3 <= s_axis_tvalid_d2;
+      end
     end
 
     if (shift_in) begin
-        s_axis_tdata_d0 <= s_axis_tdata;
-        s_axis_tdata_d1 <= s_axis_tdata_d0;
-        s_axis_tdata_d2 <= s_axis_tdata_d1;
-        s_axis_tdata_d3 <= s_axis_tdata_d2;
+      s_axis_tdata_d0 <= s_axis_tdata;
+      s_axis_tdata_d1 <= s_axis_tdata_d0;
+      s_axis_tdata_d2 <= s_axis_tdata_d1;
+      s_axis_tdata_d3 <= s_axis_tdata_d2;
     end
-end
+  end
 
 
-reg [7:0] m_axis_tdata_reg = 8'd0;
-reg       m_axis_tvalid_reg = 1'b0, m_axis_tvalid_next;
-reg       m_axis_tlast_reg = 1'b0;
-reg       m_axis_tuser_reg = 1'b0;
+  reg [7:0] m_axis_tdata_reg = 8'd0;
+  reg m_axis_tvalid_reg = 1'b0, m_axis_tvalid_next;
+  reg       m_axis_tlast_reg = 1'b0;
+  reg       m_axis_tuser_reg = 1'b0;
 
-reg [7:0] temp_m_axis_tdata_reg = 8'd0;
-reg       temp_m_axis_tvalid_reg = 1'b0, temp_m_axis_tvalid_next;
-reg       temp_m_axis_tlast_reg = 1'b0;
-reg       temp_m_axis_tuser_reg = 1'b0;
-
-
-reg store_axis_int_to_output;
-reg store_axis_int_to_temp;
-reg store_axis_temp_to_output;
-
-assign m_axis_tdata = m_axis_tdata_reg;
-assign m_axis_tvalid = m_axis_tvalid_reg;
-assign m_axis_tlast = m_axis_tlast_reg;
-assign m_axis_tuser = m_axis_tuser_reg;
+  reg [7:0] temp_m_axis_tdata_reg = 8'd0;
+  reg temp_m_axis_tvalid_reg = 1'b0, temp_m_axis_tvalid_next;
+  reg temp_m_axis_tlast_reg = 1'b0;
+  reg temp_m_axis_tuser_reg = 1'b0;
 
 
-assign m_axis_tready_int_early = m_axis_tready || (!temp_m_axis_tvalid_reg && !m_axis_tvalid_reg);
+  reg store_axis_int_to_output;
+  reg store_axis_int_to_temp;
+  reg store_axis_temp_to_output;
 
-always @* begin
+  assign m_axis_tdata = m_axis_tdata_reg;
+  assign m_axis_tvalid = m_axis_tvalid_reg;
+  assign m_axis_tlast = m_axis_tlast_reg;
+  assign m_axis_tuser = m_axis_tuser_reg;
+
+
+  assign m_axis_tready_int_early = m_axis_tready || (!temp_m_axis_tvalid_reg && !m_axis_tvalid_reg);
+
+  always @* begin
 
     m_axis_tvalid_next = m_axis_tvalid_reg;
     temp_m_axis_tvalid_next = temp_m_axis_tvalid_reg;
@@ -289,51 +285,51 @@ always @* begin
 
     if (m_axis_tready_int_reg) begin
 
-        if (m_axis_tready || !m_axis_tvalid_reg) begin
+      if (m_axis_tready || !m_axis_tvalid_reg) begin
 
-            m_axis_tvalid_next = m_axis_tvalid_int;
-            store_axis_int_to_output = 1'b1;
-        end else begin
+        m_axis_tvalid_next = m_axis_tvalid_int;
+        store_axis_int_to_output = 1'b1;
+      end else begin
 
-            temp_m_axis_tvalid_next = m_axis_tvalid_int;
-            store_axis_int_to_temp = 1'b1;
-        end
+        temp_m_axis_tvalid_next = m_axis_tvalid_int;
+        store_axis_int_to_temp  = 1'b1;
+      end
     end else if (m_axis_tready) begin
 
-        m_axis_tvalid_next = temp_m_axis_tvalid_reg;
-        temp_m_axis_tvalid_next = 1'b0;
-        store_axis_temp_to_output = 1'b1;
+      m_axis_tvalid_next = temp_m_axis_tvalid_reg;
+      temp_m_axis_tvalid_next = 1'b0;
+      store_axis_temp_to_output = 1'b1;
     end
-end
+  end
 
-always @(posedge clk) begin
+  always @(posedge clk) begin
     m_axis_tvalid_reg <= m_axis_tvalid_next;
     m_axis_tready_int_reg <= m_axis_tready_int_early;
     temp_m_axis_tvalid_reg <= temp_m_axis_tvalid_next;
 
 
     if (store_axis_int_to_output) begin
-        m_axis_tdata_reg <= m_axis_tdata_int;
-        m_axis_tlast_reg <= m_axis_tlast_int;
-        m_axis_tuser_reg <= m_axis_tuser_int;
+      m_axis_tdata_reg <= m_axis_tdata_int;
+      m_axis_tlast_reg <= m_axis_tlast_int;
+      m_axis_tuser_reg <= m_axis_tuser_int;
     end else if (store_axis_temp_to_output) begin
-        m_axis_tdata_reg <= temp_m_axis_tdata_reg;
-        m_axis_tlast_reg <= temp_m_axis_tlast_reg;
-        m_axis_tuser_reg <= temp_m_axis_tuser_reg;
+      m_axis_tdata_reg <= temp_m_axis_tdata_reg;
+      m_axis_tlast_reg <= temp_m_axis_tlast_reg;
+      m_axis_tuser_reg <= temp_m_axis_tuser_reg;
     end
 
     if (store_axis_int_to_temp) begin
-        temp_m_axis_tdata_reg <= m_axis_tdata_int;
-        temp_m_axis_tlast_reg <= m_axis_tlast_int;
-        temp_m_axis_tuser_reg <= m_axis_tuser_int;
+      temp_m_axis_tdata_reg <= m_axis_tdata_int;
+      temp_m_axis_tlast_reg <= m_axis_tlast_int;
+      temp_m_axis_tuser_reg <= m_axis_tuser_int;
     end
 
     if (rst) begin
-        m_axis_tvalid_reg <= 1'b0;
-        m_axis_tready_int_reg <= 1'b0;
-        temp_m_axis_tvalid_reg <= 1'b0;
+      m_axis_tvalid_reg <= 1'b0;
+      m_axis_tready_int_reg <= 1'b0;
+      temp_m_axis_tvalid_reg <= 1'b0;
     end
-end
+  end
 
 endmodule
 

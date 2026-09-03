@@ -29,8 +29,7 @@ THE SOFTWARE.
 `default_nettype none
 
 
-module rgmii_phy_if #
-(
+module rgmii_phy_if #(
 
     parameter TARGET = "GENERIC",
 
@@ -43,218 +42,213 @@ module rgmii_phy_if #
     parameter CLOCK_INPUT_STYLE = "BUFG",
 
     parameter USE_CLK90 = "TRUE"
-)
-(
-    input  wire        clk,
-    input  wire        clk90,
-    input  wire        rst,
+) (
+    input wire clk,
+    input wire clk90,
+    input wire rst,
 
 
-    output wire        mac_gmii_rx_clk,
-    output wire        mac_gmii_rx_rst,
-    output wire [7:0]  mac_gmii_rxd,
-    output wire        mac_gmii_rx_dv,
-    output wire        mac_gmii_rx_er,
-    output wire        mac_gmii_tx_clk,
-    output wire        mac_gmii_tx_rst,
-    output wire        mac_gmii_tx_clk_en,
-    input  wire [7:0]  mac_gmii_txd,
-    input  wire        mac_gmii_tx_en,
-    input  wire        mac_gmii_tx_er,
+    output wire       mac_gmii_rx_clk,
+    output wire       mac_gmii_rx_rst,
+    output wire [7:0] mac_gmii_rxd,
+    output wire       mac_gmii_rx_dv,
+    output wire       mac_gmii_rx_er,
+    output wire       mac_gmii_tx_clk,
+    output wire       mac_gmii_tx_rst,
+    output wire       mac_gmii_tx_clk_en,
+    input  wire [7:0] mac_gmii_txd,
+    input  wire       mac_gmii_tx_en,
+    input  wire       mac_gmii_tx_er,
 
 
-    input  wire        phy_rgmii_rx_clk,
-    input  wire [3:0]  phy_rgmii_rxd,
-    input  wire        phy_rgmii_rx_ctl,
-    output wire        phy_rgmii_tx_clk,
-    output wire [3:0]  phy_rgmii_txd,
-    output wire        phy_rgmii_tx_ctl,
+    input  wire       phy_rgmii_rx_clk,
+    input  wire [3:0] phy_rgmii_rxd,
+    input  wire       phy_rgmii_rx_ctl,
+    output wire       phy_rgmii_tx_clk,
+    output wire [3:0] phy_rgmii_txd,
+    output wire       phy_rgmii_tx_ctl,
 
 
-    input  wire [1:0]  speed
+    input wire [1:0] speed
 );
 
 
 
-wire rgmii_rx_ctl_1;
-wire rgmii_rx_ctl_2;
+  wire rgmii_rx_ctl_1;
+  wire rgmii_rx_ctl_2;
 
-ssio_ddr_in #
-(
-    .TARGET(TARGET),
-    .CLOCK_INPUT_STYLE(CLOCK_INPUT_STYLE),
-    .IODDR_STYLE(IODDR_STYLE),
-    .WIDTH(5)
-)
-rx_ssio_ddr_inst (
-    .input_clk(phy_rgmii_rx_clk),
-    .input_d({phy_rgmii_rxd, phy_rgmii_rx_ctl}),
-    .output_clk(mac_gmii_rx_clk),
-    .output_q1({mac_gmii_rxd[3:0], rgmii_rx_ctl_1}),
-    .output_q2({mac_gmii_rxd[7:4], rgmii_rx_ctl_2})
-);
+  ssio_ddr_in #(
+      .TARGET(TARGET),
+      .CLOCK_INPUT_STYLE(CLOCK_INPUT_STYLE),
+      .IODDR_STYLE(IODDR_STYLE),
+      .WIDTH(5)
+  ) rx_ssio_ddr_inst (
+      .input_clk(phy_rgmii_rx_clk),
+      .input_d({phy_rgmii_rxd, phy_rgmii_rx_ctl}),
+      .output_clk(mac_gmii_rx_clk),
+      .output_q1({mac_gmii_rxd[3:0], rgmii_rx_ctl_1}),
+      .output_q2({mac_gmii_rxd[7:4], rgmii_rx_ctl_2})
+  );
 
-assign mac_gmii_rx_dv = rgmii_rx_ctl_1;
-assign mac_gmii_rx_er = rgmii_rx_ctl_1 ^ rgmii_rx_ctl_2;
+  assign mac_gmii_rx_dv = rgmii_rx_ctl_1;
+  assign mac_gmii_rx_er = rgmii_rx_ctl_1 ^ rgmii_rx_ctl_2;
 
 
 
-reg rgmii_tx_clk_1 = 1'b1;
-reg rgmii_tx_clk_2 = 1'b0;
-reg rgmii_tx_clk_en = 1'b1;
+  reg rgmii_tx_clk_1 = 1'b1;
+  reg rgmii_tx_clk_2 = 1'b0;
+  reg rgmii_tx_clk_en = 1'b1;
 
-reg [5:0] count_reg = 6'd0, count_next;
+  reg [5:0] count_reg = 6'd0, count_next;
 
-always @(posedge clk) begin
+  always @(posedge clk) begin
     rgmii_tx_clk_1 <= rgmii_tx_clk_2;
 
     if (speed == 2'b00) begin
 
-        count_reg <= count_reg + 1;
-        rgmii_tx_clk_en <= 1'b0;
-        if (count_reg == 24) begin
-            rgmii_tx_clk_1 <= 1'b1;
-            rgmii_tx_clk_2 <= 1'b1;
-        end else if (count_reg >= 49) begin
-            rgmii_tx_clk_2 <= 1'b0;
-            rgmii_tx_clk_en <= 1'b1;
-            count_reg <= 0;
-        end
-    end else if (speed == 2'b01) begin
-
-        count_reg <= count_reg + 1;
-        rgmii_tx_clk_en <= 1'b0;
-        if (count_reg == 2) begin
-            rgmii_tx_clk_1 <= 1'b1;
-            rgmii_tx_clk_2 <= 1'b1;
-        end else if (count_reg >= 4) begin
-            rgmii_tx_clk_2 <= 1'b0;
-            rgmii_tx_clk_en <= 1'b1;
-            count_reg <= 0;
-        end
-    end else begin
-
+      count_reg <= count_reg + 1;
+      rgmii_tx_clk_en <= 1'b0;
+      if (count_reg == 24) begin
         rgmii_tx_clk_1 <= 1'b1;
-        rgmii_tx_clk_2 <= 1'b0;
-        rgmii_tx_clk_en <= 1'b1;
-    end
-
-    if (rst) begin
-        rgmii_tx_clk_1 <= 1'b1;
+        rgmii_tx_clk_2 <= 1'b1;
+      end else if (count_reg >= 49) begin
         rgmii_tx_clk_2 <= 1'b0;
         rgmii_tx_clk_en <= 1'b1;
         count_reg <= 0;
-    end
-end
-
-reg [3:0] rgmii_txd_1 = 0;
-reg [3:0] rgmii_txd_2 = 0;
-reg rgmii_tx_ctl_1 = 1'b0;
-reg rgmii_tx_ctl_2 = 1'b0;
-
-reg gmii_clk_en = 1'b1;
-
-always @* begin
-    if (speed == 2'b00) begin
-
-        rgmii_txd_1 = mac_gmii_txd[3:0];
-        rgmii_txd_2 = mac_gmii_txd[3:0];
-        if (rgmii_tx_clk_1) begin
-            rgmii_tx_ctl_1 = mac_gmii_tx_en ^ mac_gmii_tx_er;
-            rgmii_tx_ctl_2 = mac_gmii_tx_en ^ mac_gmii_tx_er;
-        end else begin
-            rgmii_tx_ctl_1 = mac_gmii_tx_en;
-            rgmii_tx_ctl_2 = mac_gmii_tx_en;
-        end
-        gmii_clk_en = rgmii_tx_clk_en;
+      end
     end else if (speed == 2'b01) begin
 
-        rgmii_txd_1 = mac_gmii_txd[3:0];
-        rgmii_txd_2 = mac_gmii_txd[3:0];
-        if (rgmii_tx_clk_1) begin
-            rgmii_tx_ctl_1 = mac_gmii_tx_en ^ mac_gmii_tx_er;
-            rgmii_tx_ctl_2 = mac_gmii_tx_en ^ mac_gmii_tx_er;
-        end else begin
-            rgmii_tx_ctl_1 = mac_gmii_tx_en;
-            rgmii_tx_ctl_2 = mac_gmii_tx_en;
-        end
-        gmii_clk_en = rgmii_tx_clk_en;
+      count_reg <= count_reg + 1;
+      rgmii_tx_clk_en <= 1'b0;
+      if (count_reg == 2) begin
+        rgmii_tx_clk_1 <= 1'b1;
+        rgmii_tx_clk_2 <= 1'b1;
+      end else if (count_reg >= 4) begin
+        rgmii_tx_clk_2 <= 1'b0;
+        rgmii_tx_clk_en <= 1'b1;
+        count_reg <= 0;
+      end
     end else begin
 
-        rgmii_txd_1 = mac_gmii_txd[3:0];
-        rgmii_txd_2 = mac_gmii_txd[7:4];
-        rgmii_tx_ctl_1 = mac_gmii_tx_en;
-        rgmii_tx_ctl_2 = mac_gmii_tx_en ^ mac_gmii_tx_er;
-        gmii_clk_en = 1;
+      rgmii_tx_clk_1  <= 1'b1;
+      rgmii_tx_clk_2  <= 1'b0;
+      rgmii_tx_clk_en <= 1'b1;
     end
-end
 
-wire phy_rgmii_tx_clk_new;
-wire [3:0] phy_rgmii_txd_new;
+    if (rst) begin
+      rgmii_tx_clk_1 <= 1'b1;
+      rgmii_tx_clk_2 <= 1'b0;
+      rgmii_tx_clk_en <= 1'b1;
+      count_reg <= 0;
+    end
+  end
 
-reg [3:0] txd_pre_1 = 4'd0;
-reg [3:0] txd_pre_2 = 4'd0;
-reg ctl_pre_1 = 1'b0;
-reg ctl_pre_2 = 1'b0;
+  reg [3:0] rgmii_txd_1 = 0;
+  reg [3:0] rgmii_txd_2 = 0;
+  reg rgmii_tx_ctl_1 = 1'b0;
+  reg rgmii_tx_ctl_2 = 1'b0;
 
-always @(negedge clk) begin
+  reg gmii_clk_en = 1'b1;
+
+  always @* begin
+    if (speed == 2'b00) begin
+
+      rgmii_txd_1 = mac_gmii_txd[3:0];
+      rgmii_txd_2 = mac_gmii_txd[3:0];
+      if (rgmii_tx_clk_1) begin
+        rgmii_tx_ctl_1 = mac_gmii_tx_en ^ mac_gmii_tx_er;
+        rgmii_tx_ctl_2 = mac_gmii_tx_en ^ mac_gmii_tx_er;
+      end else begin
+        rgmii_tx_ctl_1 = mac_gmii_tx_en;
+        rgmii_tx_ctl_2 = mac_gmii_tx_en;
+      end
+      gmii_clk_en = rgmii_tx_clk_en;
+    end else if (speed == 2'b01) begin
+
+      rgmii_txd_1 = mac_gmii_txd[3:0];
+      rgmii_txd_2 = mac_gmii_txd[3:0];
+      if (rgmii_tx_clk_1) begin
+        rgmii_tx_ctl_1 = mac_gmii_tx_en ^ mac_gmii_tx_er;
+        rgmii_tx_ctl_2 = mac_gmii_tx_en ^ mac_gmii_tx_er;
+      end else begin
+        rgmii_tx_ctl_1 = mac_gmii_tx_en;
+        rgmii_tx_ctl_2 = mac_gmii_tx_en;
+      end
+      gmii_clk_en = rgmii_tx_clk_en;
+    end else begin
+
+      rgmii_txd_1 = mac_gmii_txd[3:0];
+      rgmii_txd_2 = mac_gmii_txd[7:4];
+      rgmii_tx_ctl_1 = mac_gmii_tx_en;
+      rgmii_tx_ctl_2 = mac_gmii_tx_en ^ mac_gmii_tx_er;
+      gmii_clk_en = 1;
+    end
+  end
+
+  wire phy_rgmii_tx_clk_new;
+  wire [3:0] phy_rgmii_txd_new;
+
+  reg [3:0] txd_pre_1 = 4'd0;
+  reg [3:0] txd_pre_2 = 4'd0;
+  reg ctl_pre_1 = 1'b0;
+  reg ctl_pre_2 = 1'b0;
+
+  always @(negedge clk) begin
     txd_pre_1 <= rgmii_txd_1;
     txd_pre_2 <= rgmii_txd_2;
     ctl_pre_1 <= rgmii_tx_ctl_1;
     ctl_pre_2 <= rgmii_tx_ctl_2;
-end
-wire phy_rgmii_tx_ctl_new;
+  end
+  wire phy_rgmii_tx_ctl_new;
 
-oddr #(
-    .TARGET(TARGET),
-    .IODDR_STYLE(IODDR_STYLE),
-    .WIDTH(1)
-)
-clk_oddr_inst (
-    .clk(USE_CLK90 == "TRUE" ? clk90 : clk),
-    .d1(rgmii_tx_clk_1),
-    .d2(rgmii_tx_clk_2),
-    .q(phy_rgmii_tx_clk)
-);
+  oddr #(
+      .TARGET(TARGET),
+      .IODDR_STYLE(IODDR_STYLE),
+      .WIDTH(1)
+  ) clk_oddr_inst (
+      .clk(USE_CLK90 == "TRUE" ? clk90 : clk),
+      .d1 (rgmii_tx_clk_1),
+      .d2 (rgmii_tx_clk_2),
+      .q  (phy_rgmii_tx_clk)
+  );
 
-oddr #(
-    .TARGET(TARGET),
-    .IODDR_STYLE(IODDR_STYLE),
-    .WIDTH(5)
-)
-data_oddr_inst (
-    .clk(clk),
-    .d1({txd_pre_1, ctl_pre_1}),
-    .d2({txd_pre_2, ctl_pre_2}),
-    .q({phy_rgmii_txd, phy_rgmii_tx_ctl})
-);
+  oddr #(
+      .TARGET(TARGET),
+      .IODDR_STYLE(IODDR_STYLE),
+      .WIDTH(5)
+  ) data_oddr_inst (
+      .clk(clk),
+      .d1 ({txd_pre_1, ctl_pre_1}),
+      .d2 ({txd_pre_2, ctl_pre_2}),
+      .q  ({phy_rgmii_txd, phy_rgmii_tx_ctl})
+  );
 
-assign mac_gmii_tx_clk = clk;
+  assign mac_gmii_tx_clk = clk;
 
-assign mac_gmii_tx_clk_en = gmii_clk_en;
+  assign mac_gmii_tx_clk_en = gmii_clk_en;
 
 
-reg [3:0] tx_rst_reg = 4'hf;
-assign mac_gmii_tx_rst = tx_rst_reg[0];
+  reg [3:0] tx_rst_reg = 4'hf;
+  assign mac_gmii_tx_rst = tx_rst_reg[0];
 
-always @(posedge mac_gmii_tx_clk or posedge rst) begin
+  always @(posedge mac_gmii_tx_clk or posedge rst) begin
     if (rst) begin
-        tx_rst_reg <= 4'hf;
+      tx_rst_reg <= 4'hf;
     end else begin
-        tx_rst_reg <= {1'b0, tx_rst_reg[3:1]};
+      tx_rst_reg <= {1'b0, tx_rst_reg[3:1]};
     end
-end
+  end
 
-reg [3:0] rx_rst_reg = 4'hf;
-assign mac_gmii_rx_rst = rx_rst_reg[0];
+  reg [3:0] rx_rst_reg = 4'hf;
+  assign mac_gmii_rx_rst = rx_rst_reg[0];
 
-always @(posedge mac_gmii_rx_clk or posedge rst) begin
+  always @(posedge mac_gmii_rx_clk or posedge rst) begin
     if (rst) begin
-        rx_rst_reg <= 4'hf;
+      rx_rst_reg <= 4'hf;
     end else begin
-        rx_rst_reg <= {1'b0, rx_rst_reg[3:1]};
+      rx_rst_reg <= {1'b0, rx_rst_reg[3:1]};
     end
-end
+  end
 
 endmodule
 

@@ -29,8 +29,7 @@ THE SOFTWARE.
 `default_nettype none
 
 
-module ssio_ddr_out #
-(
+module ssio_ddr_out #(
 
     parameter TARGET = "GENERIC",
 
@@ -41,43 +40,40 @@ module ssio_ddr_out #
     parameter USE_CLK90 = "TRUE",
 
     parameter WIDTH = 1
-)
-(
-    input  wire             clk,
-    input  wire             clk90,
+) (
+    input wire clk,
+    input wire clk90,
 
-    input  wire [WIDTH-1:0] input_d1,
-    input  wire [WIDTH-1:0] input_d2,
+    input wire [WIDTH-1:0] input_d1,
+    input wire [WIDTH-1:0] input_d2,
 
     output wire             output_clk,
     output wire [WIDTH-1:0] output_q
 );
 
-wire ref_clk = USE_CLK90 == "TRUE" ? clk90 : clk;
+  wire ref_clk = USE_CLK90 == "TRUE" ? clk90 : clk;
 
-oddr #(
-    .TARGET(TARGET),
-    .IODDR_STYLE(IODDR_STYLE),
-    .WIDTH(1)
-)
-clk_oddr_inst (
-    .clk(ref_clk),
-    .d1(1'b1),
-    .d2(1'b0),
-    .q(output_clk)
-);
+  oddr #(
+      .TARGET(TARGET),
+      .IODDR_STYLE(IODDR_STYLE),
+      .WIDTH(1)
+  ) clk_oddr_inst (
+      .clk(ref_clk),
+      .d1 (1'b1),
+      .d2 (1'b0),
+      .q  (output_clk)
+  );
 
-oddr #(
-    .TARGET(TARGET),
-    .IODDR_STYLE(IODDR_STYLE),
-    .WIDTH(WIDTH)
-)
-data_oddr_inst (
-    .clk(clk),
-    .d1(input_d1),
-    .d2(input_d2),
-    .q(output_q)
-);
+  oddr #(
+      .TARGET(TARGET),
+      .IODDR_STYLE(IODDR_STYLE),
+      .WIDTH(WIDTH)
+  ) data_oddr_inst (
+      .clk(clk),
+      .d1 (input_d1),
+      .d2 (input_d2),
+      .q  (output_q)
+  );
 
 endmodule
 

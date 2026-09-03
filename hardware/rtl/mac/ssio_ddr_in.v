@@ -29,8 +29,7 @@ THE SOFTWARE.
 `default_nettype none
 
 
-module ssio_ddr_in #
-(
+module ssio_ddr_in #(
 
     parameter TARGET = "GENERIC",
 
@@ -43,32 +42,30 @@ module ssio_ddr_in #
     parameter CLOCK_INPUT_STYLE = "BUFG",
 
     parameter WIDTH = 1
-)
-(
-    input  wire             input_clk,
+) (
+    input wire input_clk,
 
-    input  wire [WIDTH-1:0] input_d,
+    input wire [WIDTH-1:0] input_d,
 
-    output wire             output_clk,
+    output wire output_clk,
 
     output wire [WIDTH-1:0] output_q1,
     output wire [WIDTH-1:0] output_q2
 );
 
-wire clk_int;
-wire clk_io;
+  wire clk_int;
+  wire clk_io;
 
-generate
+  generate
 
-if (TARGET == "XILINX") begin
-
-
-
-    if (CLOCK_INPUT_STYLE == "BUFG") begin
+    if (TARGET == "XILINX") begin
 
 
-        BUFG
-        clk_bufg (
+
+      if (CLOCK_INPUT_STYLE == "BUFG") begin
+
+
+        BUFG clk_bufg (
             .I(input_clk),
             .O(clk_int)
         );
@@ -77,13 +74,12 @@ if (TARGET == "XILINX") begin
         assign clk_io = clk_int;
         assign output_clk = clk_int;
 
-    end else if (CLOCK_INPUT_STYLE == "BUFR") begin
+      end else if (CLOCK_INPUT_STYLE == "BUFR") begin
 
         assign clk_int = input_clk;
 
 
-        BUFIO
-        clk_bufio (
+        BUFIO clk_bufio (
             .I(clk_int),
             .O(clk_io)
         );
@@ -91,58 +87,54 @@ if (TARGET == "XILINX") begin
 
         BUFR #(
             .BUFR_DIVIDE("BYPASS")
-        )
-        clk_bufr (
-            .I(clk_int),
-            .O(output_clk),
-            .CE(1'b1),
+        ) clk_bufr (
+            .I  (clk_int),
+            .O  (output_clk),
+            .CE (1'b1),
             .CLR(1'b0)
         );
 
-    end else if (CLOCK_INPUT_STYLE == "BUFIO") begin
+      end else if (CLOCK_INPUT_STYLE == "BUFIO") begin
 
         assign clk_int = input_clk;
 
 
-        BUFIO
-        clk_bufio (
+        BUFIO clk_bufio (
             .I(clk_int),
             .O(clk_io)
         );
 
 
-        BUFG
-        clk_bufg (
+        BUFG clk_bufg (
             .I(clk_int),
             .O(output_clk)
         );
 
+      end
+
+    end else begin
+
+
+      assign clk_io = input_clk;
+
+
+      assign clk_int = input_clk;
+      assign output_clk = clk_int;
+
     end
 
-end else begin
+  endgenerate
 
-
-    assign clk_io = input_clk;
-
-
-    assign clk_int = input_clk;
-    assign output_clk = clk_int;
-
-end
-
-endgenerate
-
-iddr #(
-    .TARGET(TARGET),
-    .IODDR_STYLE(IODDR_STYLE),
-    .WIDTH(WIDTH)
-)
-data_iddr_inst (
-    .clk(clk_io),
-    .d(input_d),
-    .q1(output_q1),
-    .q2(output_q2)
-);
+  iddr #(
+      .TARGET(TARGET),
+      .IODDR_STYLE(IODDR_STYLE),
+      .WIDTH(WIDTH)
+  ) data_iddr_inst (
+      .clk(clk_io),
+      .d  (input_d),
+      .q1 (output_q1),
+      .q2 (output_q2)
+  );
 
 endmodule
 

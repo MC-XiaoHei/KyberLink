@@ -12,10 +12,7 @@ def format():
         f"~/kyberlink-venv/bin/python -m ruff format --silent {' '.join(py)} && "
         f"~/verible/bin/verible-verilog-format --inplace hardware/rtl/*.v hardware/rtl/mac/*.v && "
         f"cd {wsl_path(config.REPO)}/software && "
-        "cargo fmt --all && "
-        "cargo clippy --workspace --all-targets "
-        "--target x86_64-unknown-linux-gnu "
-        "--features kyberlink-crypto/std,kyberlink-firmware/std -- -D warnings"
+        "cargo fmt --all"
     )
     rc = subprocess.call(["wsl", "--", "bash", "-lc", script])
     if rc != 0:

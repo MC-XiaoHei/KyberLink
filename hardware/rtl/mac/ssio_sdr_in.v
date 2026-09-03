@@ -29,8 +29,7 @@ THE SOFTWARE.
 `default_nettype none
 
 
-module ssio_sdr_in #
-(
+module ssio_sdr_in #(
 
     parameter TARGET = "GENERIC",
 
@@ -40,31 +39,29 @@ module ssio_sdr_in #
     parameter CLOCK_INPUT_STYLE = "BUFIO2",
 
     parameter WIDTH = 1
-)
-(
-    input  wire             input_clk,
+) (
+    input wire input_clk,
 
-    input  wire [WIDTH-1:0] input_d,
+    input wire [WIDTH-1:0] input_d,
 
-    output wire             output_clk,
+    output wire output_clk,
 
     output wire [WIDTH-1:0] output_q
 );
 
-wire clk_int;
-wire clk_io;
+  wire clk_int;
+  wire clk_io;
 
-generate
+  generate
 
-if (TARGET == "XILINX") begin
-
-
-
-    if (CLOCK_INPUT_STYLE == "BUFG") begin
+    if (TARGET == "XILINX") begin
 
 
-        BUFG
-        clk_bufg (
+
+      if (CLOCK_INPUT_STYLE == "BUFG") begin
+
+
+        BUFG clk_bufg (
             .I(input_clk),
             .O(clk_int)
         );
@@ -73,13 +70,12 @@ if (TARGET == "XILINX") begin
         assign clk_io = clk_int;
         assign output_clk = clk_int;
 
-    end else if (CLOCK_INPUT_STYLE == "BUFR") begin
+      end else if (CLOCK_INPUT_STYLE == "BUFR") begin
 
         assign clk_int = input_clk;
 
 
-        BUFIO
-        clk_bufio (
+        BUFIO clk_bufio (
             .I(clk_int),
             .O(clk_io)
         );
@@ -87,33 +83,30 @@ if (TARGET == "XILINX") begin
 
         BUFR #(
             .BUFR_DIVIDE("BYPASS")
-        )
-        clk_bufr (
-            .I(clk_int),
-            .O(output_clk),
-            .CE(1'b1),
+        ) clk_bufr (
+            .I  (clk_int),
+            .O  (output_clk),
+            .CE (1'b1),
             .CLR(1'b0)
         );
 
-    end else if (CLOCK_INPUT_STYLE == "BUFIO") begin
+      end else if (CLOCK_INPUT_STYLE == "BUFIO") begin
 
         assign clk_int = input_clk;
 
 
-        BUFIO
-        clk_bufio (
+        BUFIO clk_bufio (
             .I(clk_int),
             .O(clk_io)
         );
 
 
-        BUFG
-        clk_bufg (
+        BUFG clk_bufg (
             .I(clk_int),
             .O(output_clk)
         );
 
-    end else if (CLOCK_INPUT_STYLE == "BUFIO2") begin
+      end else if (CLOCK_INPUT_STYLE == "BUFIO2") begin
 
 
         BUFIO2 #(
@@ -121,8 +114,7 @@ if (TARGET == "XILINX") begin
             .DIVIDE_BYPASS("TRUE"),
             .I_INVERT("FALSE"),
             .USE_DOUBLER("FALSE")
-        )
-        clk_bufio (
+        ) clk_bufio (
             .I(input_clk),
             .DIVCLK(clk_int),
             .IOCLK(clk_io),
@@ -130,35 +122,34 @@ if (TARGET == "XILINX") begin
         );
 
 
-        BUFG
-        clk_bufg (
+        BUFG clk_bufg (
             .I(clk_int),
             .O(output_clk)
         );
 
+      end
+
+    end else begin
+
+
+      assign clk_io = input_clk;
+
+
+      assign clk_int = input_clk;
+      assign output_clk = clk_int;
+
     end
 
-end else begin
+  endgenerate
 
+  (* IOB = "TRUE" *)
+  reg [WIDTH-1:0] output_q_reg = {WIDTH{1'b0}};
 
-    assign clk_io = input_clk;
+  assign output_q = output_q_reg;
 
-
-    assign clk_int = input_clk;
-    assign output_clk = clk_int;
-
-end
-
-endgenerate
-
-(* IOB = "TRUE" *)
-reg [WIDTH-1:0] output_q_reg = {WIDTH{1'b0}};
-
-assign output_q = output_q_reg;
-
-always @(posedge clk_io) begin
+  always @(posedge clk_io) begin
     output_q_reg <= input_d;
-end
+  end
 
 endmodule
 

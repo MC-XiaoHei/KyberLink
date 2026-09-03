@@ -7,116 +7,15 @@ import subprocess
 from . import config
 from .core import AppError, Result
 
-_gen_cache = None
 
-
-def _gen_all():
-    global _gen_cache
-    if _gen_cache is not None:
-        return _gen_cache
-    seen = {}
-    for mdiv in range(28, 57, 2):
-        for od0 in range(1, 128):
-            for frac in range(8):
-                f = 25.0 * mdiv / (od0 + frac / 8.0)
-                if f < 1 or f > 1400:
-                    continue
-                seen[round(f, 4)] = (mdiv, od0, frac, mdiv // 2)
-    _gen_cache = sorted((f, mdiv, od0, frac, od1) for f, (mdiv, od0, frac, od1) in seen.items())
-    return _gen_cache
-
-
-def _match(target):
-    best = None
-    for f, mdiv, od0, frac, od1 in _gen_all():
-        d = abs(f - target)
-        if best is None or d < best[0]:
-            best = (d, (f, mdiv, od0, frac, od1))
-    return best
-
-
-def _match_info(req):
-    dist, (f, mdiv, od0, frac, od1) = _match(req)
-    return {
-        "req_freq": req,
-        "freq": f,
-        "mdiv": mdiv,
-        "odiv0": od0,
-        "odiv0_frac": frac,
-        "freq_error": abs(f - req),
-    }
-
-
-def _freq_id(f):
-    return ("%.1f" % f).replace(".", "_")
-
-
-def _ratio_simple(freq):
-    num, den = round(freq * 1000), 50000
-    g = _gcd(num, den)
-    return num // g, den // g
-
-
-def _gcd(a, b):
-    while b:
-        a, b = b, a % b
-    return a
-
-
-def gen_clk_cfg(boot, out_dir):
-    os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, "hw_clk_cfg.v")
-    cpu_boot = float(os.environ.get("CPU_FREQ", "75.0"))
-    mac_f = 125.0
-    _, (cf, cm, co0, cfr, co1) = _match(cpu_boot)
-    _, (mf, mm, mo0, mfr, mo1) = _match(mac_f)
-    dm, do0, dfr = (
-        _match_info(boot)["mdiv"],
-        _match_info(boot)["odiv0"],
-        _match_info(boot)["odiv0_frac"],
-    )
-    with open(path, "w") as f:
-        f.write("`define CPU_CLOCK_HZ %d\n" % int(cpu_boot * 1e6))
-        f.write("`define DATA_MDIV %d\n" % dm)
-        f.write("`define DATA_ODIV0 %d\n" % do0)
-        f.write("`define DATA_ODIV0_FRAC %d\n" % dfr)
-        f.write("`define DATA_ODIV1 %d\n" % do0)
-        f.write("`define CLK_MDIV %d\n" % dm)
-        f.write("`define CLK_ODIV0 %d\n" % do0)
-        f.write("`define CLK_ODIV0_FRAC %d\n" % dfr)
-        f.write("`define CLK_ODIV1 %d\n" % (dm // 2))
-        for pfx, (pm, po0, pfr, po1) in (
-            ("CPU", (cm, co0, cfr, co1)),
-            ("MAC", (mm, mo0, mfr, mo1)),
-        ):
-            f.write("`define %s_MDIV %d\n" % (pfx, pm))
-            f.write("`define %s_ODIV0 %d\n" % (pfx, po0))
-            f.write("`define %s_ODIV0_FRAC %d\n" % (pfx, pfr))
-            f.write("`define %s_ODIV1 %d\n" % (pfx, po1))
-    return path
-
-
-def gen_sdc(target, out_dir):
+def gen_sdc(out_dir):
     sdc_src = os.environ.get("PNR_SDC_SRC") or os.path.join(config.SYNTH, "timing.sdc")
-    out = []
-    num, den = _ratio_simple(target)
-    cpu_freq = float(os.environ.get("CPU_FREQ", "75.0"))
-    cn, cd = _ratio_simple(cpu_freq)
-    for ln in open(sdc_src):
-        if "clk_dp" in ln and "create_generated_clock" in ln:
-            ln = re.sub(r"-multiply_by \d+", "-multiply_by %d" % num, ln)
-            ln = re.sub(r"-divide_by \d+", "-divide_by %d" % den, ln)
-        elif "clk_nrv" in ln and "create_generated_clock" in ln:
-            ln = re.sub(r"-multiply_by \d+", "-multiply_by %d" % cn, ln)
-            ln = re.sub(r"-divide_by \d+", "-divide_by %d" % cd, ln)
-        out.append(ln)
-    path = os.path.join(out_dir, "timing_gen.sdc")
-    with open(path, "w") as f:
-        f.writelines(out)
+    path = os.path.join(out_dir, "timing.sdc")
+    shutil.copyfile(sdc_src, path)
     return path
 
 
-def build_tcl(cfg_path, sdc_path, cst, target, device, dev_ver, place_opt, route_opt):
+def build_tcl(sdc_path, cst, device, dev_ver, place_opt, route_opt):
     top_src = os.environ.get("PNR_TOP_SRC")
     files = []
     for ext in ("*.v", "*.vhd"):
@@ -131,8 +30,7 @@ def build_tcl(cfg_path, sdc_path, cst, target, device, dev_ver, place_opt, route
     lines = [
         "set_device %s -name %s -device_version %s"
         % (device, os.environ.get("DEVICE_NAME", "GW5A-25"), dev_ver),
-        "set_option -global_freq %s" % target,
-        "set_option -include_path %s" % os.path.dirname(cfg_path).replace("\\", "/"),
+        "set_option -include_path %s" % os.path.dirname(sdc_path).replace("\\", "/"),
         "set_option -top_module full_top",
         "set_option -compiler_compatible 1",
         "set_option -resolve_multiple_driver 1",
@@ -217,7 +115,7 @@ def force_rmtree(path):
     shutil.rmtree(path, onerror=onerr)
 
 
-def _archive_artifacts(work_dir, fid):
+def _archive_artifacts(work_dir):
     rd = config.run_dir()
     if not rd:
         return
@@ -226,7 +124,7 @@ def _archive_artifacts(work_dir, fid):
         for nm in sorted(os.listdir(gws)):
             p = os.path.join(gws, nm)
             if os.path.isfile(p) and nm.endswith((".html", ".xml", ".log", ".vg")):
-                shutil.copy2(p, os.path.join(rd, "syn_%s_%s" % (fid, nm)))
+                shutil.copy2(p, os.path.join(rd, "syn_" + nm))
     pnr_dir = os.path.join(work_dir, "impl", "pnr")
     if os.path.isdir(pnr_dir):
         for nm in sorted(os.listdir(pnr_dir)):
@@ -234,23 +132,19 @@ def _archive_artifacts(work_dir, fid):
             if not os.path.isfile(p):
                 continue
             if nm == "project.rpt.html":
-                shutil.copy2(p, os.path.join(rd, "pnr_%s.rpt.html" % fid))
+                shutil.copy2(p, os.path.join(rd, "pnr.rpt.html"))
             elif nm == "project.timing_paths":
-                shutil.copy2(p, os.path.join(rd, "pnr_%s.timing_paths" % fid))
+                shutil.copy2(p, os.path.join(rd, "pnr.timing_paths"))
             elif nm.endswith((".html", ".xml", ".log", ".txt")):
-                shutil.copy2(p, os.path.join(rd, "pnr_%s_%s" % (fid, nm)))
+                shutil.copy2(p, os.path.join(rd, "pnr_" + nm))
 
 
-def pnr_run(freq, target, place_opt, route_opt, device, dev_ver, work_dir, log_path, cst=None):
-    mi = _match_info(freq)
+def pnr_run(target, place_opt, route_opt, device, dev_ver, work_dir, log_path, cst=None):
     if os.path.isdir(work_dir):
         force_rmtree(work_dir)
     os.makedirs(work_dir)
-    cfg_path = gen_clk_cfg(mi["freq"], work_dir)
-    sdc_path = gen_sdc(target, work_dir)
-    tcl_text, files = build_tcl(
-        cfg_path, sdc_path, cst, target, device, dev_ver, place_opt, route_opt
-    )
+    sdc_path = gen_sdc(work_dir)
+    tcl_text, files = build_tcl(sdc_path, cst, device, dev_ver, place_opt, route_opt)
     tcl_path = os.path.join(work_dir, "build.tcl")
     with open(tcl_path, "w") as f:
         f.write(tcl_text)
@@ -262,8 +156,8 @@ def pnr_run(freq, target, place_opt, route_opt, device, dev_ver, work_dir, log_p
     pnr_dir = os.path.join(work_dir, "impl", "pnr")
     timing = os.path.join(pnr_dir, "project.timing_paths")
     rpt = os.path.join(pnr_dir, "project.rpt.html")
-    run = dict(mi)
-    _archive_artifacts(work_dir, _freq_id(freq))
+    run = {"req_freq": target}
+    _archive_artifacts(work_dir)
     if rc != 0:
         run.update({"status": "fail", "worst_slack": None, "paths": [], "log": log_path})
         return run
@@ -288,30 +182,24 @@ def pnr():
     place_opt = int(os.environ.get("PLACE_OPTION", "1"))
     route_opt = int(os.environ.get("ROUTE_OPTION", "2"))
     target = float(os.environ.get("TARGET_FREQ", "125.0"))
-    boot = float(os.environ.get("BOOT_FREQ", "100.0"))
     if target < 1 or target > 800:
         raise AppError("TARGET_FREQ out of range: %s" % target, 2)
-    if boot < 1 or boot > 1400:
-        raise AppError("BOOT_FREQ out of range: %s" % boot, 2)
     work_dir = os.path.abspath(
-        os.environ.get("PNR_WORK_DIR")
-        or os.path.join(config.BUILD, "synth", "impl_" + _freq_id(boot))
+        os.environ.get("PNR_WORK_DIR") or os.path.join(config.BUILD, "synth", "impl")
     )
     log_path = (
         os.path.join(work_dir, "pnr.log")
         if os.environ.get("PNR_WORK_DIR")
         else (
-            os.path.join(config.run_dir(), "pnr_%s.log" % _freq_id(boot))
+            os.path.join(config.run_dir(), "pnr.log")
             if config.run_dir()
             else os.path.join(work_dir, "pnr.log")
         )
     )
     cst = os.path.join(config.SYNTH, "full_top.cst")
-    run = pnr_run(boot, target, place_opt, route_opt, device, dev_ver, work_dir, log_path, cst=cst)
+    run = pnr_run(target, place_opt, route_opt, device, dev_ver, work_dir, log_path, cst=cst)
     cfg = {
         "target": target,
-        "boot": boot,
-        "mode": "single",
         "place": place_opt,
         "route": route_opt,
         "runs": [run],
