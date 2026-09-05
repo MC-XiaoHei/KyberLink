@@ -1,6 +1,6 @@
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles
+from cocotb.triggers import ClockCycles, Timer
 
 KEY = int.from_bytes(bytes(range(32)), "big")
 
@@ -11,10 +11,11 @@ async def spi_write(dut, addr, data):
     word = (addr << 32) | data
     for i in range(39, -1, -1):
         dut.spi_mosi.value = (word >> i) & 1
+        await ClockCycles(dut.clk, 2)
         dut.spi_sck.value = 1
-        await ClockCycles(dut.clk, 1)
+        await ClockCycles(dut.clk, 2)
         dut.spi_sck.value = 0
-        await ClockCycles(dut.clk, 1)
+        await ClockCycles(dut.clk, 2)
     dut.spi_csn.value = 1
     await ClockCycles(dut.clk, 2)
 
@@ -26,12 +27,13 @@ async def spi_read(dut, addr):
     got = 0
     for i in range(39, -1, -1):
         dut.spi_mosi.value = (word >> i) & 1
+        await ClockCycles(dut.clk, 2)
         dut.spi_sck.value = 1
-        await ClockCycles(dut.clk, 1)
+        await ClockCycles(dut.clk, 2)
         if i < 32:
             got = (got << 1) | int(dut.spi_miso.value)
         dut.spi_sck.value = 0
-        await ClockCycles(dut.clk, 1)
+        await ClockCycles(dut.clk, 2)
     dut.spi_csn.value = 1
     await ClockCycles(dut.clk, 2)
     return got
@@ -78,6 +80,7 @@ async def spi_regs_roundtrip(dut):
     for i in range(8):
         await spi_write(dut, 0x64 + i, (KEY >> (224 - 32 * i)) & 0xFFFFFFFF)
 
+    assert await spi_read(dut, 0x14) == src_ip
     assert await spi_read(dut, 0x08) == spi
     assert await spi_read(dut, 0x0C) == (salt & 0xFFFFFFFF)
     assert await spi_read(dut, 0x10) == (salt >> 32)
@@ -102,6 +105,50 @@ async def spi_regs_roundtrip(dut):
     assert int(dut.cfg_dst_port.value) == dst_port
     assert int(dut.cfg_src_mac.value) == src_mac
     assert int(dut.cfg_dst_mac.value) == dst_mac
+
+
+@cocotb.test()
+async def spi_half_key_write(dut):
+    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
+    dut.rst_n.value = 0
+    dut.spi_sck.value = 0
+    dut.spi_mosi.value = 0
+    dut.spi_csn.value = 1
+    dut.hsk_rx_wr.value = 0
+    dut.hsk_rx_data.value = 0
+    dut.hsk_rx_last.value = 0
+    dut.hsk_rx_len.value = 0
+    dut.hsk_tx_ready.value = 1
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+
+    full = 0xAABBCCDD
+    for i in range(3):
+        await spi_write(dut, 0x44 + i, full)
+    await spi_write(dut, 0x00, 1)
+    await ClockCycles(dut.clk, 3)
+    got = int(dut.key_enc.value)
+    exp = (full << 224) | (full << 192) | (full << 160)
+    print(f"half_key enc={got:064x} exp={exp:064x}", flush=True)
+    assert got == exp, f"half key enc mismatch {got:064x} vs {exp:064x}"
+
+    for i in range(3):
+        await spi_write(dut, 0x44 + i, 0)
+    for i in range(3, 8):
+        await spi_write(dut, 0x44 + i, full)
+    got = [await spi_read(dut, 0x44 + i) for i in range(8)]
+    r47 = await spi_read(dut, 0x47)
+    r48 = await spi_read(dut, 0x48)
+    print(f"half_key2 r={[f'{g:08x}' for g in got]} r47={r47:08x} r48={r48:08x}", flush=True)
+    assert all(g == (0 if i < 3 else full) for i, g in enumerate(got)), "key2 readback mismatch"
+
+    await spi_write(dut, 0x00, 1)
+    await ClockCycles(dut.clk, 3)
+    got = int(dut.key_enc.value)
+    exp = (full << 128) | (full << 96) | (full << 64) | (full << 32) | full
+    print(f"half_key2 enc={got:064x} exp={exp:064x}", flush=True)
+    assert got == exp, f"half key2 enc mismatch {got:064x} vs {exp:064x}"
 
 
 @cocotb.test()
@@ -162,3 +209,192 @@ async def spi_hsk_fifo(dut):
     await c
     assert tx_done, "tx never finished"
     assert out == payload, f"tx mismatch {out} vs {payload}"
+
+
+@cocotb.test()
+async def err_counters_and_soft_rst(dut):
+    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
+    dut.rst_n.value = 0
+    dut.spi_sck.value = 0
+    dut.spi_mosi.value = 0
+    dut.spi_csn.value = 1
+    dut.err_badtag_i.value = 0
+    dut.err_badpad_i.value = 0
+    dut.err_replay_i.value = 0
+    dut.err_oversize_i.value = 0
+    dut.err_rxdrop_i.value = 0
+    dut.hsk_rx_wr.value = 0
+    dut.hsk_rx_data.value = 0
+    dut.hsk_rx_last.value = 0
+    dut.hsk_rx_len.value = 0
+    dut.hsk_tx_ready.value = 1
+    dut.seq_upd.value = 0
+    dut.seq_val.value = 0
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+
+    cfg = 0xA5A5A5A5
+    await spi_write(dut, 0x08, cfg)
+
+    for _ in range(3):
+        dut.err_badtag_i.value = 1
+        await ClockCycles(dut.clk, 1)
+        dut.err_badtag_i.value = 0
+        await ClockCycles(dut.clk, 1)
+    for _ in range(2):
+        dut.err_replay_i.value = 1
+        await ClockCycles(dut.clk, 1)
+        dut.err_replay_i.value = 0
+        await ClockCycles(dut.clk, 1)
+    dut.err_rxdrop_i.value = 1
+    await ClockCycles(dut.clk, 1)
+    dut.err_rxdrop_i.value = 0
+    await ClockCycles(dut.clk, 1)
+
+    assert await spi_read(dut, 0x50) == 3, "badtag count"
+    assert await spi_read(dut, 0x54) == 0, "badpad count"
+    assert await spi_read(dut, 0x58) == 2, "replay count"
+    assert await spi_read(dut, 0x5C) == 0, "oversize count"
+    assert await spi_read(dut, 0x60) == 1, "rxdrop count"
+
+    await spi_write(dut, 0x00, 4)
+    await ClockCycles(dut.clk, 2)
+    assert await spi_read(dut, 0x50) == 0, "badtag not cleared"
+    assert await spi_read(dut, 0x58) == 0, "replay not cleared"
+    assert await spi_read(dut, 0x60) == 0, "rxdrop not cleared"
+    assert await spi_read(dut, 0x08) == cfg, "cfg lost after soft rst"
+
+    dut.err_oversize_i.value = 1
+    await ClockCycles(dut.clk, 1)
+    dut.err_oversize_i.value = 0
+    await ClockCycles(dut.clk, 1)
+    assert await spi_read(dut, 0x5C) == 1, "oversize after soft rst"
+
+
+@cocotb.test()
+async def timing_injection(dut):
+    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
+    dut.rst_n.value = 0
+    dut.spi_sck.value = 0
+    dut.spi_mosi.value = 0
+    dut.spi_csn.value = 1
+    dut.hsk_rx_wr.value = 0
+    dut.hsk_rx_data.value = 0
+    dut.hsk_rx_last.value = 0
+    dut.hsk_rx_len.value = 0
+    dut.hsk_tx_ready.value = 1
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+
+    await spi_write(dut, 0x08, 0xCAFEBABE)
+
+    dut.spi_csn.value = 0
+    await ClockCycles(dut.clk, 3)
+    for i in range(39, -1, -1):
+        dut.spi_mosi.value = ((0x08 << 32) | 0xDEADBEEF) >> i & 1
+        await ClockCycles(dut.clk, 2)
+        dut.spi_sck.value = 1
+        await ClockCycles(dut.clk, 2)
+        dut.spi_sck.value = 0
+        await Timer(4, "ns")
+        dut.spi_sck.value = 1
+        await Timer(3, "ns")
+        dut.spi_sck.value = 0
+        await Timer(1, "ns")
+    dut.spi_csn.value = 1
+    await ClockCycles(dut.clk, 4)
+    got = await spi_read(dut, 0x08)
+    assert got == 0xCAFEBABE, f"sub-window glitch latched {got:08x}"
+
+    word = (0x08 << 32) | 0x11112222
+    dut.spi_csn.value = 0
+    await ClockCycles(dut.clk, 2)
+    for i in range(39, 19, -1):
+        dut.spi_mosi.value = (word >> i) & 1
+        await ClockCycles(dut.clk, 2)
+        dut.spi_sck.value = 1
+        await ClockCycles(dut.clk, 2)
+        dut.spi_sck.value = 0
+        await ClockCycles(dut.clk, 2)
+    dut.spi_csn.value = 1
+    await ClockCycles(dut.clk, 4)
+    assert await spi_read(dut, 0x08) == 0xCAFEBABE, "csn abort should not write"
+
+    word = (0x08 << 32) | 0x55667788
+    dut.spi_csn.value = 0
+    await ClockCycles(dut.clk, 2)
+    for i in range(39, -1, -1):
+        dut.spi_mosi.value = (word >> i) & 1
+        await ClockCycles(dut.clk, 2)
+        dut.spi_sck.value = 1
+        await ClockCycles(dut.clk, 2)
+        dut.spi_sck.value = 0
+        await ClockCycles(dut.clk, 2)
+    dut.spi_csn.value = 1
+    await ClockCycles(dut.clk, 4)
+    assert await spi_read(dut, 0x08) == 0x55667788, "next frame broken"
+
+
+@cocotb.test()
+async def soft_rst_mid_traffic(dut):
+    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
+    dut.rst_n.value = 0
+    dut.spi_sck.value = 0
+    dut.spi_mosi.value = 0
+    dut.spi_csn.value = 1
+    dut.err_badtag_i.value = 0
+    dut.err_badpad_i.value = 0
+    dut.err_replay_i.value = 0
+    dut.err_oversize_i.value = 0
+    dut.err_rxdrop_i.value = 0
+    dut.hsk_rx_wr.value = 0
+    dut.hsk_rx_data.value = 0
+    dut.hsk_rx_last.value = 0
+    dut.hsk_rx_len.value = 0
+    dut.hsk_tx_ready.value = 1
+    dut.seq_upd.value = 0
+    dut.seq_val.value = 0
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+
+    cfg = 0x12345678
+    await spi_write(dut, 0x08, cfg)
+    payload = [0x00112233, 0x44556677, 0x8899aabb, 0xccddeeff]
+
+    await spi_write(dut, 0x3C, len(payload) * 4)
+    for w in payload[:2]:
+        await spi_write(dut, 0x40, w)
+    dut.err_oversize_i.value = 1
+    await ClockCycles(dut.clk, 1)
+    dut.err_oversize_i.value = 0
+    await ClockCycles(dut.clk, 1)
+    assert await spi_read(dut, 0x5C) == 1, "oversize counted mid-traffic"
+
+    await spi_write(dut, 0x00, 4)
+    await ClockCycles(dut.clk, 2)
+    assert await spi_read(dut, 0x50) == 0, "badtag not cleared"
+    assert await spi_read(dut, 0x5C) == 0, "oversize not cleared"
+    assert await spi_read(dut, 0x08) == cfg, "cfg lost after mid-traffic soft rst"
+
+    out = []
+
+    async def collect_tx():
+        for _ in range(10000):
+            if int(dut.hsk_tx_valid.value):
+                out.append(int(dut.hsk_tx_data.value))
+                if int(dut.hsk_tx_last.value):
+                    return
+            await ClockCycles(dut.clk, 1)
+
+    await spi_write(dut, 0x3C, len(payload) * 4)
+    for w in payload:
+        await spi_write(dut, 0x40, w)
+    c = cocotb.start_soon(collect_tx())
+    await spi_write(dut, 0x00, 2)
+    await ClockCycles(dut.clk, 200)
+    await c
+    assert out == payload, f"tx mismatch {out} vs {payload}"
+    print("soft_rst_mid_traffic PASS", flush=True)

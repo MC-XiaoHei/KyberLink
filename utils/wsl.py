@@ -1,8 +1,8 @@
 import os
-import shutil
 import subprocess
 
 from . import config
+from .core import AppError
 
 
 def wsl_path(win):
@@ -35,9 +35,20 @@ def wsl_sim(mod, testcase=None):
         f"cd {wsl_path(config.REPO)} && "
         f"PYTHONPATH={wsl_path(config.REPO)} {venv}/bin/python -m utils.test_sim {mod}{tc} > {wsl_path(log)} 2>&1"
     )
-    rc = _wsl(script)
-    results = os.path.join(config.BUILD, "test", mod, "results.xml")
-    if os.path.exists(results):
-        shutil.copy2(results, os.path.join(rd, mod + ".results.xml"))
+    _wsl(script)
+    results = os.path.join(rd, mod + ".results.xml")
+    if not os.path.exists(results):
+        raise AppError(f"test {mod} produced no results.xml", 1)
+    from .test_sim import parse_results
+
+    metrics, _ = parse_results(results)
+    if metrics["fail"] > 0 or metrics["tests"] == 0:
+        failed = [c["name"] for c in metrics["testcases"] if c["status"] == "fail"]
+        raise AppError(
+            f"test {mod} failed {metrics['fail']}/{metrics['tests']}: {', '.join(failed)}", 1
+        )
+    print(
+        f"{mod:<12} pass={metrics['pass']} fail={metrics['fail']} skip={metrics['skip']}"
+    )
     print("log: " + os.path.relpath(log, config.REPO))
-    return rc
+    return 0

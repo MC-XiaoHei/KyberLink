@@ -85,12 +85,28 @@ module dual_top (
     wire ba_gmii_tx_en;
     wire ba_gmii_tx_er;
 
+    wire [7:0] a_mac_tx_txd;
+    wire a_mac_tx_en;
+    wire a_mac_tx_last;
+    wire a_mac_tx_ready;
+
+    axis_async_fifo #(
+        .DEPTH(2048), .DATA_WIDTH(8), .KEEP_ENABLE(0), .ID_ENABLE(0), .DEST_ENABLE(0), .USER_ENABLE(0)
+    ) u_a_tx_fifo (
+        .s_clk(clk), .s_rst(gtx_rst),
+        .s_axis_tdata(a_wan_txd), .s_axis_tvalid(a_wan_tx_en), .s_axis_tready(a_wan_tx_ready),
+        .s_axis_tlast(a_wan_tx_last),
+        .m_clk(clk), .m_rst(gtx_rst),
+        .m_axis_tdata(a_mac_tx_txd), .m_axis_tvalid(a_mac_tx_en), .m_axis_tready(a_mac_tx_ready),
+        .m_axis_tlast(a_mac_tx_last)
+    );
+
     eth_mac_1g #(
         .ENABLE_PADDING(1), .MIN_FRAME_LENGTH(64)
     ) u_a_wan_phy (
         .rx_clk(clk), .rx_rst(gtx_rst), .tx_clk(clk), .tx_rst(gtx_rst),
-        .tx_axis_tdata(a_wan_txd), .tx_axis_tvalid(a_wan_tx_en),
-        .tx_axis_tready(a_wan_tx_ready), .tx_axis_tlast(a_wan_tx_last),
+        .tx_axis_tdata(a_mac_tx_txd), .tx_axis_tvalid(a_mac_tx_en),
+        .tx_axis_tready(a_mac_tx_ready), .tx_axis_tlast(a_mac_tx_last),
         .tx_axis_tuser(1'b0),
         .rx_axis_tdata(a_wan_rxd), .rx_axis_tvalid(a_wan_rx_dv),
         .rx_axis_tlast(a_wan_rx_last), .rx_axis_tuser(),
@@ -132,12 +148,28 @@ module dual_top (
         .cfg_rx_lfc_en(1'b0), .cfg_rx_pfc_opcode(16'd0), .cfg_rx_pfc_en(1'b0)
     );
 
+    wire [7:0] b_mac_tx_txd;
+    wire b_mac_tx_en;
+    wire b_mac_tx_last;
+    wire b_mac_tx_ready;
+
+    axis_async_fifo #(
+        .DEPTH(2048), .DATA_WIDTH(8), .KEEP_ENABLE(0), .ID_ENABLE(0), .DEST_ENABLE(0), .USER_ENABLE(0)
+    ) u_b_tx_fifo (
+        .s_clk(clk), .s_rst(gtx_rst),
+        .s_axis_tdata(b_wan_txd), .s_axis_tvalid(b_wan_tx_en), .s_axis_tready(b_wan_tx_ready),
+        .s_axis_tlast(b_wan_tx_last),
+        .m_clk(clk), .m_rst(gtx_rst),
+        .m_axis_tdata(b_mac_tx_txd), .m_axis_tvalid(b_mac_tx_en), .m_axis_tready(b_mac_tx_ready),
+        .m_axis_tlast(b_mac_tx_last)
+    );
+
     eth_mac_1g #(
         .ENABLE_PADDING(1), .MIN_FRAME_LENGTH(64)
     ) u_b_wan_phy (
         .rx_clk(clk), .rx_rst(gtx_rst), .tx_clk(clk), .tx_rst(gtx_rst),
-        .tx_axis_tdata(b_wan_txd), .tx_axis_tvalid(b_wan_tx_en),
-        .tx_axis_tready(b_wan_tx_ready), .tx_axis_tlast(b_wan_tx_last),
+        .tx_axis_tdata(b_mac_tx_txd), .tx_axis_tvalid(b_mac_tx_en),
+        .tx_axis_tready(b_mac_tx_ready), .tx_axis_tlast(b_mac_tx_last),
         .tx_axis_tuser(1'b0),
         .rx_axis_tdata(b_wan_rxd), .rx_axis_tvalid(b_wan_rx_dv),
         .rx_axis_tlast(b_wan_rx_last), .rx_axis_tuser(),

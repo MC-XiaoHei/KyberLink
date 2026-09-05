@@ -29,7 +29,7 @@ def S(*p):
 
 
 UNIT = ["aes", "aes_bw", "gcm", "spi", "eth", "bram"]
-INTG = ["bridge", "bw", "full_single", "full_dual"]
+INTG = ["bridge", "bw", "full_single", "full_dual", "rgmii", "gmii_rx"]
 
 BRIDGE_SRC = [
     R("sbox8.v"),
@@ -63,6 +63,7 @@ FULL_CORE = [
     R("spi_top.v"),
     R("ip_udp_eth_rx.v"),
     R("ip_udp_eth_tx.v"),
+    R("ctrl_resp.v"),
     R("full_top.v"),
 ]
 MAC = [
@@ -137,7 +138,7 @@ CONF = {
     },
     "eth": {
         "top": "eth_top",
-        "src": [R("ip_udp_eth_rx.v"), R("ip_udp_eth_tx.v"), R("eth_top.v")],
+        "src": [R("ip_udp_eth_rx.v"), R("ip_udp_eth_tx.v"), R("ctrl_resp.v"), R("eth_top.v")],
     },
     "bram": {
         "top": "bram_128x256",
@@ -152,6 +153,16 @@ CONF = {
         "top": "dual_top",
         "test_module": "tb_dual",
         "src": FULL_CORE + MAC + [S("gowin_dpb_sim.v"), S("dual_top.v")],
+    },
+    "rgmii": {
+        "top": "dual_rgmii_top",
+        "test_module": "tb_rgmii",
+        "src": FULL_CORE + MAC + [S("gowin_dpb_sim.v"), S("dual_rgmii_top.v")],
+    },
+    "gmii_rx": {
+        "top": "gmii_rx_top",
+        "test_module": "tb_gmii_rx",
+        "src": MAC + [S("gmii_rx_top.v")],
     },
 }
 
@@ -175,7 +186,10 @@ def gw_sh():
 
 
 def run_dir(suite="run"):
-    ts = os.environ.get("RUN_TS", f"{time.strftime('%y%m%d')}/{time.strftime('%H%M')}")
+    ts = os.environ.get(
+        "RUN_TS",
+        f"{time.strftime('%y%m%d')}/{time.strftime('%H')}/{time.strftime('%M')}/{time.strftime('%S')}",
+    )
     d = os.path.join(LOGS, ts, suite)
     os.makedirs(d, exist_ok=True)
     return d

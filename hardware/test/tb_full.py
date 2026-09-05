@@ -11,10 +11,11 @@ async def spi_write(dut, addr, data):
     word = (addr << 32) | data
     for i in range(39, -1, -1):
         dut.spi_mosi.value = (word >> i) & 1
+        await ClockCycles(dut.clk, 2)
         dut.spi_sck.value = 1
-        await ClockCycles(dut.clk, 1)
+        await ClockCycles(dut.clk, 2)
         dut.spi_sck.value = 0
-        await ClockCycles(dut.clk, 1)
+        await ClockCycles(dut.clk, 2)
     dut.spi_csn.value = 1
     await ClockCycles(dut.clk, 2)
 
@@ -26,12 +27,13 @@ async def spi_read(dut, addr):
     got = 0
     for i in range(39, -1, -1):
         dut.spi_mosi.value = (word >> i) & 1
+        await ClockCycles(dut.clk, 2)
         dut.spi_sck.value = 1
-        await ClockCycles(dut.clk, 1)
+        await ClockCycles(dut.clk, 2)
         if i < 32:
             got = (got << 1) | int(dut.spi_miso.value)
         dut.spi_sck.value = 0
-        await ClockCycles(dut.clk, 1)
+        await ClockCycles(dut.clk, 2)
     dut.spi_csn.value = 1
     await ClockCycles(dut.clk, 2)
     return got
@@ -58,6 +60,15 @@ async def spi_configure(dut):
     await ClockCycles(dut.clk, 3)
 
 
+async def drain_garp(dut):
+    for _ in range(2000):
+        if int(dut.wan_tx_en.value) and int(dut.wan_tx_last.value):
+            await ClockCycles(dut.clk, 5)
+            return
+        await ClockCycles(dut.clk, 1)
+    raise AssertionError("garp not seen after key_load")
+
+
 @cocotb.test()
 async def end_to_end(dut):
     cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
@@ -78,6 +89,7 @@ async def end_to_end(dut):
     await ClockCycles(dut.clk, 2)
     await spi_configure(dut)
     await ClockCycles(dut.clk, 10)
+    await drain_garp(dut)
 
     n = 4
     frame = make_frame(100)
@@ -129,12 +141,13 @@ async def end_to_end(dut):
     plain = bytearray()
 
     async def dec_collect():
-        while True:
+        for _ in range(20000):
             if int(dut.lan_tx_en.value):
                 plain.append(int(dut.lan_txd.value))
                 if int(dut.lan_tx_last.value):
                     return
             await ClockCycles(dut.clk, 1)
+        raise AssertionError("dec no output")
 
     async def rsp_drive():
         for j, b in enumerate(rsp):
@@ -150,6 +163,271 @@ async def end_to_end(dut):
     await rsp_drive()
     await c
     assert bytes(plain) == frame, f"roundtrip: {len(plain)} vs {len(frame)}"
+
+
+@cocotb.test()
+async def err_counters(dut):
+    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
+    dut.rst_n.value = 0
+    dut.spi_sck.value = 0
+    dut.spi_mosi.value = 0
+    dut.spi_csn.value = 1
+    dut.lan_rxd.value = 0
+    dut.lan_rx_dv.value = 0
+    dut.lan_rx_last.value = 0
+    dut.wan_rxd.value = 0
+    dut.wan_rx_dv.value = 0
+    dut.wan_rx_last.value = 0
+    dut.lan_tx_ready.value = 1
+    dut.wan_tx_ready.value = 1
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+    await spi_configure(dut)
+    await ClockCycles(dut.clk, 10)
+    await drain_garp(dut)
+
+    frame = make_frame(100)
+    esp_out = bytearray()
+
+    async def wan_collect():
+        while True:
+            if int(dut.wan_tx_en.value):
+                esp_out.append(int(dut.wan_txd.value))
+                if int(dut.wan_tx_last.value):
+                    return
+            await ClockCycles(dut.clk, 1)
+
+    c = cocotb.start_soon(wan_collect())
+    for j, b in enumerate(frame):
+        dut.lan_rxd.value = b
+        dut.lan_rx_dv.value = 1
+        dut.lan_rx_last.value = 1 if j == len(frame) - 1 else 0
+        await ClockCycles(dut.clk, 1)
+    dut.lan_rx_dv.value = 0
+    dut.lan_rx_last.value = 0
+    await c
+    esp = bytearray(esp_out)
+
+    async def wait_idle():
+        for _ in range(200000):
+            if int(dut.u_bridge.u_dec.ds.value) == 0 and int(dut.u_bridge.u_dec.dec_pend.value) == 0:
+                return
+            await ClockCycles(dut.clk, 1)
+        raise AssertionError("dec never idle")
+
+    async def drive_esp(data):
+        rsp = bytearray()
+        rsp += SRC_MAC.to_bytes(6, "big")
+        rsp += DST_MAC.to_bytes(6, "big")
+        rsp += data
+        for j, b in enumerate(rsp):
+            dut.wan_rxd.value = b
+            dut.wan_rx_dv.value = 1
+            dut.wan_rx_last.value = 1 if j == len(rsp) - 1 else 0
+            await ClockCycles(dut.clk, 1)
+        dut.wan_rx_dv.value = 0
+        dut.wan_rx_last.value = 0
+        await ClockCycles(dut.clk, 100)
+
+    bad = bytearray(esp[12:])
+    bad[-1] ^= 0xFF
+    bad[-2] ^= 0xFF
+    await drive_esp(bad)
+    await wait_idle()
+    await drive_esp(bad)
+    await wait_idle()
+    bt, rp = await spi_read(dut, 0x50), await spi_read(dut, 0x58)
+    assert bt == 1 and rp == 1, f"badtag {bt} replay {rp}"
+
+    big = bytes((j * 3) & 0xFF for j in range(2200))
+    for j, b in enumerate(big):
+        dut.lan_rxd.value = b
+        dut.lan_rx_dv.value = 1
+        dut.lan_rx_last.value = 1 if j == len(big) - 1 else 0
+        await ClockCycles(dut.clk, 1)
+    dut.lan_rx_dv.value = 0
+    dut.lan_rx_last.value = 0
+    await ClockCycles(dut.clk, 4000)
+    assert await spi_read(dut, 0x5C) == 1, f"oversize {await spi_read(dut, 0x5C)}"
+
+    plain = bytearray()
+
+    async def dec_collect():
+        for _ in range(20000):
+            if int(dut.lan_tx_en.value):
+                plain.append(int(dut.lan_txd.value))
+                if int(dut.lan_tx_last.value):
+                    return
+            await ClockCycles(dut.clk, 1)
+        d = dut.u_bridge.u_dec
+        raise AssertionError("dec no output")
+
+    esp2 = bytearray()
+
+    async def wan_collect2():
+        for _ in range(20000):
+            if int(dut.wan_tx_en.value):
+                esp2.append(int(dut.wan_txd.value))
+                if int(dut.wan_tx_last.value):
+                    return
+            await ClockCycles(dut.clk, 1)
+        raise AssertionError("enc no output")
+
+    cw = cocotb.start_soon(wan_collect2())
+    for j, b in enumerate(frame):
+        dut.lan_rxd.value = b
+        dut.lan_rx_dv.value = 1
+        dut.lan_rx_last.value = 1 if j == len(frame) - 1 else 0
+        await ClockCycles(dut.clk, 1)
+    dut.lan_rx_dv.value = 0
+    dut.lan_rx_last.value = 0
+    await cw
+    c = cocotb.start_soon(dec_collect())
+    await drive_esp(esp2[12:])
+    await c
+    assert bytes(plain) == frame, "recover after errors"
+
+    await spi_write(dut, 0x00, 4)
+    await ClockCycles(dut.clk, 2)
+    assert await spi_read(dut, 0x50) == 0, "soft rst clear badtag"
+    assert await spi_read(dut, 0x5C) == 0, "soft rst clear oversize"
+
+    plain2 = bytearray()
+
+    async def dec_collect2():
+        for _ in range(20000):
+            if int(dut.lan_tx_en.value):
+                plain2.append(int(dut.lan_txd.value))
+                if int(dut.lan_tx_last.value):
+                    return
+            await ClockCycles(dut.clk, 1)
+        raise AssertionError("dec no output after soft rst")
+
+    esp3 = bytearray()
+
+    async def wan_collect3():
+        for _ in range(20000):
+            if int(dut.wan_tx_en.value):
+                esp3.append(int(dut.wan_txd.value))
+                if int(dut.wan_tx_last.value):
+                    return
+            await ClockCycles(dut.clk, 1)
+        raise AssertionError("enc no output after soft rst")
+
+    cw2 = cocotb.start_soon(wan_collect3())
+    for j, b in enumerate(frame):
+        dut.lan_rxd.value = b
+        dut.lan_rx_dv.value = 1
+        dut.lan_rx_last.value = 1 if j == len(frame) - 1 else 0
+        await ClockCycles(dut.clk, 1)
+    dut.lan_rx_dv.value = 0
+    dut.lan_rx_last.value = 0
+    await cw2
+    c2 = cocotb.start_soon(dec_collect2())
+    await drive_esp(esp3[12:])
+    await c2
+    assert bytes(plain2) == frame, "link works after soft rst"
+
+
+@cocotb.test()
+async def oversize_drop(dut):
+    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
+    dut.rst_n.value = 0
+    dut.spi_sck.value = 0
+    dut.spi_mosi.value = 0
+    dut.spi_csn.value = 1
+    dut.lan_rxd.value = 0
+    dut.lan_rx_dv.value = 0
+    dut.lan_rx_last.value = 0
+    dut.wan_rxd.value = 0
+    dut.wan_rx_dv.value = 0
+    dut.wan_rx_last.value = 0
+    dut.lan_tx_ready.value = 1
+    dut.wan_tx_ready.value = 1
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+    await spi_configure(dut)
+    await ClockCycles(dut.clk, 10)
+    await drain_garp(dut)
+
+    cnt = 0
+
+    async def wan_watch():
+        nonlocal cnt
+        while True:
+            if int(dut.wan_tx_en.value):
+                cnt += 1
+            await ClockCycles(dut.clk, 1)
+
+    cocotb.start_soon(wan_watch())
+    big = bytes((j * 3) & 0xFF for j in range(2200))
+    for j, b in enumerate(big):
+        dut.lan_rxd.value = b
+        dut.lan_rx_dv.value = 1
+        dut.lan_rx_last.value = 1 if j == len(big) - 1 else 0
+        await ClockCycles(dut.clk, 1)
+    dut.lan_rx_dv.value = 0
+    dut.lan_rx_last.value = 0
+    await ClockCycles(dut.clk, 4000)
+    assert cnt == 0, f"oversize frame leaked {cnt} bytes to wan"
+    print("full oversize drop PASS", flush=True)
+
+
+@cocotb.test()
+async def bad_frame_silent(dut):
+    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
+    dut.rst_n.value = 0
+    dut.spi_sck.value = 0
+    dut.spi_mosi.value = 0
+    dut.spi_csn.value = 1
+    dut.lan_rxd.value = 0
+    dut.lan_rx_dv.value = 0
+    dut.lan_rx_last.value = 0
+    dut.wan_rxd.value = 0
+    dut.wan_rx_dv.value = 0
+    dut.wan_rx_last.value = 0
+    dut.lan_tx_ready.value = 1
+    dut.wan_tx_ready.value = 1
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+    await spi_configure(dut)
+    await ClockCycles(dut.clk, 10)
+    await drain_garp(dut)
+
+    bad_mac = (SRC_MAC ^ 0x02).to_bytes(6, "big")
+    hsk = b"\x11" * 8
+    total = 20 + 8 + len(hsk)
+    eth = bad_mac + SRC_MAC.to_bytes(6, "big") + b"\x08\x00"
+    ip = bytes([0x45, 0x00]) + total.to_bytes(2, "big") + b"\x00\x00\x40\x00\x40\x11\x00\x00" + SRC_IP.to_bytes(4, "big") + DST_IP.to_bytes(4, "big")
+    udp = (4501).to_bytes(2, "big") + (4501).to_bytes(2, "big") + (8 + len(hsk)).to_bytes(2, "big") + b"\x00\x00"
+    bad = eth + ip + udp + hsk + b"\x00" * 10
+
+    eth = SRC_MAC.to_bytes(6, "big") + SRC_MAC.to_bytes(6, "big") + b"\x08\x00"
+    good = eth + ip + udp + hsk + b"\x00" * 10
+
+    async def wan_send(frame):
+        for j, b in enumerate(frame):
+            dut.wan_rxd.value = b
+            dut.wan_rx_dv.value = 1
+            dut.wan_rx_last.value = 1 if j == len(frame) - 1 else 0
+            await ClockCycles(dut.clk, 1)
+        dut.wan_rx_dv.value = 0
+        dut.wan_rx_last.value = 0
+        await ClockCycles(dut.clk, 5)
+
+    await wan_send(bad)
+    await wan_send(good)
+    assert (await spi_read(dut, 0x04)) & 1, "good frame after bad frame lost"
+    ln = await spi_read(dut, 0x34) & 0xFFFF
+    assert ln == len(hsk), f"hsk len {ln} != {len(hsk)}"
+    words = [int.from_bytes(hsk[i:i+4], "big") for i in range(0, len(hsk), 4)]
+    for i, w in enumerate(words):
+        got = await spi_read(dut, 0x38)
+        assert got == w, f"hsk word {i}: {got:08x} vs {w:08x}"
+    print("full bad frame silent PASS", flush=True)
 
 
 @cocotb.test()
@@ -172,6 +450,7 @@ async def hsk_roundtrip(dut):
     await ClockCycles(dut.clk, 2)
     await spi_configure(dut)
     await ClockCycles(dut.clk, 10)
+    await drain_garp(dut)
 
     hsk = bytes(range(1, 33))
     eth = SRC_MAC.to_bytes(6, "big") + DST_MAC.to_bytes(6, "big") + b"\x08\x00"
@@ -218,3 +497,200 @@ async def hsk_roundtrip(dut):
     assert len(out) == 42 + len(payload), f"hsk frame len {len(out)}"
     assert out[36:38] == b"\x11\x95", f"dst port {out[36:38].hex()}"
     assert bytes(out[42:]) == payload, f"hsk payload {bytes(out[42:]).hex()}"
+
+
+@cocotb.test()
+async def soft_rst_mid_flight(dut):
+    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
+    dut.rst_n.value = 0
+    dut.spi_sck.value = 0
+    dut.spi_mosi.value = 0
+    dut.spi_csn.value = 1
+    dut.lan_rxd.value = 0
+    dut.lan_rx_dv.value = 0
+    dut.lan_rx_last.value = 0
+    dut.wan_rxd.value = 0
+    dut.wan_rx_dv.value = 0
+    dut.wan_rx_last.value = 0
+    dut.lan_tx_ready.value = 1
+    dut.wan_tx_ready.value = 1
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+    await spi_configure(dut)
+    await ClockCycles(dut.clk, 10)
+    await drain_garp(dut)
+
+    frame = make_frame(64)
+    esp_out = bytearray()
+
+    async def wan_watch():
+        for _ in range(30000):
+            if int(dut.wan_tx_en.value):
+                esp_out.append(int(dut.wan_txd.value))
+                if int(dut.wan_tx_last.value):
+                    return
+            await ClockCycles(dut.clk, 1)
+        raise AssertionError("no enc output")
+
+    c = cocotb.start_soon(wan_watch())
+    for j, b in enumerate(frame):
+        dut.lan_rxd.value = b
+        dut.lan_rx_dv.value = 1
+        dut.lan_rx_last.value = 1 if j == len(frame) - 1 else 0
+        await ClockCycles(dut.clk, 1)
+    dut.lan_rx_dv.value = 0
+    dut.lan_rx_last.value = 0
+    await c
+    assert len(esp_out) > 40
+
+    await spi_write(dut, 0x00, 4)
+    await ClockCycles(dut.clk, 20)
+
+    esp2 = bytearray()
+
+    async def wan_watch2():
+        for _ in range(30000):
+            if int(dut.wan_tx_en.value):
+                esp2.append(int(dut.wan_txd.value))
+                if int(dut.wan_tx_last.value):
+                    return
+            await ClockCycles(dut.clk, 1)
+        raise AssertionError("no enc output after soft rst")
+
+    cw = cocotb.start_soon(wan_watch2())
+    for j, b in enumerate(frame):
+        dut.lan_rxd.value = b
+        dut.lan_rx_dv.value = 1
+        dut.lan_rx_last.value = 1 if j == len(frame) - 1 else 0
+        await ClockCycles(dut.clk, 1)
+    dut.lan_rx_dv.value = 0
+    dut.lan_rx_last.value = 0
+    await cw
+
+    plain = bytearray()
+
+    async def dec_collect():
+        for _ in range(20000):
+            if int(dut.lan_tx_en.value):
+                plain.append(int(dut.lan_txd.value))
+                if int(dut.lan_tx_last.value):
+                    return
+            await ClockCycles(dut.clk, 1)
+        raise AssertionError("dec no output")
+
+    rsp = bytearray()
+    rsp += SRC_MAC.to_bytes(6, "big")
+    rsp += DST_MAC.to_bytes(6, "big")
+    rsp += bytes(esp2[12:])
+    dc = cocotb.start_soon(dec_collect())
+    for j, b in enumerate(rsp):
+        dut.wan_rxd.value = b
+        dut.wan_rx_dv.value = 1
+        dut.wan_rx_last.value = 1 if j == len(rsp) - 1 else 0
+        await ClockCycles(dut.clk, 1)
+    dut.wan_rx_dv.value = 0
+    dut.wan_rx_last.value = 0
+    await dc
+    assert bytes(plain) == frame, f"post-soft-rst roundtrip {bytes(plain).hex()}"
+
+    bt, rp = await spi_read(dut, 0x50), await spi_read(dut, 0x58)
+    assert bt == 0 and rp == 0, f"stale errors after soft rst badtag={bt} replay={rp}"
+
+
+@cocotb.test()
+async def replay_window_bounds(dut):
+    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
+    dut.rst_n.value = 0
+    dut.spi_sck.value = 0
+    dut.spi_mosi.value = 0
+    dut.spi_csn.value = 1
+    dut.lan_rxd.value = 0
+    dut.lan_rx_dv.value = 0
+    dut.lan_rx_last.value = 0
+    dut.wan_rxd.value = 0
+    dut.wan_rx_dv.value = 0
+    dut.wan_rx_last.value = 0
+    dut.lan_tx_ready.value = 1
+    dut.wan_tx_ready.value = 1
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+    await spi_configure(dut)
+    await ClockCycles(dut.clk, 10)
+    await drain_garp(dut)
+
+    frame = make_frame(100)
+    esp_out = bytearray()
+
+    async def wan_collect():
+        while True:
+            if int(dut.wan_tx_en.value):
+                esp_out.append(int(dut.wan_txd.value))
+                if int(dut.wan_tx_last.value):
+                    return
+            await ClockCycles(dut.clk, 1)
+
+    c = cocotb.start_soon(wan_collect())
+    for j, b in enumerate(frame):
+        dut.lan_rxd.value = b
+        dut.lan_rx_dv.value = 1
+        dut.lan_rx_last.value = 1 if j == len(frame) - 1 else 0
+        await ClockCycles(dut.clk, 1)
+    dut.lan_rx_dv.value = 0
+    dut.lan_rx_last.value = 0
+    await c
+    esp = bytearray(esp_out)
+    data = bytes(esp[12:])
+    assert len(data) > 38, "esp too short"
+
+    async def wait_idle():
+        for _ in range(200000):
+            if int(dut.u_bridge.u_dec.ds.value) == 0 and int(dut.u_bridge.u_dec.dec_pend.value) == 0:
+                return
+            await ClockCycles(dut.clk, 1)
+        raise AssertionError("dec never idle")
+
+    async def drive_esp(payload):
+        rsp = SRC_MAC.to_bytes(6, "big") + DST_MAC.to_bytes(6, "big") + payload
+        for j, b in enumerate(rsp):
+            dut.wan_rxd.value = b
+            dut.wan_rx_dv.value = 1
+            dut.wan_rx_last.value = 1 if j == len(rsp) - 1 else 0
+            await ClockCycles(dut.clk, 1)
+        dut.wan_rx_dv.value = 0
+        dut.wan_rx_last.value = 0
+        await ClockCycles(dut.clk, 100)
+
+    def with_seq(v):
+        d = bytearray(data)
+        d[34:38] = v.to_bytes(4, "big")
+        return bytes(d)
+
+    async def counters():
+        bt = await spi_read(dut, 0x50)
+        rp = await spi_read(dut, 0x58)
+        return bt, rp
+
+    b0, r0 = await counters()
+    await drive_esp(with_seq(100))
+    await wait_idle()
+    b1, r1 = await counters()
+    assert b1 == b0 + 1 and r1 == r0, f"fwd: badtag {b1-b0} replay {r1-r0}"
+    await drive_esp(with_seq(36))
+    await wait_idle()
+    b2, r2 = await counters()
+    assert r2 == r1 + 1, f"back 64 should replay (rp {r2-r1})"
+    await drive_esp(with_seq(37))
+    await wait_idle()
+    b3, r3 = await counters()
+    assert b3 == b2 + 1 and r3 == r2, f"back 63 accept (bt {b3-b2} rp {r3-r2})"
+    await drive_esp(with_seq(37))
+    await wait_idle()
+    b4, r4 = await counters()
+    assert r4 == r3 + 1, f"window bit already set replay (rp {r4-r3})"
+    await drive_esp(with_seq(64))
+    await wait_idle()
+    b5, r5 = await counters()
+    assert b5 == b4 + 1 and r5 == r4, f"back 36 accept (bt {b5-b4} rp {r5-r4})"
+    print(f"replay_window_bounds PASS bt={b5} rp={r5}", flush=True)

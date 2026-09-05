@@ -75,7 +75,7 @@ def sim_all(mods, testcase=None):
 
 
 def parse_results(xml_path):
-    root = ET.parse(xml_path).root
+    root = ET.parse(xml_path).getroot()
     cases = []
     for ts in root.iter("testsuite"):
         for tc in ts.iter("testcase"):

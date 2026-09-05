@@ -92,6 +92,7 @@ async def setup(dut):
     dut.cfg_src_mac.value = SRC_MAC
     dut.cfg_dst_mac.value = DST_MAC
     dut.seq_enc_in.value = 1
+    dut.key_load.value = 0
     dut.s_enc_tdata.value = 0
     dut.s_enc_tvalid.value = 0
     dut.s_enc_tlast.value = 0
@@ -110,6 +111,10 @@ async def bridge_roundtrip(dut):
     await ClockCycles(dut.clk, 5)
     dut.rst_n.value = 1
     await ClockCycles(dut.clk, 2)
+    dut.key_load.value = 1
+    await ClockCycles(dut.clk, 1)
+    dut.key_load.value = 0
+    await ClockCycles(dut.clk, 2)
     seen = set()
     async def pt_snoop():
         n_blk = 0
@@ -122,7 +127,7 @@ async def bridge_roundtrip(dut):
                           f"ph={int(g.phase.value)} ad={int(g.aes_done.value)}", flush=True)
                 n_blk += 1
     ps = cocotb.start_soon(pt_snoop())
-    for i, n in enumerate((64, 1500, 1499, 64)):
+    for i, n in enumerate((64, 1400, 1402, 64)):
         frame = make_frame(n)
         esp = await enc_frame(dut, frame)
         print(f"roundtrip {i}: n={n} esp_len={len(esp)} esp42={esp[42:].hex()}", flush=True)
@@ -145,6 +150,10 @@ async def bridge_rekey(dut):
     await ClockCycles(dut.clk, 5)
     dut.rst_n.value = 1
     await ClockCycles(dut.clk, 2)
+    dut.key_load.value = 1
+    await ClockCycles(dut.clk, 1)
+    dut.key_load.value = 0
+    await ClockCycles(dut.clk, 2)
 
     frame = make_frame(600)
     esp1 = await enc_frame(dut, frame)
@@ -163,3 +172,72 @@ async def bridge_rekey(dut):
     assert esp2[42:] != esp1[42:], "ciphertext unchanged after rekey"
     plain2, ok2 = await dec_frame(dut, esp2[42:])
     assert plain2 == frame and ok2, "rekey roundtrip"
+
+
+@cocotb.test()
+async def bridge_seq_wrap(dut):
+    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
+    dut.rst_n.value = 0
+    await setup(dut)
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+    dut.key_load.value = 1
+    await ClockCycles(dut.clk, 1)
+    dut.key_load.value = 0
+    await ClockCycles(dut.clk, 2)
+
+    frame = make_frame(200)
+    esp0 = await enc_frame(dut, frame)
+    plain0, ok0 = await dec_frame(dut, esp0[42:])
+    assert plain0 == frame and ok0, "baseline roundtrip"
+
+    dut.seq_enc_in.value = 0xFFFFFFFE
+    dut.key_load.value = 1
+    await ClockCycles(dut.clk, 1)
+    dut.key_load.value = 0
+    await ClockCycles(dut.clk, 2)
+
+    for expect in (0xFFFFFFFE, 0xFFFFFFFF, 0x00000000):
+        esp = await enc_frame(dut, frame)
+        got = int.from_bytes(esp[46:50], "big")
+        assert got == expect, f"enc seq {got:08x} vs {expect:08x}"
+        plain, ok = await dec_frame(dut, esp[42:])
+        assert plain == frame, f"plain seq {expect:08x} len {len(plain)}"
+        assert ok, f"tag fail at seq {expect:08x}"
+    assert int(dut.u_dec.last_seq_r.value) == 0, f"last_seq_r {int(dut.u_dec.last_seq_r.value):08x}"
+
+@cocotb.test()
+async def ovs_boundary(dut):
+    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
+    dut.rst_n.value = 0
+    await setup(dut)
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+    dut.key_load.value = 1
+    await ClockCycles(dut.clk, 1)
+    dut.key_load.value = 0
+    await ClockCycles(dut.clk, 2)
+
+    esp = await enc_frame(dut, make_frame(1422))
+    assert len(esp) == 42 + 20 + 1424 + 16, f"1422 esp len {len(esp)}"
+    await ClockCycles(dut.clk, 20)
+    hit = []
+
+    async def ovs_watch():
+        for _ in range(32000):
+            await ClockCycles(dut.clk, 1)
+            if int(dut.err_oversize.value):
+                hit.append(1)
+
+    w = cocotb.start_soon(ovs_watch())
+    rejected = False
+    try:
+        await enc_frame(dut, make_frame(1423))
+    except AssertionError:
+        rejected = True
+    await w
+    assert rejected, "1423 not rejected"
+    assert hit, "err_oversize pulse not seen"
+    print("ovs boundary 1422 ok / 1423 rejected PASS", flush=True)

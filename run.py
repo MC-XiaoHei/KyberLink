@@ -36,7 +36,10 @@ def parse():
 def main():
     config.load_env()
     args = parse()
-    os.environ.setdefault("RUN_TS", f"{time.strftime('%y%m%d')}/{time.strftime('%H%M')}")
+    os.environ.setdefault(
+        "RUN_TS",
+        f"{time.strftime('%y%m%d')}/{time.strftime('%H')}/{time.strftime('%M')}/{time.strftime('%S')}",
+    )
     os.environ["RUN_CMD"] = args.cmd
     reporter = Reporter(config.LOGS)
     if args.cmd == "test" and os.name == "nt":

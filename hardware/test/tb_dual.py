@@ -23,10 +23,11 @@ async def spi_write(dut, sck, mosi, miso, csn, addr, data):
     word = (addr << 32) | data
     for i in range(39, -1, -1):
         mosi.value = (word >> i) & 1
+        await ClockCycles(dut.clk, 2)
         sck.value = 1
-        await ClockCycles(dut.clk, 1)
+        await ClockCycles(dut.clk, 2)
         sck.value = 0
-        await ClockCycles(dut.clk, 1)
+        await ClockCycles(dut.clk, 2)
     csn.value = 1
     await ClockCycles(dut.clk, 2)
 
@@ -38,14 +39,13 @@ async def spi_read(dut, sck, mosi, miso, csn, addr):
     got = 0
     for i in range(39, -1, -1):
         mosi.value = (word >> i) & 1
+        await ClockCycles(dut.clk, 2)
         sck.value = 1
-        await ClockCycles(dut.clk, 1)
+        await ClockCycles(dut.clk, 2)
         if i < 32:
             got = (got << 1) | int(miso.value)
-        else:
-            await ClockCycles(dut.clk, 1)
         sck.value = 0
-        await ClockCycles(dut.clk, 1)
+        await ClockCycles(dut.clk, 2)
     csn.value = 1
     await ClockCycles(dut.clk, 2)
     return got
@@ -88,12 +88,11 @@ async def hsk_recv(dut, spi, expect, tag):
                   f"txstate={int(tx_.state.value)} paylen={int(tx_.pay_len.value)} hcnt={int(tx_.hcnt.value)} "
                   f"pb={int(tx_.pb.value)} s_hskv={int(tx_.s_hsk_tvalid.value)} mtv={int(tx_.m_tvalid.value)} | "
                   f"rxstate={int(rx_.state.value)} rxcnt2={int(rx_.cnt.value)} drop={int(rx_.drop.value)} "
-                  f"is_hsk={int(rx_.is_hsk.value)} is_data={int(rx_.is_data.value)}",
+                  f"is_hsk={int(rx_.is_hsk.value)} is_data={int(rx_.is_data.value)} pd={int(rx_.pay_done.value)} "
+                  f"tv={int(rx_.hsk_tail_v.value)} last={int(rx_.hsk_last.value)} len={int(rx_.hsk_len.value)}",
                   flush=True)
         print(f"fcs a={int(dut.a_mac_rx_fcs_err.value)} b={int(dut.b_mac_rx_fcs_err.value)} "
-              f"b_rx_dv={int(dut.b_wan_rx_dv.value)} b_rx_last={int(dut.b_wan_rx_last.value)}",
-              flush=True)
-        print(f"wan obs {len(OBS)}B head={bytes(OBS[:64]).hex()} tail={bytes(OBS[-32:]).hex()}", flush=True)
+              f"b_rx_dv={int(dut.b_wan_rx_dv.value)} b_rx_last={int(dut.b_wan_rx_last.value)}", flush=True)
         for side, ph, trdy in (("A", dut.u_a_wan_phy, dut.a_wan_tx_ready),
                                ("B", dut.u_b_wan_phy, dut.b_wan_tx_ready)):
             txm = ph.axis_gmii_tx_inst
@@ -103,7 +102,7 @@ async def hsk_recv(dut, spi, expect, tag):
                   flush=True)
         raise TimeoutError(f"{tag} hsk recv timeout")
     ln = await spi_read(dut, *spi, 0x34) & 0xFFFF
-    for _ in range((ln + 3) // 4):
+    for w_i in range((ln + 3) // 4):
         w = await spi_read(dut, *spi, 0x38)
         got += w.to_bytes(4, "big")
     got = bytes(got[:ln])
@@ -284,3 +283,92 @@ async def dual_handshake(dut):
     rx_a = await ca
     assert rx_a[0] == plain, "B->A mismatch"
     print("dual handshake + both directions PASS", flush=True)
+
+
+async def boot(dut):
+    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
+    dut.rst_n.value = 0
+    for sig in ("a_lan_rxd", "a_lan_rx_dv", "a_lan_rx_last",
+                "b_lan_rxd", "b_lan_rx_dv", "b_lan_rx_last",
+                "spi_a_sck", "spi_a_mosi", "spi_b_sck", "spi_b_mosi"):
+        getattr(dut, sig).value = 0
+    dut.a_lan_tx_ready.value = 1
+    dut.b_lan_tx_ready.value = 1
+    dut.spi_a_csn.value = 1
+    dut.spi_b_csn.value = 1
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+    spi_a = (dut.spi_a_sck, dut.spi_a_mosi, dut.spi_a_miso, dut.spi_a_csn)
+    spi_b = (dut.spi_b_sck, dut.spi_b_mosi, dut.spi_b_miso, dut.spi_b_csn)
+    return spi_a, spi_b
+
+
+async def pipe(dut, data, tag):
+    fa = cocotb.start_soon(feed(dut, dut.a_lan_rxd, dut.a_lan_rx_dv, dut.a_lan_rx_last,
+                                dut.u_a_full.enc_s_tready, data))
+    cb = cocotb.start_soon(collect(dut, dut.b_lan_txd, dut.b_lan_tx_en, dut.b_lan_tx_last, 1, tag))
+    await fa
+    rx = await cb
+    return rx[0]
+
+
+@cocotb.test()
+async def dual_short_hsk(dut):
+    spi_a, spi_b = await boot(dut)
+    await cfg_gw(dut, *spi_a, MAC_A, MAC_B, IP_A, IP_B)
+    await cfg_gw(dut, *spi_b, MAC_B, MAC_A, IP_B, IP_A)
+    await ClockCycles(dut.clk, 10)
+    msg = bytes(range(0xA0, 0xA8))
+    await hsk_send(dut, spi_a, msg)
+    await hsk_recv(dut, spi_b, msg, "short")
+    print("dual short hsk PASS", flush=True)
+
+
+@cocotb.test()
+async def dual_concurrent(dut):
+    spi_a, spi_b = await boot(dut)
+    await cfg_gw(dut, *spi_a, MAC_A, MAC_B, IP_A, IP_B)
+    await cfg_gw(dut, *spi_b, MAC_B, MAC_A, IP_B, IP_A)
+    await ClockCycles(dut.clk, 10)
+    msg = bytes(range(0x40, 0x60))
+    blk = bytes((j * 5 + 1) & 0xFF for j in range(1200))
+
+    async def flood():
+        for k in range(3):
+            await feed(dut, dut.a_lan_rxd, dut.a_lan_rx_dv, dut.a_lan_rx_last,
+                       dut.u_a_full.enc_s_tready, bytes([k]) + blk)
+
+    f = cocotb.start_soon(flood())
+    await ClockCycles(dut.clk, 40)
+    await hsk_send(dut, spi_a, msg)
+    await hsk_recv(dut, spi_b, msg, "conc")
+    await f
+    print("dual concurrent hsk+flood PASS", flush=True)
+
+
+@cocotb.test()
+async def dual_rekey(dut):
+    spi_a, spi_b = await boot(dut)
+    await cfg_gw(dut, *spi_a, MAC_A, MAC_B, IP_A, IP_B)
+    await cfg_gw(dut, *spi_b, MAC_B, MAC_A, IP_B, IP_A)
+    await ClockCycles(dut.clk, 10)
+    with open(VEC) as f:
+        vec = json.load(f)[0]
+    sa = vec["initiator"]["sa"]
+    await write_sa(dut, spi_a, sa, True)
+    await write_sa(dut, spi_b, sa, False)
+    await ClockCycles(dut.clk, 4)
+    plain = bytes((j * 7 + 3) & 0xFF for j in range(200))
+    rx = await pipe(dut, plain, "rekey r1")
+    assert rx == plain, "rekey pre 1"
+    rx = await pipe(dut, bytes([0x5A]) + plain, "rekey r2")
+    assert rx == bytes([0x5A]) + plain, "rekey pre 2"
+    await write_sa(dut, spi_a, sa, True)
+    await write_sa(dut, spi_b, sa, False)
+    await ClockCycles(dut.clk, 4)
+    rx = await pipe(dut, bytes([0xA5]) + plain, "rekey post")
+    assert rx == bytes([0xA5]) + plain, f"rekey post mismatch got={rx[:32].hex()}"
+    print("dual rekey PASS", flush=True)
+
+print("TB_DUAL_MARK_V5", flush=True)
