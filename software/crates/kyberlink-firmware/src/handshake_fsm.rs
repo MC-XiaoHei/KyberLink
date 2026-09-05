@@ -20,6 +20,7 @@ pub const REG_HSK_TX_LEN: u8 = 0x3C;
 pub const REG_HSK_TX_DATA: u8 = 0x40;
 pub const REG_KEY_ENC: u8 = 0x44;
 pub const REG_KEY_DEC: u8 = 0x64;
+pub const REG_SEQ: u8 = 0x74;
 
 const CTRL_KEY_LOAD: u32 = 1 << 0;
 const CTRL_HSK_SEND: u32 = 1 << 1;
@@ -34,7 +35,7 @@ pub struct Config {
     pub nonce: [u8; 32],
 }
 
-pub fn write_sa<S: SpiBus>(spi: &S, sa: &hs::SaParams, initiator: bool) {
+pub fn write_sa<S: SpiBus>(spi: &S, sa: &hs::SaParams, initiator: bool, seq: u32) {
     unsafe {
         let (enc_key, dec_key) = if initiator {
             (&sa.sk_ei, &sa.sk_er)
@@ -62,6 +63,7 @@ pub fn write_sa<S: SpiBus>(spi: &S, sa: &hs::SaParams, initiator: bool) {
         ]);
         spi.write_reg(REG_SALT_LO, (s & 0xFFFF_FFFF) as u32);
         spi.write_reg(REG_SALT_HI, (s >> 32) as u32);
+        spi.write_reg(REG_SEQ, seq - 1);
         spi.write_reg(REG_CTRL, CTRL_KEY_LOAD);
     }
 }
@@ -103,12 +105,16 @@ pub enum FsmOutcome {
     Wait,
 }
 
+pub enum Session {
+    Initiator(hs::InitiatorState),
+    Responder(hs::ResponderState),
+}
+
 pub struct Fsm<'a, S: SpiBus> {
     pub cfg: &'a Config,
     pub spi: &'a S,
     pub role_initiator: bool,
-    pub st_i: Option<hs::InitiatorState>,
-    pub st_r: Option<hs::ResponderState>,
+    pub session: Option<Session>,
     pub spi_i: u32,
     pub phase: u8,
     pub buf: [u8; 8192],
@@ -120,8 +126,7 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
             cfg,
             spi,
             role_initiator: cfg.role_initiator,
-            st_i: None,
-            st_r: None,
+            session: None,
             spi_i: 0,
             phase: 0,
             buf: [0; 8192],
@@ -145,7 +150,7 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
                     &self.cfg.seed_dsa,
                     &self.cfg.nonce,
                 );
-                self.st_i = Some(st);
+                self.session = Some(Session::Initiator(st));
                 hsk_send(self.spi, &m1);
                 self.phase = 1;
                 FsmOutcome::Wait
@@ -155,7 +160,7 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
                 if n == 0 {
                     return FsmOutcome::Wait;
                 }
-                let st = self.st_i.as_mut().unwrap();
+                let Session::Initiator(st) = self.session.as_mut().unwrap() else { return FsmOutcome::Wait };
                 match hs::initiator_recv_m2(st, &self.buf[..n], &self.cfg.peer_fp) {
                     Ok((m3, spi_i)) => {
                         self.spi_i = spi_i;
@@ -174,7 +179,7 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
                 if n == 0 {
                     return FsmOutcome::Wait;
                 }
-                let st = self.st_i.as_mut().unwrap();
+                let Session::Initiator(st) = self.session.as_mut().unwrap() else { return FsmOutcome::Wait };
                 match hs::initiator_recv_m4(st, &self.buf[..n], self.spi_i) {
                     Ok(sa) => {
                         self.phase = 0;
@@ -205,7 +210,7 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
                     &self.cfg.peer_fp,
                 ) {
                     Ok((st, m2)) => {
-                        self.st_r = Some(st);
+                        self.session = Some(Session::Responder(st));
                         hsk_send(self.spi, &m2);
                         self.phase = 1;
                         FsmOutcome::Wait
@@ -221,7 +226,7 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
                 let mut sb = [0u8; 4];
                 sb.copy_from_slice(&self.buf[hs::SPI_OFF..hs::SPI_OFF + 4]);
                 self.spi_i = u32::from_be_bytes(sb);
-                let st = self.st_r.as_mut().unwrap();
+                let Session::Responder(st) = self.session.as_mut().unwrap() else { return FsmOutcome::Wait };
                 match hs::responder_recv_m3(st, &self.buf[..n], self.spi_i) {
                     Ok((m4, sa)) => {
                         hsk_send(self.spi, &m4);
@@ -350,7 +355,7 @@ mod tests {
     fn write_sa_initiator_key_order() {
         let m = MockSpi::default();
         let s = sa();
-        write_sa(&m, &s, true);
+        write_sa(&m, &s, true, 1);
         let enc = key_words(&s.sk_ei);
         let dec = key_words(&s.sk_er);
         for i in 0..8u8 {
@@ -367,6 +372,7 @@ mod tests {
             u32::from_be_bytes(s.sa_salt[0..4].try_into().unwrap())
         );
         assert_eq!(m.w(REG_CTRL), CTRL_KEY_LOAD);
+        assert_eq!(m.w(REG_SEQ), 0);
     }
 
     #[test]
@@ -374,8 +380,8 @@ mod tests {
         let a = MockSpi::default();
         let b = MockSpi::default();
         let s = sa();
-        write_sa(&a, &s, true);
-        write_sa(&b, &s, false);
+        write_sa(&a, &s, true, 1);
+        write_sa(&b, &s, false, 1);
         for i in 0..8u8 {
             assert_eq!(b.w(REG_KEY_ENC + i), a.w(REG_KEY_DEC + i));
             assert_eq!(b.w(REG_KEY_DEC + i), a.w(REG_KEY_ENC + i));
@@ -463,5 +469,28 @@ mod tests {
             }
         }
         panic!("handshake did not complete");
+    }
+
+    #[test]
+    fn initiator_bad_m2_restarts() {
+        let cfg = Config {
+            role_initiator: true,
+            peer_fp: [9u8; 32],
+            seed_kem_d: [1u8; 32],
+            seed_kem_z: [2u8; 32],
+            seed_dsa: [3u8; 32],
+            nonce: [4u8; 32],
+        };
+        let bus = MockSpi::default();
+        let mut f = Fsm::new(&cfg, &bus);
+        assert!(matches!(f.poll(), FsmOutcome::Wait));
+        assert_eq!(bus.outbox.borrow().len(), 1);
+        let m1 = bus.outbox.borrow()[0].clone();
+        bus.push_rx(&[0xEE; 64]);
+        assert!(matches!(f.poll(), FsmOutcome::Wait));
+        assert_eq!(bus.outbox.borrow().len(), 1, "bad m2 must not send m3");
+        assert!(matches!(f.poll(), FsmOutcome::Wait));
+        assert_eq!(bus.outbox.borrow().len(), 2, "m1 must be resent after bad m2");
+        assert_eq!(bus.outbox.borrow()[1], m1);
     }
 }

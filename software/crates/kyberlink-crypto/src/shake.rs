@@ -5,6 +5,14 @@ pub fn sha3_256(data: &[u8]) -> [u8; 32] {
     Sha3_256::digest(data).into()
 }
 
+pub fn sha3_256_parts(parts: &[&[u8]]) -> [u8; 32] {
+    let mut s = Sha3_256::default();
+    for p in parts {
+        sha3::Digest::update(&mut s, p);
+    }
+    s.finalize().into()
+}
+
 pub fn sha3_512(data: &[u8]) -> [u8; 64] {
     Sha3_512::digest(data).into()
 }

@@ -36,13 +36,8 @@ fn hmac_sha3_256(key: &[u8], msg: &[u8]) -> [u8; 32] {
         ipad[i] ^= k;
         opad[i] ^= k;
     }
-    let mut buf = [0u8; BLOCK + 8192];
-    buf[..BLOCK].copy_from_slice(&ipad);
-    buf[BLOCK..BLOCK + msg.len()].copy_from_slice(msg);
-    let inner = shake::sha3_256(&buf[..BLOCK + msg.len()]);
-    buf[..BLOCK].copy_from_slice(&opad);
-    buf[BLOCK..BLOCK + 32].copy_from_slice(&inner);
-    shake::sha3_256(&buf[..BLOCK + 32])
+    let inner = shake::sha3_256_parts(&[&ipad, msg]);
+    shake::sha3_256_parts(&[&opad, &inner])
 }
 
 pub fn hkdf_extract(salt: &[u8], ikm: &[u8]) -> [u8; 32] {
