@@ -64,11 +64,6 @@ async def dec_frame(dut, data):
             out.append(int(dut.m_dec_tdata.value))
             if int(dut.m_dec_tlast.value):
                 break
-        if i < 40 or (i % 2000 == 0):
-            d = dut.u_dec
-            print("dec i", i, "tv", int(dut.s_dec_tvalid.value), "tl", int(dut.s_dec_tlast.value),
-                  "rx", int(d.rx_state.value), "fcnt", int(d.fcnt.value), "fb", int(d.fb_idx.value),
-                  "frm16", int(d.frm16.value), "frmwp", int(d.frm_wr_pend.value))
         await ClockCycles(dut.clk, 1)
 
     else:

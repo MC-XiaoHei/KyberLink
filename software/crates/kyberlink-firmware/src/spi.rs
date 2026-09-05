@@ -84,7 +84,6 @@ mod tests {
 
     #[test]
     fn write_frame_matches_master_sequence() {
-        // 与 tb 端 word = (addr << 32) | data 的 MSB-first 40-bit 序列一致
         let f = write_frame(0x14, 0xDEADBEEF);
         let word = (0x14u64 << 32) | 0xDEADBEEFu64;
         let expect: [u8; 5] = [
@@ -109,7 +108,6 @@ mod tests {
 
     #[test]
     fn frames_roundtrip_through_slave_bit_positions() {
-        // 对齐 spi_slave: 首字节 bit7=R/W, bit6..0=地址, 其后大端数据
         for (addr, data) in [(0x00u8, 0u32), (0x3C, 0x1234ABCD), (0x64, 0xFFFFFFFF)] {
             let f = write_frame(addr, data);
             assert_eq!(f[0] << 1 >> 1 & 0x7F, addr & 0x7F);
