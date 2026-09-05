@@ -8,9 +8,11 @@ module eth_top (
     output wire       s_tready,
 
     input wire [47:0] cfg_src_mac,
+    input wire [15:0] cfg_dport,
     input wire [47:0] cfg_dst_mac,
     input wire [31:0] cfg_src_ip,
     input wire [31:0] cfg_dst_ip,
+    input  wire       key_load,
 
     output wire [7:0] m_data_tdata,
     output wire       m_data_tvalid,
@@ -39,6 +41,14 @@ module eth_top (
     input  wire       m_tready
 );
 
+  wire [7:0] ctrl_a_tdata;
+  wire ctrl_a_tvalid;
+  wire ctrl_a_tlast;
+  wire [7:0] ctrl_b_tdata;
+  wire ctrl_b_tvalid;
+  wire ctrl_b_tlast;
+  wire ctrl_b_tready;
+
   ip_udp_eth_rx u_rx (
       .clk(clk),
       .rst_n(rst_n),
@@ -47,6 +57,7 @@ module eth_top (
       .s_tlast(s_tlast),
       .s_tready(s_tready),
       .cfg_src_mac(cfg_src_mac),
+      .cfg_dport(cfg_dport),
       .m_data_tdata(m_data_tdata),
       .m_data_tvalid(m_data_tvalid),
       .m_data_tlast(m_data_tlast),
@@ -55,7 +66,25 @@ module eth_top (
       .hsk_data(hsk_data),
       .hsk_last(hsk_last),
       .hsk_len(hsk_len),
-      .hsk_ready(hsk_ready)
+      .hsk_ready(hsk_ready),
+      .m_ctrl_tdata(ctrl_a_tdata),
+      .m_ctrl_tvalid(ctrl_a_tvalid),
+      .m_ctrl_tlast(ctrl_a_tlast)
+  );
+
+  ctrl_resp u_ctrl (
+      .clk(clk),
+      .rst_n(rst_n),
+      .s_tdata(ctrl_a_tdata),
+      .s_tvalid(ctrl_a_tvalid),
+      .s_tlast(ctrl_a_tlast),
+      .cfg_src_mac(cfg_src_mac),
+      .cfg_src_ip(cfg_src_ip),
+      .key_load(key_load),
+      .m_tdata(ctrl_b_tdata),
+      .m_tvalid(ctrl_b_tvalid),
+      .m_tlast(ctrl_b_tlast),
+      .m_tready(ctrl_b_tready)
   );
 
   ip_udp_eth_tx u_tx (
@@ -73,6 +102,10 @@ module eth_top (
       .cfg_dst_ip(cfg_dst_ip),
       .cfg_src_mac(cfg_src_mac),
       .cfg_dst_mac(cfg_dst_mac),
+      .s_ctrl_tdata(ctrl_b_tdata),
+      .s_ctrl_tvalid(ctrl_b_tvalid),
+      .s_ctrl_tlast(ctrl_b_tlast),
+      .s_ctrl_tready(ctrl_b_tready),
       .m_tdata(m_tdata),
       .m_tvalid(m_tvalid),
       .m_tlast(m_tlast),

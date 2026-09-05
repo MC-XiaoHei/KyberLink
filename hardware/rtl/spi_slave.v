@@ -19,9 +19,33 @@ module spi_slave (
   reg  [31:0] rd_data;
   reg         csn_d;
   reg         sck_d;
-  wire        sck_rise = sck && !sck_d;
-  wire        sck_fall = !sck && sck_d;
-  wire        csn_act = !csn && csn_d;
+  reg         sck_s0;
+  reg         sck_s1;
+  reg         mosi_s0;
+  reg         mosi_s1;
+  reg         csn_s0;
+  reg         csn_s1;
+  wire        sck_rise = sck_s1 && !sck_d;
+  wire        sck_fall = !sck_s1 && sck_d;
+  wire        csn_act = !csn_s1 && csn_d;
+
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      sck_s0 <= 1'b0;
+      sck_s1 <= 1'b0;
+      mosi_s0 <= 1'b0;
+      mosi_s1 <= 1'b0;
+      csn_s0 <= 1'b1;
+      csn_s1 <= 1'b1;
+    end else begin
+      sck_s0 <= sck;
+      sck_s1 <= sck_s0;
+      mosi_s0 <= mosi;
+      mosi_s1 <= mosi_s0;
+      csn_s0 <= csn;
+      csn_s1 <= csn_s0;
+    end
+  end
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -38,8 +62,8 @@ module spi_slave (
       raddr <= 7'd0;
       rreq <= 1'b0;
     end else begin
-      csn_d  <= csn;
-      sck_d  <= sck;
+      csn_d  <= csn_s1;
+      sck_d  <= sck_s1;
       wvalid <= 1'b0;
       rreq   <= 1'b0;
       if (csn_act) begin
@@ -47,15 +71,15 @@ module spi_slave (
         sh <= 40'd0;
         rd_mode <= 1'b0;
         miso <= 1'b0;
-      end else if (!csn) begin
+      end else if (!csn_s1) begin
         if (sck_rise) begin
           if (bit_cnt == 6'd7) begin
             rd_mode <= sh[6];
-            raddr <= {sh[5:0], mosi};
-            waddr <= {sh[5:0], mosi};
+            raddr <= {sh[5:0], mosi_s1};
+            waddr <= {sh[5:0], mosi_s1};
             rreq <= sh[6];
           end
-          sh <= {sh[38:0], mosi};
+          sh <= {sh[38:0], mosi_s1};
           bit_cnt <= bit_cnt + 6'd1;
         end
         if (sck_fall) begin

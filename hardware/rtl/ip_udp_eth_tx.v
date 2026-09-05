@@ -17,6 +17,11 @@ module ip_udp_eth_tx (
     input wire [47:0] cfg_src_mac,
     input wire [47:0] cfg_dst_mac,
 
+    input  wire [7:0] s_ctrl_tdata,
+    input  wire       s_ctrl_tvalid,
+    input  wire       s_ctrl_tlast,
+    output wire       s_ctrl_tready,
+
     output reg  [7:0] m_tdata,
     output reg        m_tvalid,
     output reg        m_tlast,
@@ -29,6 +34,7 @@ module ip_udp_eth_tx (
   localparam ST_PAY  = 3'd3;
   localparam ST_PRE1 = 3'd4;
   localparam ST_PRE2 = 3'd5;
+  localparam ST_CTRL = 3'd6;
 
   reg [ 2:0] state;
   reg [ 5:0] hcnt;
@@ -105,7 +111,10 @@ module ip_udp_eth_tx (
   wire [7:0] hdr_byte_w = hdr_byte(hcnt);
 
   assign s_esp_tready = (state == ST_IDLE && s_esp_tvalid) || (state == ST_ESP && m_tready);
-  assign s_hsk_tready = (state == ST_PAY) && m_tready && (hb == 2'd3);
+  assign s_ctrl_tready = (state == ST_IDLE && s_ctrl_tvalid) || (state == ST_CTRL && m_tready);
+  assign s_hsk_tready = (state == ST_PAY) && m_tready &&
+                        (((hb == 2'd3) && (pb + 16'd1) < pay_len) ||
+                         ((pb + 16'd1) == pay_len));
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -127,7 +136,12 @@ module ip_udp_eth_tx (
       m_tlast  <= 1'b0;
       case (state)
         ST_IDLE: begin
-          if (s_esp_tvalid) begin
+          if (s_ctrl_tvalid) begin
+            state <= (s_ctrl_tlast) ? ST_IDLE : ST_CTRL;
+            m_tvalid <= 1'b1;
+            m_tdata <= s_ctrl_tdata;
+            m_tlast <= s_ctrl_tlast;
+          end else if (s_esp_tvalid) begin
             state <= (s_esp_tlast) ? ST_IDLE : ST_ESP;
             m_tvalid <= 1'b1;
             m_tdata <= s_esp_tdata;
@@ -161,6 +175,14 @@ module ip_udp_eth_tx (
             m_tdata  <= s_esp_tdata;
             m_tlast  <= s_esp_tlast;
             if (s_esp_tlast) state <= ST_IDLE;
+          end
+        end
+        ST_CTRL: begin
+          if (m_tready) begin
+            m_tvalid <= s_ctrl_tvalid;
+            m_tdata  <= s_ctrl_tdata;
+            m_tlast  <= s_ctrl_tlast;
+            if (s_ctrl_tlast) state <= ST_IDLE;
           end
         end
         ST_HDR: begin

@@ -8,6 +8,7 @@ module bridge_enc_path (
     output wire       s_tready,
 
     input  wire [255:0] key,
+    input  wire         key_load,
     input  wire [ 31:0] cfg_spi,
     input  wire [ 95:0] cfg_iv,
     input  wire [ 31:0] cfg_src_ip,
@@ -18,6 +19,7 @@ module bridge_enc_path (
     input  wire [ 47:0] cfg_dst_mac,
     input  wire [ 31:0] seq_in,
     output wire [ 31:0] seq_out,
+    output reg          seq_vld,
 
     output reg          gcm_start,
     output reg  [ 11:0] gcm_pt_len,
@@ -37,7 +39,9 @@ module bridge_enc_path (
     output wire [7:0] m_tdata,
     output wire       m_tvalid,
     output wire       m_tlast,
-    input  wire       m_tready
+    input  wire       m_tready,
+
+    output reg  err_oversize
 );
 
   localparam RX_IDLE = 1'b0;
@@ -98,6 +102,7 @@ module bridge_enc_path (
   reg     [127:0] tx_blk;
   reg     [  3:0] tx_b;
   reg             tx_rd_pend;
+  reg     [  8:0] rd_addr_q;
   reg     [  7:0] ct_rd_idx;
   reg     [ 15:0] frame_n_q;
   reg     [ 15:0] ct_end_q;
@@ -247,7 +252,7 @@ module bridge_enc_path (
       m_byte_q   <= 8'd0;
       m_tvalid_q <= 1'b0;
       m_tlast_q  <= 1'b0;
-    end else if (m_tvalid_q && (ts == TS_TX) && !m_tready) begin
+    end else if (m_tvalid_q && !m_tready) begin
       m_byte_q   <= m_byte_q;
       m_tvalid_q <= 1'b1;
       m_tlast_q  <= m_tlast_q;
@@ -335,6 +340,7 @@ module bridge_enc_path (
       tx_blk <= 128'd0;
       tx_b <= 4'd0;
       tx_rd_pend <= 1'b0;
+      rd_addr_q <= 9'd0;
       ct_rd_idx <= 8'd0;
       frame_n_q <= 16'd0;
       ct_end_q <= 16'd0;
@@ -346,9 +352,13 @@ module bridge_enc_path (
       gcm_nonce <= 96'd0;
       gcm_aad <= 128'd0;
       gcm_ct_ready <= 1'b0;
+      seq_vld <= 1'b0;
+      err_oversize <= 1'b0;
     end else begin
       gcm_start <= 1'b0;
       gcm_ct_ready <= 1'b0;
+      seq_vld <= 1'b0;
+      err_oversize <= 1'b0;
       if (es == ES_ENC) begin
         if (gcm_ct_valid && gcm_ct_ready) begin
           ct_idx <= ct_idx + 8'd1;
@@ -388,6 +398,7 @@ module bridge_enc_path (
           if (tx_read_fire) begin
             ct_rd_idx  <= ct_rd_idx + 8'd1;
             tx_rd_pend <= 1'b1;
+            rd_addr_q  <= {tx_rd_slot, ct_rd_idx[6:0]};
           end
           if ((tx_cnt >= 16'd62) && (tx_cnt < ct_end_q)) begin
             if (tx_b == 4'd15) begin
@@ -398,10 +409,10 @@ module bridge_enc_path (
             end
           end
           if (tx_rd_pend) begin
-            tx_blk <= mem_rdata;
+            tx_blk <= mem[rd_addr_q];
             tx_rd_pend <= 1'b0;
           end
-          if (tx_cnt == frame_n_q - 16'd1) begin
+          if (m_tvalid_q && m_tready && (tx_cnt == frame_n_q - 16'd1)) begin
             if (ct_avail[tx_slot]) begin
               ct_avail[tx_slot] <= 1'b0;
               tx_busy[tx_rd_slot] <= 1'b0;
@@ -598,19 +609,25 @@ module bridge_enc_path (
                   s_tdata,
                   8'd0
                 };
+                4'd0:
+                frm_wr_data <= {s_tdata, 120'd0};
                 default: frm_wr_data <= {blk_acc[119:0], s_tdata};
               endcase
-              if (blk_cnt != 4'd0 && blk_cnt != 4'd15) begin
+              if (blk_cnt != 4'd15) begin
                 frm_wr_pend <= 1'b1;
                 frm_wr_addr <= frm_waddr;
               end
-              frm_len_p[rx_slot] <= fcnt + 12'd1;
-              seq_p[rx_slot] <= seq_r;
-              seq_r <= seq_r + 32'd1;
-              total_len_p[rx_slot] <= 16'd64 + {4'd0, pt_len_now};
-              udp_len_p[rx_slot] <= 16'd44 + {4'd0, pt_len_now};
-              enc_pend[rx_slot] <= 1'b1;
-              rx_slot <= rx_slot + 2'd1;
+              if (pt_len_now <= 12'd1432) begin
+                frm_len_p[rx_slot] <= fcnt + 12'd1;
+                seq_p[rx_slot] <= seq_r;
+                seq_r <= seq_r + 32'd1;
+                total_len_p[rx_slot] <= 16'd64 + {4'd0, pt_len_now};
+                udp_len_p[rx_slot] <= 16'd44 + {4'd0, pt_len_now};
+                enc_pend[rx_slot] <= 1'b1;
+              end else begin
+                err_oversize <= 1'b1;
+              end
+              rx_slot  <= rx_slot + 2'd1;
               rx_state <= RX_IDLE;
             end else begin
               fcnt <= fcnt + 12'd1;
@@ -619,7 +636,8 @@ module bridge_enc_path (
         end
         default: rx_state <= RX_IDLE;
       endcase
-      if (frm_wr_pend && !ct_write) begin
+      if (frm_wr_pend && !ct_write &&
+          !(s_tvalid && s_tready && s_tlast && (blk_cnt != 4'd15))) begin
         frm_wr_pend <= 1'b0;
       end
       if (rx_state == RX_RUN && s_tvalid && s_tready && (blk_cnt == 4'd15)) begin
@@ -630,6 +648,8 @@ module bridge_enc_path (
       if (es == ES_IDLE) begin
         if (enc_pend[enc_slot]) begin
           es <= ES_LOAD;
+        end else if (enc_pend != 4'd0) begin
+          enc_slot <= enc_slot + 2'd1;
         end
       end
       if (es == ES_LOAD) begin
@@ -650,7 +670,11 @@ module bridge_enc_path (
         ip_csum_r <= ip_csum_e;
         enc_nct <= nct_e[7:0];
         nct_q <= nct_e;
+        seq_vld <= 1'b1;
         es <= ES_ENC;
+      end
+      if ((ts == TS_IDLE) && !ct_avail[tx_slot] && (ct_avail != 4'd0)) begin
+        tx_slot <= tx_slot + 2'd1;
       end
       if (ct_avail[tx_slot] && (ts == TS_IDLE)) begin
         ct_avail[tx_slot] <= 1'b0;
@@ -664,6 +688,9 @@ module bridge_enc_path (
         tx_rd_pend <= 1'b0;
         ct_rd_idx <= 8'd0;
         ts <= TS_TX;
+      end
+      if (key_load) begin
+        seq_r <= seq_in;
       end
     end
   end

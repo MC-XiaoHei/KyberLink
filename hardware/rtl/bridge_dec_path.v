@@ -8,6 +8,7 @@ module bridge_dec_path (
     output wire       s_tready,
 
     input wire [255:0] key,
+    input wire         key_load,
 
     output reg          gcm_start,
     output reg  [ 11:0] gcm_pt_len,
@@ -28,7 +29,13 @@ module bridge_dec_path (
     output wire       m_tvalid,
     output wire       m_tlast,
     input  wire       m_tready,
-    output reg        tag_ok
+    output reg        tag_ok,
+
+    input  wire soft_rst,
+    input  wire [31:0] seq_init,
+    output reg  err_badtag,
+    output reg  err_badpad,
+    output reg  err_replay
 );
 
   localparam RX_IDLE = 1'b0;
@@ -47,8 +54,8 @@ module bridge_dec_path (
   reg [1:0] ts;
 
 
-  reg [1:0] rx_sel;
-  reg [1:0] rx_r_sel;
+  reg rx_sel;
+  reg rx_r_sel;
   reg dec_sel;
   reg ct_w_sel;
   reg ct_r_sel;
@@ -63,7 +70,7 @@ module bridge_dec_path (
   reg [6:0] fb_idx;
   reg [11:0] fcnt;
   reg frm_wr_pend;
-  reg [8:0] frm_wr_addr;
+  reg [7:0] frm_wr_addr;
   reg [127:0] frm_wr_data;
   reg [11:0] ct_len_p[0:1];
   reg [31:0] spi_p[0:1];
@@ -108,9 +115,10 @@ module bridge_dec_path (
   wire tag_ok_w = tag_valid_q && (tag_q[63:0] == tag_w[63:0]) && (tag_q[127:64] == tag_w[127:64]);
   (* syn_ramstyle = "block_ram" *) reg [127:0] frm[0:255];
   (* syn_ramstyle = "block_ram" *) reg [127:0] ct[0:255];
-  wire seq_new_w = (seq_p[rx_sel] > last_seq_r);
+  wire [31:0] seq_fwd_w = seq_p[rx_sel] - last_seq_r;
+  wire seq_new_w = (seq_fwd_w != 32'd0) && (seq_fwd_w < 32'h8000_0000);
   wire [31:0] seq_back_w = last_seq_r - seq_p[rx_sel];
-  wire seq_rx_ok_c = seq_new_w ? 1'b1 : ((seq_back_w < 32'd64) && !win_r[seq_p[rx_sel][5:0]]);
+  wire seq_rx_ok_c = seq_new_w ? 1'b1 : ((seq_back_w != 32'd0) && (seq_back_w < 32'd64) && !win_r[seq_p[rx_sel][5:0]]);
   reg seq_rx_ok_q;
   wire seq_rx_ok = seq_rx_ok_q;
 
@@ -145,8 +153,8 @@ module bridge_dec_path (
       rx_state <= RX_IDLE;
       ds <= DS_IDLE;
       ts <= TS_IDLE;
-      rx_sel <= 2'd0;
-      rx_r_sel <= 2'd0;
+      rx_sel <= 1'b0;
+      rx_r_sel <= 1'b0;
       dec_sel <= 1'b0;
       ct_w_sel <= 1'b0;
       ct_r_sel <= 1'b0;
@@ -189,13 +197,16 @@ module bridge_dec_path (
       tx_b <= 4'd0;
       tx_blk_v <= 1'b0;
       out_len_q <= 12'd0;
-      last_seq_r <= 32'd0;
+      last_seq_r <= 32'hFFFF_FFFF;
       win_r <= 64'd0;
       m_tdata_r <= 8'd0;
       m_tvalid_r <= 1'b0;
       m_tlast_r <= 1'b0;
       tag_ok <= 1'b0;
       tag_ok_q <= 1'b0;
+      err_badtag <= 1'b0;
+      err_badpad <= 1'b0;
+      err_replay <= 1'b0;
       gcm_start <= 1'b0;
       gcm_pt_len <= 12'd0;
       gcm_nonce <= 96'd0;
@@ -204,6 +215,9 @@ module bridge_dec_path (
       gcm_start <= 1'b0;
       pad_len_r <= pad_len_w;
       tag_ok <= tag_ok_q;
+      err_badtag <= 1'b0;
+      err_badpad <= 1'b0;
+      err_replay <= 1'b0;
       if (frm_wr_pend) begin
         frm[frm_wr_addr] <= frm_wr_data;
         frm_wr_pend <= 1'b0;
@@ -404,12 +418,14 @@ module bridge_dec_path (
               end
               ct_len_p[rx_sel] <= fcnt + 12'd1 - 12'd36;
               tag_p[rx_sel] <= {tail18[119:0], s_tdata};
-              if (seq_rx_ok) begin
+              if (seq_rx_ok && (fcnt < 12'd2082)) begin
                 dec_pend[rx_sel] <= 1'b1;
                 if (seq_new_w) last_seq_r <= seq_p[rx_sel];
                 else win_r[seq_p[rx_sel][5:0]] <= 1'b1;
+              end else if (!seq_rx_ok) begin
+                err_replay <= 1'b1;
               end
-              rx_sel   <= rx_sel + 2'd1;
+              rx_sel   <= ~rx_sel;
               rx_state <= RX_IDLE;
             end else begin
               fcnt <= fcnt + 12'd1;
@@ -421,7 +437,10 @@ module bridge_dec_path (
       if (ds == DS_IDLE) begin
         if (dec_pend[rx_r_sel] && !tx_busy[rx_r_sel]) begin
           dec_sel <= rx_r_sel;
-          rx_r_sel <= rx_r_sel + 2'd1;
+          ds <= DS_LOAD;
+        end else if (dec_pend[~rx_r_sel] && !tx_busy[~rx_r_sel]) begin
+          dec_sel <= ~rx_r_sel;
+          rx_r_sel <= ~rx_r_sel;
           ds <= DS_LOAD;
         end
       end
@@ -467,6 +486,12 @@ module bridge_dec_path (
         end
       end
       if (ds == DS_TAG) begin
+        if (!tag_ok_q) begin
+          if (tag_q[63:0] != tag_w[63:0] || tag_q[127:64] != tag_w[127:64])
+            err_badtag <= 1'b1;
+          else
+            err_badpad <= 1'b1;
+        end
         if (tag_ok_q) begin
           out_len_p[ct_w_sel] <= out_len_c;
           ct_avail[ct_w_sel] <= 1'b1;
@@ -476,9 +501,15 @@ module bridge_dec_path (
         ds <= DS_IDLE;
       end
       if (ts == TS_TX) begin
-        m_tdata_r  <= tx_blk[127:120];
-        m_tvalid_r <= tx_blk_v;
-        m_tlast_r  <= tx_blk_v && (tx_cnt == out_len_q - 16'd1);
+        if (m_tvalid_r && !m_tready) begin
+          m_tdata_r  <= m_tdata_r;
+          m_tvalid_r <= 1'b1;
+          m_tlast_r  <= m_tlast_r;
+        end else begin
+          m_tdata_r  <= tx_blk[127:120];
+          m_tvalid_r <= tx_blk_v;
+          m_tlast_r  <= tx_blk_v && (tx_cnt == out_len_q - 16'd1);
+        end
         if (m_tready && tx_blk_v) begin
           if (tx_cnt == out_len_q - 16'd1) begin
             if (ct_avail[ct_r_sel]) begin
@@ -519,7 +550,7 @@ module bridge_dec_path (
       end
       ct_rd_data <= ct[(ct_avail[ct_r_sel] && (ts == TS_IDLE ||
                             (ts == TS_TX && tx_cnt == out_len_q - 16'd1))) ?
-                            {ct_r_sel, 9'd0} : {tx_rs, tx_rd_idx[6:0]}];
+                            {ct_r_sel, 7'd0} : {tx_rs, tx_rd_idx[6:0]}];
       if (ct_avail[ct_r_sel] && (ts == TS_IDLE)) begin
         ct_avail[ct_r_sel] <= 1'b0;
         tx_busy[ct_r_sel] <= 1'b1;
@@ -531,6 +562,12 @@ module bridge_dec_path (
         tx_blk_v <= 1'b0;
         m_tlast_r <= 1'b0;
         ts <= TS_TX;
+      end
+      if (key_load) begin
+        last_seq_r <= seq_init - 32'd1;
+        win_r <= 64'd0;
+      end else if (soft_rst) begin
+        win_r <= 64'd0;
       end
     end
   end

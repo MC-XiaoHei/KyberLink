@@ -16,7 +16,6 @@ module spi_top (
     output wire        hsk_tx_last,
     output wire [15:0] hsk_tx_len,
     input  wire        hsk_tx_ready,
-    input  wire        hsk_tx_done,
     output wire        hsk_rx_ready,
 
     output wire         key_load,
@@ -29,7 +28,18 @@ module spi_top (
     output wire [ 15:0] cfg_src_port,
     output wire [ 15:0] cfg_dst_port,
     output wire [ 47:0] cfg_src_mac,
-    output wire [ 47:0] cfg_dst_mac
+    output wire [ 47:0] cfg_dst_mac,
+    output wire [ 31:0] cfg_seq,
+
+    input wire        seq_upd,
+    input wire [31:0] seq_val,
+
+    input  wire err_badtag_i,
+    input  wire err_badpad_i,
+    input  wire err_replay_i,
+    input  wire err_oversize_i,
+    input  wire err_rxdrop_i,
+    output wire soft_rst
 );
 
   wire [ 6:0] waddr;
@@ -72,7 +82,6 @@ module spi_top (
       .hsk_tx_last(hsk_tx_last),
       .hsk_tx_len(hsk_tx_len),
       .hsk_tx_ready(hsk_tx_ready),
-      .hsk_tx_done(hsk_tx_done),
       .hsk_rx_ready(hsk_rx_ready),
       .key_load(key_load),
       .key_enc(key_enc),
@@ -84,7 +93,16 @@ module spi_top (
       .cfg_src_port(cfg_src_port),
       .cfg_dst_port(cfg_dst_port),
       .cfg_src_mac(cfg_src_mac),
-      .cfg_dst_mac(cfg_dst_mac)
+      .cfg_dst_mac(cfg_dst_mac),
+      .cfg_seq(cfg_seq),
+      .seq_upd(seq_upd),
+      .seq_val(seq_val),
+      .err_badtag_i(err_badtag_i),
+      .err_badpad_i(err_badpad_i),
+      .err_replay_i(err_replay_i),
+      .err_oversize_i(err_oversize_i),
+      .err_rxdrop_i(err_rxdrop_i),
+      .soft_rst(soft_rst)
   );
 
 endmodule

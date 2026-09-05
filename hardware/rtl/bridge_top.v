@@ -31,9 +31,16 @@ module bridge_top (
     input  wire [ 15:0] cfg_dst_port,
     input  wire [ 47:0] cfg_src_mac,
     input  wire [ 47:0] cfg_dst_mac,
-    input  wire [ 31:0] seq_enc_in,
+    input  wire [31:0] seq_enc_in,
     output wire [ 31:0] seq_enc_out,
-    output wire         tag_ok
+    output wire         seq_vld,
+    output wire         tag_ok,
+
+    input  wire soft_rst,
+    output wire err_badtag,
+    output wire err_badpad,
+    output wire err_replay,
+    output wire err_oversize
 );
 
   wire enc_pt_valid;
@@ -121,6 +128,7 @@ module bridge_top (
       .s_tlast(s_enc_tlast),
       .s_tready(s_enc_tready),
       .key(key_enc),
+      .key_load(key_load),
       .cfg_spi(cfg_spi),
       .cfg_iv(cfg_iv),
       .cfg_src_ip(cfg_src_ip),
@@ -131,6 +139,7 @@ module bridge_top (
       .cfg_dst_mac(cfg_dst_mac),
       .seq_in(seq_enc_in),
       .seq_out(seq_enc_out),
+      .seq_vld(seq_vld),
       .gcm_start(enc_start_w),
       .gcm_pt_len(enc_len_w),
       .gcm_nonce(enc_nonce_w),
@@ -148,7 +157,8 @@ module bridge_top (
       .m_tdata(m_enc_tdata),
       .m_tvalid(m_enc_tvalid),
       .m_tlast(m_enc_tlast),
-      .m_tready(m_enc_tready)
+      .m_tready(m_enc_tready),
+      .err_oversize(err_oversize)
   );
 
   bridge_dec_path u_dec (
@@ -159,6 +169,7 @@ module bridge_top (
       .s_tlast(s_dec_tlast),
       .s_tready(s_dec_tready),
       .key(key_dec),
+      .key_load(key_load),
       .gcm_start(dec_start_w),
       .gcm_pt_len(dec_len_w),
       .gcm_nonce(dec_nonce_w),
@@ -177,7 +188,12 @@ module bridge_top (
       .m_tvalid(m_dec_tvalid),
       .m_tlast(m_dec_tlast),
       .m_tready(m_dec_tready),
-      .tag_ok(tag_ok)
+      .tag_ok(tag_ok),
+      .soft_rst(soft_rst),
+      .seq_init(seq_enc_in),
+      .err_badtag(err_badtag),
+      .err_badpad(err_badpad),
+      .err_replay(err_replay)
   );
 
 endmodule

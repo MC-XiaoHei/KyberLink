@@ -22,7 +22,8 @@ module full_top (
     input  wire spi_sck,
     input  wire spi_mosi,
     output wire spi_miso,
-    input  wire spi_csn
+    input  wire spi_csn,
+    output wire tag_ok
 );
 
   wire key_load;
@@ -36,6 +37,7 @@ module full_top (
   wire [15:0] cfg_dst_port;
   wire [47:0] cfg_src_mac;
   wire [47:0] cfg_dst_mac;
+  wire [31:0] cfg_seq;
 
   wire enc_s_tready;
   wire [7:0] enc_m_tdata;
@@ -57,12 +59,26 @@ module full_top (
   wire hsk_last;
   wire [15:0] hsk_len;
   wire hsk_ready;
+  wire [7:0] ctrl_rx_tdata;
+  wire ctrl_rx_tvalid;
+  wire ctrl_rx_tlast;
+  wire [7:0] ctrl_tx_tdata;
+  wire ctrl_tx_tvalid;
+  wire ctrl_tx_tlast;
+  wire ctrl_tx_tready;
 
   wire hsk_tx_valid;
   wire [31:0] hsk_tx_data;
   wire hsk_tx_last;
   wire [15:0] hsk_tx_len;
   wire hsk_tx_ready;
+
+  wire err_badtag_w;
+  wire err_badpad_w;
+  wire err_replay_w;
+  wire err_oversize_w;
+  wire err_rxdrop_w;
+  wire soft_rst_w;
 
   spi_top u_spi (
       .clk(clk),
@@ -80,7 +96,6 @@ module full_top (
       .hsk_tx_last(hsk_tx_last),
       .hsk_tx_len(hsk_tx_len),
       .hsk_tx_ready(hsk_tx_ready),
-      .hsk_tx_done(wan_tx_last),
       .hsk_rx_ready(hsk_ready),
       .key_load(key_load),
       .key_enc(key_enc),
@@ -92,8 +107,20 @@ module full_top (
       .cfg_src_port(cfg_src_port),
       .cfg_dst_port(cfg_dst_port),
       .cfg_src_mac(cfg_src_mac),
-      .cfg_dst_mac(cfg_dst_mac)
+      .cfg_dst_mac(cfg_dst_mac),
+      .cfg_seq(cfg_seq),
+      .seq_upd(seq_upd),
+      .seq_val(seq_enc_out),
+      .err_badtag_i(err_badtag_w),
+      .err_badpad_i(err_badpad_w),
+      .err_replay_i(err_replay_w),
+      .err_oversize_i(err_oversize_w),
+      .err_rxdrop_i(err_rxdrop_w),
+      .soft_rst(soft_rst_w)
   );
+
+  wire [31:0] seq_enc_out;
+  wire seq_upd;
 
   bridge_top u_bridge (
       .clk(clk),
@@ -113,8 +140,9 @@ module full_top (
       .cfg_dst_port(cfg_dst_port),
       .cfg_src_mac(cfg_src_mac),
       .cfg_dst_mac(cfg_dst_mac),
-      .seq_enc_in(32'd1),
-      .seq_enc_out(),
+      .seq_enc_in(cfg_seq),
+      .seq_enc_out(seq_enc_out),
+      .seq_vld(seq_upd),
       .m_enc_tdata(enc_m_tdata),
       .m_enc_tvalid(enc_m_tvalid),
       .m_enc_tlast(enc_m_tlast),
@@ -127,7 +155,12 @@ module full_top (
       .m_dec_tvalid(dec_m_tvalid),
       .m_dec_tlast(dec_m_tlast),
       .m_dec_tready(dec_m_tready),
-      .tag_ok()
+      .tag_ok(tag_ok),
+      .soft_rst(soft_rst_w),
+      .err_badtag(err_badtag_w),
+      .err_badpad(err_badpad_w),
+      .err_replay(err_replay_w),
+      .err_oversize(err_oversize_w)
   );
 
   ip_udp_eth_rx u_rx_wan (
@@ -136,8 +169,9 @@ module full_top (
       .s_tdata(wan_rxd),
       .s_tvalid(wan_rx_dv),
       .s_tlast(wan_rx_last),
-      .s_tready(),
+      .s_tready(dec_s_tready),
       .cfg_src_mac(cfg_src_mac),
+      .cfg_dport(cfg_dst_port),
       .m_data_tdata(dec_s_tdata),
       .m_data_tvalid(dec_s_tvalid),
       .m_data_tlast(dec_s_tlast),
@@ -146,7 +180,26 @@ module full_top (
       .hsk_data(hsk_data),
       .hsk_last(hsk_last),
       .hsk_len(hsk_len),
-      .hsk_ready(hsk_ready)
+      .hsk_ready(hsk_ready),
+      .m_ctrl_tdata(ctrl_rx_tdata),
+      .m_ctrl_tvalid(ctrl_rx_tvalid),
+      .m_ctrl_tlast(ctrl_rx_tlast),
+      .err_rxdrop(err_rxdrop_w)
+  );
+
+  ctrl_resp u_ctrl (
+      .clk(clk),
+      .rst_n(rst_n),
+      .s_tdata(ctrl_rx_tdata),
+      .s_tvalid(ctrl_rx_tvalid),
+      .s_tlast(ctrl_rx_tlast),
+      .cfg_src_mac(cfg_src_mac),
+      .cfg_src_ip(cfg_src_ip),
+      .key_load(key_load),
+      .m_tdata(ctrl_tx_tdata),
+      .m_tvalid(ctrl_tx_tvalid),
+      .m_tlast(ctrl_tx_tlast),
+      .m_tready(ctrl_tx_tready)
   );
 
   ip_udp_eth_tx u_tx_wan (
@@ -164,6 +217,10 @@ module full_top (
       .cfg_dst_ip(cfg_dst_ip),
       .cfg_src_mac(cfg_src_mac),
       .cfg_dst_mac(cfg_dst_mac),
+      .s_ctrl_tdata(ctrl_tx_tdata),
+      .s_ctrl_tvalid(ctrl_tx_tvalid),
+      .s_ctrl_tlast(ctrl_tx_tlast),
+      .s_ctrl_tready(ctrl_tx_tready),
       .m_tdata(wan_txd),
       .m_tvalid(wan_tx_en),
       .m_tlast(wan_tx_last),
