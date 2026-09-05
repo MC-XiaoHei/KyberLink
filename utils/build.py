@@ -1,3 +1,4 @@
+import os
 import subprocess
 
 from . import config, pnr
@@ -11,13 +12,12 @@ def run(args, reporter):
 
 
 def firmware():
-    from .wsl import wsl_path
-
+    tc = os.environ.get("RUST_TOOLCHAIN", "nightly")
     script = (
-        f"cd {wsl_path(config.REPO)}/software && cargo build -p kyberlink-firmware "
-        f"--release --target riscv32imc-unknown-none-elf"
+        f"rustup run {tc} cargo -Zbuild-std=core "
+        "build -p kyberlink-firmware --release"
     )
-    rc = subprocess.call(["wsl", "--", "bash", "-lc", script])
+    rc = subprocess.call(["cmd", "/c", script], cwd=os.path.join(config.REPO, "software"))
     if rc != 0:
         raise AppError(f"cargo build firmware failed rc={rc}", rc)
     return Result("build firmware")

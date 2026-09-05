@@ -12,14 +12,16 @@ def run(args, reporter):
 
 
 def _cargo_test():
-    from .wsl import wsl_path
-
+    host = os.environ.get("HOST_TARGET", "x86_64-pc-windows-msvc")
+    tc = os.environ.get("RUST_TOOLCHAIN", "nightly")
     script = (
-        f"cd {wsl_path(config.REPO)}/software && cargo test --workspace "
-        f"--target x86_64-unknown-linux-gnu --features kyberlink-crypto/std,"
-        f"kyberlink-firmware/std"
+        f"rustup run {tc} cargo test --workspace "
+        f"--target {host} "
+        "--features kyberlink-crypto/std,kyberlink-firmware/std"
     )
-    rc = subprocess.call(["wsl", "--", "bash", "-lc", script])
+    rc = subprocess.call(
+        ["cmd", "/c", script], cwd=os.path.join(config.REPO, "software")
+    )
     if rc != 0:
         raise AppError(f"cargo test failed rc={rc}", rc)
 
