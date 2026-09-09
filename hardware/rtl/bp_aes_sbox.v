@@ -1,17 +1,13 @@
 
-//
-// Boyar-Peralta AES SBox - Forward / Inverse with shared middle layer
-// 
-
 module bp_aes_sbox (
 input  wire [7:0] s_in  ,
 input  wire       inv   ,
 output wire [7:0] s_out
 );
 
-wire [7:0] U; // Bit-reversed version of s_in
-wire [7:0] S; // Bit reversed version of s_out (forward)
-wire [7:0] W; // Bit reversed version of s_out (inverse)
+wire [7:0] U;
+wire [7:0] S;
+wire [7:0] W;
 
 wire [7:0] s_out_inv;
 wire [7:0] s_out_fwd;
@@ -24,9 +20,6 @@ generate for(i = 0; i < 8; i=i+1) begin
 end endgenerate
 
 assign s_out = inv ? s_out_inv : s_out_fwd;
-
-//
-// Top Layer - Forward
 
 wire tf_1   = U[0 ] ^ U[3];
 wire tf_2   = U[0 ] ^ U[5];
@@ -56,9 +49,6 @@ wire tf_25  = tf_20  ^ tf_17 ;
 wire tf_26  = tf_3   ^ tf_16 ;
 wire tf_27  = tf_1   ^ tf_12 ;
 
-//
-// Top Layer - Inverse
-
 wire r_13  =   U[1] ^ U[6]   ;
 wire r_17  = ~(U[2] ^ U[5] ) ;
 wire r_18  = ~(U[5] ^ U[6] ) ;
@@ -87,9 +77,6 @@ wire ti_26 =   ti_3 ^ ti_16   ;
 wire ti_27 =   ti_1 ^ r_18   ;
 wire y_5   =   U[0] ^ r_17   ;
 
-//
-// Top Layer - Forward/Inverse select
-
 wire t_1  = inv ? ti_1  : tf_1  ;
 wire t_2  = inv ? ti_2  : tf_2  ;
 wire t_3  = inv ? ti_3  : tf_3  ;
@@ -112,9 +99,6 @@ wire t_25 = inv ? ti_25 : tf_25 ;
 wire t_26 = inv ? ti_26 : tf_26 ;
 wire t_27 = inv ? ti_27 : tf_27 ;
 wire d    = inv ? y_5   : s_in[0] ;
-
-//
-// Middle Layer - Shared
 
 wire m_1   = t_13  & t_6  ;
 wire m_2   = t_23  & t_8  ;
@@ -180,9 +164,6 @@ wire m_61  = m_42  & t_1  ;
 wire m_62  = m_45  & t_4  ;
 wire m_63  = m_41  & t_2  ;
 
-//
-// Bottom Layer - Forward
-
 wire l_0   = m_61  ^ m_62 ;
 wire l_1   = m_50  ^ m_56 ;
 wire l_2   = m_46  ^ m_48 ;
@@ -222,9 +203,6 @@ assign S[4 ] = l_20  ^ l_22 ;
 assign S[5 ] = l_25  ^ l_29 ;
 assign S[6 ] = l_13  ~^l_27 ;
 assign S[7 ] = l_6   ~^l_23 ;
-
-//
-// Bottom Layer - Inverse
 
 wire p_0  = m_52 ^ m_61 ;
 wire p_1  = m_58 ^ m_59 ;
