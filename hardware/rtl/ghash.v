@@ -115,11 +115,21 @@ module ghash (
                            ({193'd0, mul_b} << ({2'b00, sh1_r, 5'd0}));
 
   reg [255:0] red;
+  reg [  5:0] rcorr;
   integer ri;
   always @(*) begin
     red = prod;
-    for (ri = 254; ri >= 128; ri = ri - 1) begin
-      if (red[ri]) red[ri-128+:8] = red[ri-128+:8] ^ 8'h87;
+    for (ri = 254; ri >= 134; ri = ri - 1) begin
+      if (prod[ri]) red[ri-128+:8] = red[ri-128+:8] ^ 8'h87;
+    end
+    rcorr[0] = prod[249] ^ prod[254];
+    rcorr[1] = prod[250];
+    rcorr[2] = prod[251];
+    rcorr[3] = prod[252];
+    rcorr[4] = prod[253];
+    rcorr[5] = prod[254];
+    for (ri = 133; ri >= 128; ri = ri - 1) begin
+      if (prod[ri] ^ rcorr[ri-128]) red[ri-128+:8] = red[ri-128+:8] ^ 8'h87;
     end
   end
 

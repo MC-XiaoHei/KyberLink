@@ -11,6 +11,8 @@ module bridge_dec_path (
     input wire         key_load,
 
     output reg          gcm_start,
+    input  wire         gcm_grant,
+    output reg          gcm_req,
     output reg  [ 11:0] gcm_pt_len,
     output reg  [ 95:0] gcm_nonce,
     output reg  [127:0] gcm_aad,
@@ -57,6 +59,7 @@ module bridge_dec_path (
   reg rx_sel;
   reg rx_r_sel;
   reg dec_sel;
+  reg grant_used;
   reg ct_w_sel;
   reg ct_r_sel;
   reg tx_rs;
@@ -85,7 +88,6 @@ module bridge_dec_path (
   reg pt_data_v;
   reg [8:0] nct_q;
   reg [7:0] ct_idx;
-  reg [7:0] ct_wr;
   reg [127:0] tail_pt;
   reg [7:0] pad_len_r;
   reg [15:0] tx_cnt;
@@ -116,9 +118,9 @@ module bridge_dec_path (
   (* syn_ramstyle = "block_ram" *) reg [127:0] frm[0:255];
   (* syn_ramstyle = "block_ram" *) reg [127:0] ct[0:255];
   wire [31:0] seq_fwd_w = seq_p[rx_sel] - last_seq_r;
-  wire seq_new_w = (seq_fwd_w != 32'd0) && (seq_fwd_w < 32'h8000_0000);
   wire [31:0] seq_back_w = last_seq_r - seq_p[rx_sel];
-  wire seq_rx_ok_c = seq_new_w ? 1'b1 : ((seq_back_w != 32'd0) && (seq_back_w < 32'd64) && !win_r[seq_p[rx_sel][5:0]]);
+  wire seq_new_w = (seq_fwd_w != 32'd0) && (seq_fwd_w < 32'h8000_0000);
+  wire seq_rx_ok_c = seq_new_w || ((seq_back_w != 32'd0) && (seq_back_w < 32'd64) && !win_r[seq_p[rx_sel][5:0]]);
   reg seq_rx_ok_q;
   wire seq_rx_ok = seq_rx_ok_q;
 
@@ -127,7 +129,7 @@ module bridge_dec_path (
   end
   assign gcm_pt_valid = pt_data_v;
   assign gcm_pt_data = pt_rd_data;
-  assign gcm_ct_ready = (ct_wr < 8'd96);
+  assign gcm_ct_ready = (ct_idx < 8'd96);
   assign m_tdata = m_tdata_r;
   assign m_tvalid = m_tvalid_r;
   assign s_tready = (rx_state == RX_RUN) || ((rx_state == RX_IDLE) && !dec_pend[rx_sel]);
@@ -188,7 +190,6 @@ module bridge_dec_path (
       pt_data_v <= 1'b0;
       nct_q <= 9'd0;
       ct_idx <= 8'd0;
-      ct_wr <= 8'd0;
       tail_pt <= 128'd0;
       pad_len_r <= 8'd0;
       tx_cnt <= 16'd0;
@@ -208,6 +209,8 @@ module bridge_dec_path (
       err_badpad <= 1'b0;
       err_replay <= 1'b0;
       gcm_start <= 1'b0;
+      gcm_req <= 1'b0;
+      grant_used <= 1'b0;
       gcm_pt_len <= 12'd0;
       gcm_nonce <= 96'd0;
       gcm_aad <= 128'd0;
@@ -437,28 +440,33 @@ module bridge_dec_path (
       if (ds == DS_IDLE) begin
         if (dec_pend[rx_r_sel] && !tx_busy[rx_r_sel]) begin
           dec_sel <= rx_r_sel;
+          gcm_req <= 1'b1;
           ds <= DS_LOAD;
         end else if (dec_pend[~rx_r_sel] && !tx_busy[~rx_r_sel]) begin
           dec_sel <= ~rx_r_sel;
           rx_r_sel <= ~rx_r_sel;
+          gcm_req <= 1'b1;
           ds <= DS_LOAD;
         end
       end
       if (ds == DS_LOAD) begin
-        ct_idx <= 8'd0;
-        ct_wr <= 8'd0;
-        pt_idx <= 8'd0;
-        pt_rd_addr <= 8'd0;
-        pt_req <= 1'b0;
-        pt_data_v <= 1'b0;
-        tail_pt <= 128'd0;
-        pad_len_r <= 8'd0;
-        nct_q <= nct;
-        gcm_start <= 1'b1;
-        gcm_pt_len <= ct_len_p[dec_sel];
-        gcm_nonce <= iv_p[dec_sel];
-        gcm_aad <= {spi_p[dec_sel], seq_p[dec_sel], 64'd0};
-        ds <= DS_RUN;
+        if (gcm_grant && !grant_used) begin
+          grant_used <= 1'b1;
+          gcm_req <= 1'b0;
+          ct_idx <= 8'd0;
+          pt_idx <= 8'd0;
+          pt_rd_addr <= 8'd0;
+          pt_req <= 1'b0;
+          pt_data_v <= 1'b0;
+          tail_pt <= 128'd0;
+          pad_len_r <= 8'd0;
+          nct_q <= nct;
+          gcm_start <= 1'b1;
+          gcm_pt_len <= ct_len_p[dec_sel];
+          gcm_nonce <= iv_p[dec_sel];
+          gcm_aad <= {spi_p[dec_sel], seq_p[dec_sel], 64'd0};
+          ds <= DS_RUN;
+        end
       end
       if (ds == DS_RUN) begin
         if (gcm_pt_ready && !pt_req && !pt_data_v && (pt_idx < nct_q[7:0])) begin
@@ -476,12 +484,12 @@ module bridge_dec_path (
         if (gcm_ct_valid && gcm_ct_ready) begin
           ct[{ct_w_sel, ct_idx[6:0]}] <= gcm_ct_data;
           ct_idx <= ct_idx + 8'd1;
-          ct_wr <= ct_wr + 8'd1;
           tail_pt <= gcm_ct_data;
         end
         if (tag_valid_q) begin
           tag_ok_q <= tag_ok_w && pad_ok_w;
           out_len_c <= out_len_w;
+          grant_used <= 1'b0;
           ds <= DS_TAG;
         end
       end

@@ -378,3 +378,115 @@ always @(posedge CLKB or negedge grstn) begin
     end
 end
 endmodule
+
+module SDPB (DO, DI, BLKSELA, BLKSELB, ADA, ADB, CLKA, CLKB, CEA, CEB, OCE, RESET);
+parameter READ_MODE = 1'b0;
+parameter BIT_WIDTH_0 = 32;
+parameter BIT_WIDTH_1 = 32;
+parameter BLK_SEL_0 = 3'b000;
+parameter BLK_SEL_1 = 3'b000;
+parameter RESET_MODE = "SYNC";
+input CLKA, CEA, CLKB, CEB;
+input OCE, RESET;
+input [13:0] ADA, ADB;
+input [31:0] DI;
+input [2:0] BLKSELA, BLKSELB;
+output [31:0] DO;
+
+reg [16383:0] ram_MEM = 16384'd0;
+reg [BIT_WIDTH_0-1:0] mem_a;
+reg [BIT_WIDTH_1-1:0] mem_b;
+reg [13:0] addr_a, addr_b;
+reg [31:0] bp_reg, pl_reg;
+integer aw0 = 0;
+integer aw1 = 0;
+wire pcea = CEA && (BLKSELA == BLK_SEL_0);
+wire pceb = CEB && (BLKSELB == BLK_SEL_1);
+
+initial begin
+    case (BIT_WIDTH_0)
+        1: aw0 = 14;
+        2: aw0 = 13;
+        4: aw0 = 12;
+        8: aw0 = 11;
+        16: aw0 = 10;
+        32: aw0 = 9;
+        default: aw0 = 0;
+    endcase
+    case (BIT_WIDTH_1)
+        1: aw1 = 14;
+        2: aw1 = 13;
+        4: aw1 = 12;
+        8: aw1 = 11;
+        16: aw1 = 10;
+        32: aw1 = 9;
+        default: aw1 = 0;
+    endcase
+    bp_reg = 32'd0;
+    pl_reg = 32'd0;
+end
+
+always @(*) begin
+    addr_a = 14'd0;
+    mem_a = {BIT_WIDTH_0{1'b0}};
+    case (aw0)
+        14: begin addr_a = ADA;                   mem_a = ram_MEM[addr_a+:1];  end
+        13: begin addr_a = {ADA[13:1], 1'b0};     mem_a = ram_MEM[addr_a+:2];  end
+        12: begin addr_a = {ADA[13:2], 2'b00};    mem_a = ram_MEM[addr_a+:4];  end
+        11: begin addr_a = {ADA[13:3], 3'b000};   mem_a = ram_MEM[addr_a+:8];  end
+        10: begin addr_a = {ADA[13:4], 4'b0000};  mem_a = ram_MEM[addr_a+:16]; end
+        9:  begin addr_a = {ADA[13:5], 5'b00000}; mem_a = ram_MEM[addr_a+:32]; end
+        default: ;
+    endcase
+    addr_b = 14'd0;
+    mem_b = {BIT_WIDTH_1{1'b0}};
+    case (aw1)
+        14: begin addr_b = ADB;                   mem_b = ram_MEM[addr_b+:1];  end
+        13: begin addr_b = {ADB[13:1], 1'b0};     mem_b = ram_MEM[addr_b+:2];  end
+        12: begin addr_b = {ADB[13:2], 2'b00};    mem_b = ram_MEM[addr_b+:4];  end
+        11: begin addr_b = {ADB[13:3], 3'b000};   mem_b = ram_MEM[addr_b+:8];  end
+        10: begin addr_b = {ADB[13:4], 4'b0000};  mem_b = ram_MEM[addr_b+:16]; end
+        9:  begin addr_b = {ADB[13:5], 5'b00000}; mem_b = ram_MEM[addr_b+:32]; end
+        default: ;
+    endcase
+end
+
+always @(posedge CLKA) begin
+    if (pcea) begin
+        case (BIT_WIDTH_0)
+            1: ram_MEM[addr_a] <= DI[0];
+            2: ram_MEM[addr_a+:2] <= DI[1:0];
+            4: ram_MEM[addr_a+:4] <= DI[3:0];
+            8: ram_MEM[addr_a+:8] <= DI[7:0];
+            16: begin
+                if (ADA[0]) ram_MEM[addr_a+:8] <= DI[7:0];
+                if (ADA[1]) ram_MEM[addr_a+8+:8] <= DI[15:8];
+            end
+            32: begin
+                if (ADA[0]) ram_MEM[addr_a+:8] <= DI[7:0];
+                if (ADA[1]) ram_MEM[addr_a+8+:8] <= DI[15:8];
+                if (ADA[2]) ram_MEM[addr_a+16+:8] <= DI[23:16];
+                if (ADA[3]) ram_MEM[addr_a+24+:8] <= DI[31:24];
+            end
+            default: ;
+        endcase
+    end
+end
+
+always @(posedge CLKB) begin
+    if (RESET) begin
+        bp_reg <= 32'd0;
+        pl_reg <= 32'd0;
+    end else begin
+        if (OCE) pl_reg <= bp_reg;
+        if (pceb) bp_reg[BIT_WIDTH_1-1:0] <= mem_b;
+    end
+end
+
+assign DO = (READ_MODE == 1'b0) ? bp_reg : pl_reg;
+
+endmodule
+
+module GSR (GSRI);
+input GSRI;
+endmodule

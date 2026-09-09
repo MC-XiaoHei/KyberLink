@@ -52,21 +52,25 @@ module aes256_core (
                        (rke >> 1) == 4'd6 ? 8'h20 : 8'h40;
 
   wire [7:0] sb0_c, sb1_c, sb2_c, sb3_c;
-  sbox8_dist u_sb_k0 (
-      .x(wm1[31:24]),
-      .y(sb0_c)
+  bp_aes_sbox u_sb_k0 (
+      .s_in(wm1[31:24]),
+      .inv(1'b0),
+      .s_out(sb0_c)
   );
-  sbox8_dist u_sb_k1 (
-      .x(wm1[23:16]),
-      .y(sb1_c)
+  bp_aes_sbox u_sb_k1 (
+      .s_in(wm1[23:16]),
+      .inv(1'b0),
+      .s_out(sb1_c)
   );
-  sbox8_dist u_sb_k2 (
-      .x(wm1[15:8]),
-      .y(sb2_c)
+  bp_aes_sbox u_sb_k2 (
+      .s_in(wm1[15:8]),
+      .inv(1'b0),
+      .s_out(sb2_c)
   );
-  sbox8_dist u_sb_k3 (
-      .x(wm1[7:0]),
-      .y(sb3_c)
+  bp_aes_sbox u_sb_k3 (
+      .s_in(wm1[7:0]),
+      .inv(1'b0),
+      .s_out(sb3_c)
   );
 
   always @(posedge clk or negedge rst_n) begin

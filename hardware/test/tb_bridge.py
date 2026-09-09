@@ -33,7 +33,7 @@ async def enc_frame(dut, data):
             dut.s_enc_tvalid.value = 0
             dut.s_enc_tlast.value = 0
         dut.m_enc_tready.value = 1
-        ae = dut.u_enc_gcm
+        ae = dut.u_gcm
         if int(dut.m_enc_tvalid.value):
             out.append(int(dut.m_enc_tdata.value))
             if int(dut.m_enc_tlast.value):
@@ -115,7 +115,7 @@ async def bridge_roundtrip(dut):
         n_blk = 0
         while True:
             await ClockCycles(dut.clk, 1)
-            g = dut.u_enc_gcm
+            g = dut.u_gcm
             if int(g.ct_valid.value) and int(g.ct_ready.value) and int(dut.m_enc_tready.value):
                 if n_blk < 6:
                     print(f"ENC ct blk {n_blk}: {int(g.ct_data.value):032x} "
@@ -127,7 +127,7 @@ async def bridge_roundtrip(dut):
         esp = await enc_frame(dut, frame)
         print(f"roundtrip {i}: n={n} esp_len={len(esp)} esp42={esp[42:].hex()}", flush=True)
         assert esp[:14] == bytes.fromhex("66778899aabb0011223344550800"), f"eth hdr {i} len {len(esp)} got {esp[:14].hex()}"
-        g = dut.u_enc_gcm
+        g = dut.u_gcm
         e = dut.u_enc
         print(f"  gcm.tag={int(g.tag.value):032x} tx_tag_p0={int(e.tx_tag_p[0].value):032x} "
               f"tx_tag_p1={int(e.tx_tag_p[1].value):032x} gtv={int(g.tag_valid.value)}", flush=True)

@@ -22,6 +22,8 @@ module bridge_enc_path (
     output reg          seq_vld,
 
     output reg          gcm_start,
+    input  wire         gcm_grant,
+    output reg          gcm_req,
     output reg  [ 11:0] gcm_pt_len,
     output reg  [ 95:0] gcm_nonce,
     output reg  [127:0] gcm_aad,
@@ -55,6 +57,7 @@ module bridge_enc_path (
   reg             rx_state;
   reg     [  1:0] es;
   reg     [  1:0] ts;
+  reg             grant_used;
 
 
   reg     [  1:0] rx_slot;
@@ -108,20 +111,12 @@ module bridge_enc_path (
   reg     [ 15:0] ct_end_q;
   reg     [  8:0] nct_q;
   reg     [  8:0] enc_nct;
-  reg     [  7:0] tx_nct;
 
-  wire    [  3:0] pad_n = (16 - ((frm_len_p[rx_slot][3:0] + 4'd2) & 4'hF)) & 4'hF;
   wire    [ 11:0] frm_len_now = fcnt + 12'd1;
   wire    [  3:0] pad_now = (16 - ((frm_len_now[3:0] + 4'd2) & 4'hF)) & 4'hF;
   wire    [ 11:0] pt_len_now = frm_len_now + 12'd2 + {8'd0, pad_now};
-  wire    [ 11:0] pt_len_w = frm_len_p[rx_slot] + 12'd2 + {8'd0, pad_n};
   wire    [  3:0] pad_n_e = (16 - ((frm_len_p[enc_slot][3:0] + 4'd2) & 4'hF)) & 4'hF;
   wire    [ 11:0] pt_len_e = frm_len_p[enc_slot] + 12'd2 + {8'd0, pad_n_e};
-  wire    [ 15:0] udp_len = 16'd44 + {4'd0, pt_len_w};
-  wire    [ 15:0] total_len = 16'd64 + {4'd0, pt_len_w};
-  wire    [ 15:0] frame_n = 16'd78 + {4'd0, pt_len_w};
-  wire    [ 15:0] ct_end = 16'd62 + {4'd0, pt_len_w};
-  wire    [  8:0] nct = {1'b0, pt_len_w[11:4]} + {8'd0, |pt_len_w[3:0]};
   wire    [  8:0] nct_e = {1'b0, pt_len_e[11:4]} + {8'd0, |pt_len_e[3:0]};
 
   function [15:0] fold16(input [31:0] s);
@@ -154,31 +149,12 @@ module bridge_enc_path (
   end
 
 
-  reg [31:0] cfg_src_ip_q;
-  reg [31:0] cfg_dst_ip_q;
-  reg [15:0] cfg_src_port_q;
-  reg [15:0] cfg_dst_port_q;
-  reg [47:0] cfg_src_mac_q;
-  reg [47:0] cfg_dst_mac_q;
-  reg [31:0] cfg_spi_q;
-  reg [95:0] cfg_iv_q;
-  always @(posedge clk) begin
-    cfg_src_ip_q <= cfg_src_ip;
-    cfg_dst_ip_q <= cfg_dst_ip;
-    cfg_src_port_q <= cfg_src_port;
-    cfg_dst_port_q <= cfg_dst_port;
-    cfg_src_mac_q <= cfg_src_mac;
-    cfg_dst_mac_q <= cfg_dst_mac;
-    cfg_spi_q <= cfg_spi;
-    cfg_iv_q <= cfg_iv;
-  end
-
   function [7:0] hdr_byte(input [15:0] o);
     reg [15:0] ipd;
     begin
       case (1'b1)
-        o < 16'd6: hdr_byte = cfg_dst_mac_q[47-8*o[2:0]-:8];
-        o < 16'd12: hdr_byte = cfg_src_mac_q[47-8*(o-16'd6)-:8];
+        o < 16'd6: hdr_byte = cfg_dst_mac[47-8*o[2:0]-:8];
+        o < 16'd12: hdr_byte = cfg_src_mac[47-8*(o-16'd6)-:8];
         o < 16'd14: hdr_byte = (o == 16'd12) ? 8'h08 : 8'h00;
         o < 16'd34: begin
           ipd = o - 16'd14;
@@ -195,32 +171,32 @@ module bridge_enc_path (
             5'd9: hdr_byte = 8'h11;
             5'd10: hdr_byte = tx_csum_p[tx_rd_slot][15:8];
             5'd11: hdr_byte = tx_csum_p[tx_rd_slot][7:0];
-            5'd12: hdr_byte = cfg_src_ip_q[31:24];
-            5'd13: hdr_byte = cfg_src_ip_q[23:16];
-            5'd14: hdr_byte = cfg_src_ip_q[15:8];
-            5'd15: hdr_byte = cfg_src_ip_q[7:0];
-            5'd16: hdr_byte = cfg_dst_ip_q[31:24];
-            5'd17: hdr_byte = cfg_dst_ip_q[23:16];
-            5'd18: hdr_byte = cfg_dst_ip_q[15:8];
-            default: hdr_byte = cfg_dst_ip_q[7:0];
+            5'd12: hdr_byte = cfg_src_ip[31:24];
+            5'd13: hdr_byte = cfg_src_ip[23:16];
+            5'd14: hdr_byte = cfg_src_ip[15:8];
+            5'd15: hdr_byte = cfg_src_ip[7:0];
+            5'd16: hdr_byte = cfg_dst_ip[31:24];
+            5'd17: hdr_byte = cfg_dst_ip[23:16];
+            5'd18: hdr_byte = cfg_dst_ip[15:8];
+            default: hdr_byte = cfg_dst_ip[7:0];
           endcase
         end
         o < 16'd42: begin
           case (o[3:0] - 4'd2)
-            4'd0: hdr_byte = cfg_src_port_q[15:8];
-            4'd1: hdr_byte = cfg_src_port_q[7:0];
-            4'd2: hdr_byte = cfg_dst_port_q[15:8];
-            4'd3: hdr_byte = cfg_dst_port_q[7:0];
+            4'd0: hdr_byte = cfg_src_port[15:8];
+            4'd1: hdr_byte = cfg_src_port[7:0];
+            4'd2: hdr_byte = cfg_dst_port[15:8];
+            4'd3: hdr_byte = cfg_dst_port[7:0];
             4'd4: hdr_byte = tx_udp_p[tx_rd_slot][15:8];
             4'd5: hdr_byte = tx_udp_p[tx_rd_slot][7:0];
             4'd6: hdr_byte = 8'h00;
             default: hdr_byte = 8'h00;
           endcase
         end
-        o < 16'd46: hdr_byte = cfg_spi_q[31-8*(o-16'd42)-:8];
+        o < 16'd46: hdr_byte = cfg_spi[31-8*(o-16'd42)-:8];
         o < 16'd50: hdr_byte = tx_seq_p[tx_rd_slot][31-8*(o-16'd46)-:8];
         o < 16'd54: hdr_byte = tx_seq_p[tx_rd_slot][31-8*(o-16'd50)-:8];
-        default: hdr_byte = cfg_iv_q[95-8*(o-16'd54)-:8];
+        default: hdr_byte = cfg_iv[95-8*(o-16'd54)-:8];
       endcase
     end
   endfunction
@@ -346,8 +322,9 @@ module bridge_enc_path (
       ct_end_q <= 16'd0;
       nct_q <= 9'd0;
       enc_nct <= 8'd0;
-      tx_nct <= 8'd0;
       gcm_start <= 1'b0;
+      gcm_req <= 1'b0;
+      grant_used <= 1'b0;
       gcm_pt_len <= 12'd0;
       gcm_nonce <= 96'd0;
       gcm_aad <= 128'd0;
@@ -380,13 +357,13 @@ module bridge_enc_path (
           pt_idx <= pt_idx + 8'd1;
         end
         if (gcm_tag_valid) begin
+          grant_used <= 1'b0;
           tx_len_p[enc_slot] <= gcm_pt_len;
           tx_seq_p[enc_slot] <= seq_p[enc_slot];
           tx_total_p[enc_slot] <= total_len_p[enc_slot];
           tx_udp_p[enc_slot] <= udp_len_p[enc_slot];
           tx_csum_p[enc_slot] <= ip_csum_r;
           tx_tag_p[enc_slot] <= gcm_tag;
-          tx_nct <= nct_q;
           ct_avail[enc_slot] <= 1'b1;
           enc_pend[enc_slot] <= 1'b0;
           enc_slot <= enc_slot + 2'd1;
@@ -647,31 +624,36 @@ module bridge_enc_path (
       end
       if (es == ES_IDLE) begin
         if (enc_pend[enc_slot]) begin
+          gcm_req <= 1'b1;
           es <= ES_LOAD;
         end else if (enc_pend != 4'd0) begin
           enc_slot <= enc_slot + 2'd1;
         end
       end
       if (es == ES_LOAD) begin
-        frm_len_e <= frm_len_p[enc_slot];
-        pt_len_e_r <= pt_len_e;
-        pad_n_e_r <= pad_n_e;
-        ct_idx <= 8'd0;
-        pt_idx <= 8'd0;
-        pt_req <= 1'b0;
-        pt_rd_done <= 1'b0;
-        pt_data_v <= 1'b0;
-        gcm_start <= 1'b1;
-        gcm_pt_len <= pt_len_e;
-        gcm_nonce <= {seq_p[enc_slot], cfg_iv[95:32]};
-        gcm_aad <= {cfg_spi, seq_p[enc_slot], 64'd0};
-        total_len_q <= total_len_p[enc_slot];
-        udp_len_q <= udp_len_p[enc_slot];
-        ip_csum_r <= ip_csum_e;
-        enc_nct <= nct_e[7:0];
-        nct_q <= nct_e;
-        seq_vld <= 1'b1;
-        es <= ES_ENC;
+        if (gcm_grant && !grant_used) begin
+          grant_used <= 1'b1;
+          gcm_req <= 1'b0;
+          frm_len_e <= frm_len_p[enc_slot];
+          pt_len_e_r <= pt_len_e;
+          pad_n_e_r <= pad_n_e;
+          ct_idx <= 8'd0;
+          pt_idx <= 8'd0;
+          pt_req <= 1'b0;
+          pt_rd_done <= 1'b0;
+          pt_data_v <= 1'b0;
+          gcm_start <= 1'b1;
+          gcm_pt_len <= pt_len_e;
+          gcm_nonce <= {seq_p[enc_slot], cfg_iv[95:32]};
+          gcm_aad <= {cfg_spi, seq_p[enc_slot], 64'd0};
+          total_len_q <= total_len_p[enc_slot];
+          udp_len_q <= udp_len_p[enc_slot];
+          ip_csum_r <= ip_csum_e;
+          enc_nct <= nct_e[7:0];
+          nct_q <= nct_e;
+          seq_vld <= 1'b1;
+          es <= ES_ENC;
+        end
       end
       if ((ts == TS_IDLE) && !ct_avail[tx_slot] && (ct_avail != 4'd0)) begin
         tx_slot <= tx_slot + 2'd1;
