@@ -9,10 +9,10 @@ module spi_regs (
     input  wire        rreq,
     output wire [31:0] rdata,
 
-    input wire        hsk_rx_wr,
-    input wire [31:0] hsk_rx_data,
-    input wire        hsk_rx_last,
-    input wire [15:0] hsk_rx_len,
+    input  wire        hsk_rx_wr,
+    input  wire [31:0] hsk_rx_data,
+    input  wire        hsk_rx_last,
+    input  wire [15:0] hsk_rx_len,
 
     output wire        hsk_tx_valid,
     output wire [31:0] hsk_tx_data,
@@ -21,31 +21,35 @@ module spi_regs (
     input  wire        hsk_tx_ready,
     output wire        hsk_rx_ready,
 
-    output reg         key_load,
-    output reg [255:0] key_enc,
-    output reg [255:0] key_dec,
-    output reg [ 31:0] cfg_spi,
-    output reg [ 95:0] cfg_iv,
-    output reg [ 31:0] cfg_src_ip,
-    output reg [ 31:0] cfg_dst_ip,
-    output reg [ 15:0] cfg_src_port,
-    output reg [ 15:0] cfg_dst_port,
-    output reg [ 47:0] cfg_src_mac,
-    output reg [ 47:0] cfg_dst_mac,
-    output reg [ 31:0] cfg_seq,
+    output reg          key_load,
+    output wire [255:0] key_enc,
+    output wire [255:0] key_dec,
+    output wire [ 31:0] cfg_spi,
+    output wire [ 95:0] cfg_iv,
+    output wire [ 31:0] cfg_src_ip,
+    output wire [ 31:0] cfg_dst_ip,
+    output wire [ 15:0] cfg_src_port,
+    output wire [ 15:0] cfg_dst_port,
+    output wire [ 47:0] cfg_src_mac,
+    output wire [ 47:0] cfg_dst_mac,
+    output wire [ 31:0] cfg_seq,
 
-    input wire        seq_upd,
-    input wire [31:0] seq_val,
+    input  wire        seq_upd,
+    input  wire [31:0] seq_val,
 
-    input  wire err_badtag_i,
-    input  wire err_badpad_i,
-    input  wire err_replay_i,
-    input  wire err_oversize_i,
-    input  wire err_rxdrop_i,
+    input  wire [ 4:0] err_pulse,
+    input  wire        arp_pending,
+    input  wire [79:0] arp_capture,
+    output wire        arp_read,
+
+    output wire        ctrl_valid,
+    output wire [ 7:0] ctrl_data,
+    output wire        ctrl_last,
+    input  wire        ctrl_ready,
+
     output wire soft_rst
 );
 
-  reg [ 31:0] r_ctrl;
   reg [ 31:0] r_spi;
   reg [ 31:0] r_salt_lo;
   reg [ 31:0] r_salt_hi;
@@ -63,18 +67,11 @@ module spi_regs (
   reg [ 15:0] r_hsk_tx_len;
   reg [ 15:0] r_hsk_rx_len;
   reg         hsk_rx_pending;
-
-  reg [31:0] cnt_badtag;
-  reg [31:0] cnt_badpad;
-  reg [31:0] cnt_replay;
-  reg [31:0] cnt_oversize;
-  reg [31:0] cnt_rxdrop;
-  reg        soft_rst_r;
+  reg [ 4:0]  err_flags;
+  reg         soft_rst_r;
   assign soft_rst = soft_rst_r;
 
-  (* syn_ramstyle = "block_ram" *)reg [ 31:0] rx_fifo        [0:2047];
-  (* syn_ramstyle = "block_ram" *)reg [ 31:0] tx_fifo        [0:2047];
-  reg [ 31:0] rx_rd_data;
+  wire [31:0] rx_rd_data;
   reg [ 11:0] rx_wr_ptr;
   reg [ 11:0] rx_rd_ptr;
   reg [ 12:0] rx_cnt;
@@ -84,21 +81,62 @@ module spi_regs (
   reg [  1:0] tx_state;
   reg [ 12:0] tx_n;
   reg [ 15:0] tx_len_r;
-  reg         last_hold;
+
+  wire [31:0] tx_rd_data;
+  reg         hsk_tx_valid_r;
+  reg         hsk_tx_last_r;
+
+  reg [31:0] c_mem [0:15];
+  reg [ 3:0] c_wr_ptr;
+  reg [ 3:0] c_rd_ptr;
+  reg [ 4:0] c_cnt;
+  reg [ 8:0] c_len;
+  reg [ 1:0] c_state;
+  reg [ 1:0] c_hb;
+  reg [ 8:0] c_tx_n;
 
   localparam TX_IDLE = 2'd0;
   localparam TX_DUMP = 2'd1;
+  localparam C_IDLE = 2'd0;
+  localparam C_RUN = 2'd1;
 
   wire [15:0] tx_words = {2'd0, tx_len_r[15:2]} + {14'd0, |tx_len_r[1:0]};
   assign hsk_tx_len   = tx_len_r;
   assign hsk_rx_ready = (rx_cnt != 13'd2048);
-  assign hsk_tx_data  = tx_fifo[tx_rd_ptr[11:0]];
-  assign hsk_tx_valid = (tx_state == TX_DUMP) && (tx_n < tx_words);
-  assign hsk_tx_last  = (tx_state == TX_DUMP) && (tx_n == (tx_words - 16'd1));
+  assign hsk_tx_data  = tx_rd_data;
+  assign hsk_tx_valid = hsk_tx_valid_r;
+  assign hsk_tx_last  = hsk_tx_last_r;
+  assign key_enc = r_key_enc;
+  assign key_dec = r_key_dec;
+  assign cfg_spi = r_spi;
+  assign cfg_iv = {r_salt_hi, r_salt_lo, 32'd0};
+  assign cfg_src_ip = r_src_ip;
+  assign cfg_dst_ip = r_dst_ip;
+  assign cfg_src_port = r_src_port;
+  assign cfg_dst_port = r_dst_port;
+  assign cfg_src_mac = {r_src_mac_hi, r_src_mac_lo};
+  assign cfg_dst_mac = {r_dst_mac_hi, r_dst_mac_lo};
+  assign cfg_seq = r_seq;
+
+  bram_32x2048 u_rx_fifo (
+      .clk(clk),
+      .waddr(rx_wr_ptr[10:0]),
+      .wdata(hsk_rx_data),
+      .we(hsk_rx_wr),
+      .raddr(rx_rd_ptr[10:0]),
+      .rdata(rx_rd_data)
+  );
+  bram_32x2048 u_tx_fifo (
+      .clk(clk),
+      .waddr(tx_wr_ptr[10:0]),
+      .wdata(wdata),
+      .we(wvalid && (waddr == 7'h40)),
+      .raddr(tx_rd_ptr[10:0]),
+      .rdata(tx_rd_data)
+  );
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      r_ctrl <= 32'd0;
       r_spi <= 32'd0;
       r_salt_lo <= 32'd0;
       r_salt_hi <= 32'd0;
@@ -116,47 +154,45 @@ module spi_regs (
       r_hsk_rx_len <= 16'd0;
       hsk_rx_pending <= 1'b0;
       key_load <= 1'b0;
-      key_enc <= 256'd0;
-      key_dec <= 256'd0;
-      cfg_spi <= 32'd0;
-      cfg_iv <= 96'd0;
-      cfg_src_ip <= 32'd0;
-      cfg_dst_ip <= 32'd0;
-      cfg_src_port <= 16'd0;
-      cfg_dst_port <= 16'd0;
-      cfg_src_mac <= 48'd0;
-      cfg_dst_mac <= 48'd0;
-      cfg_seq <= 32'd1;
       r_seq <= 32'd1;
-      cnt_badtag <= 32'd0;
-      cnt_badpad <= 32'd0;
-      cnt_replay <= 32'd0;
-      cnt_oversize <= 32'd0;
-      cnt_rxdrop <= 32'd0;
+      err_flags <= 5'd0;
       soft_rst_r <= 1'b0;
-      rx_wr_ptr <= 11'd0;
-      rx_rd_ptr <= 11'd0;
-      rd_q <= 11'd0;
-      rx_rd_data <= 32'd0;
-      rx_cnt <= 12'd0;
-      tx_wr_ptr <= 11'd0;
-      tx_rd_ptr <= 11'd0;
-      tx_cnt <= 12'd0;
+      rx_wr_ptr <= 12'd0;
+      rx_rd_ptr <= 12'd0;
+      rx_cnt <= 13'd0;
+      tx_wr_ptr <= 12'd0;
+      tx_rd_ptr <= 12'd0;
+      tx_cnt <= 13'd0;
       tx_state <= TX_IDLE;
-      tx_n <= 12'd0;
+      tx_n <= 13'd0;
       tx_len_r <= 16'd0;
+      hsk_tx_valid_r <= 1'b0;
+      hsk_tx_last_r <= 1'b0;
+      c_wr_ptr <= 4'd0;
+      c_rd_ptr <= 4'd0;
+      c_cnt <= 5'd0;
+      c_len <= 9'd0;
+      c_state <= C_IDLE;
+      c_hb <= 2'd0;
+      c_tx_n <= 9'd0;
     end else begin
       key_load <= 1'b0;
       soft_rst_r <= 1'b0;
+      if (tx_state == TX_DUMP && tx_n < tx_words) begin
+        hsk_tx_valid_r <= 1'b1;
+        hsk_tx_last_r <= (tx_n == (tx_words - 16'd1));
+      end else begin
+        hsk_tx_valid_r <= 1'b0;
+        hsk_tx_last_r <= 1'b0;
+      end
       if (wvalid) begin
         case (waddr)
           7'h00: begin
-            r_ctrl <= wdata;
             if (wdata[0]) key_load <= 1'b1;
             if (wdata[2]) soft_rst_r <= 1'b1;
             if (wdata[1]) begin
               tx_state <= TX_DUMP;
-              tx_n <= 12'd0;
+              tx_n <= 13'd0;
               tx_len_r <= r_hsk_tx_len;
             end
           end
@@ -174,10 +210,24 @@ module spi_regs (
           7'h74:   r_seq <= wdata;
           7'h3C:   r_hsk_tx_len <= wdata[15:0];
           7'h40: begin
-            tx_fifo[tx_wr_ptr] <= wdata;
-            tx_wr_ptr <= tx_wr_ptr + 11'd1;
-            tx_cnt <= tx_cnt + 12'd1;
+            tx_wr_ptr <= tx_wr_ptr + 12'd1;
+            tx_cnt <= tx_cnt + 13'd1;
           end
+          7'h41: begin
+            if (c_cnt < 5'd16) begin
+              c_mem[c_wr_ptr[3:0]] <= wdata;
+              c_wr_ptr <= c_wr_ptr + 4'd1;
+              c_cnt <= c_cnt + 5'd1;
+            end
+          end
+          7'h42: begin
+            c_len <= wdata[8:0];
+            c_rd_ptr <= 4'd0;
+            c_tx_n <= 9'd0;
+            c_hb <= 2'd0;
+            c_state <= C_RUN;
+          end
+          7'h50:   err_flags <= 5'd0;
           7'h44:   r_key_enc[255:224] <= wdata;
           7'h45:   r_key_enc[223:192] <= wdata;
           7'h46:   r_key_enc[191:160] <= wdata;
@@ -197,76 +247,67 @@ module spi_regs (
           default: ;
         endcase
       end
-      rd_q <= rx_rd_ptr;
-      rx_rd_data <= rx_fifo[rd_q];
-      if (rreq && (raddr == 7'h38) && (rx_cnt != 12'd0)) begin
-        rx_rd_ptr <= rx_rd_ptr + 11'd1;
-        rx_cnt <= rx_cnt - 12'd1;
+      if (rreq && (raddr == 7'h38) && (rx_cnt != 13'd0)) begin
+        rx_rd_ptr <= rx_rd_ptr + 12'd1;
+        rx_cnt <= rx_cnt - 13'd1;
       end
       if (hsk_rx_wr) begin
-        rx_fifo[rx_wr_ptr] <= hsk_rx_data;
-        rx_wr_ptr <= rx_wr_ptr + 11'd1;
-        rx_cnt <= rx_cnt + 12'd1;
+        rx_wr_ptr <= rx_wr_ptr + 12'd1;
+        rx_cnt <= rx_cnt + 13'd1;
       end
       if (hsk_rx_last) begin
         r_hsk_rx_len   <= hsk_rx_len;
         hsk_rx_pending <= 1'b1;
       end
       if (seq_upd) r_seq <= seq_val;
-      if (rx_cnt == 12'd0) hsk_rx_pending <= 1'b0;
+      if (rx_cnt == 13'd0) hsk_rx_pending <= 1'b0;
+      if (err_pulse[0]) err_flags[0] <= 1'b1;
+      if (err_pulse[1]) err_flags[1] <= 1'b1;
+      if (err_pulse[2]) err_flags[2] <= 1'b1;
+      if (err_pulse[3]) err_flags[3] <= 1'b1;
+      if (err_pulse[4]) err_flags[4] <= 1'b1;
       if (soft_rst_r) begin
-        cnt_badtag <= 32'd0;
-        cnt_badpad <= 32'd0;
-        cnt_replay <= 32'd0;
-        cnt_oversize <= 32'd0;
-        cnt_rxdrop <= 32'd0;
-        rx_wr_ptr <= 11'd0;
-        rx_rd_ptr <= 11'd0;
-        rd_q <= 11'd0;
-        rx_cnt <= 12'd0;
-        rx_rd_data <= 32'd0;
+        err_flags <= 5'd0;
+        rx_wr_ptr <= 12'd0;
+        rx_rd_ptr <= 12'd0;
+        rx_cnt <= 13'd0;
         hsk_rx_pending <= 1'b0;
-        tx_wr_ptr <= 11'd0;
-        tx_rd_ptr <= 11'd0;
-        tx_cnt <= 12'd0;
+        tx_wr_ptr <= 12'd0;
+        tx_rd_ptr <= 12'd0;
+        tx_cnt <= 13'd0;
         tx_state <= TX_IDLE;
-        tx_n <= 12'd0;
+        tx_n <= 13'd0;
         tx_len_r <= 16'd0;
       end else begin
-        if (err_badtag_i && (cnt_badtag != 32'hFFFFFFFF))
-          cnt_badtag <= cnt_badtag + 32'd1;
-        if (err_badpad_i && (cnt_badpad != 32'hFFFFFFFF))
-          cnt_badpad <= cnt_badpad + 32'd1;
-        if (err_replay_i && (cnt_replay != 32'hFFFFFFFF))
-          cnt_replay <= cnt_replay + 32'd1;
-        if (err_oversize_i && (cnt_oversize != 32'hFFFFFFFF))
-          cnt_oversize <= cnt_oversize + 32'd1;
-        if (err_rxdrop_i && (cnt_rxdrop != 32'hFFFFFFFF))
-          cnt_rxdrop <= cnt_rxdrop + 32'd1;
+        case (tx_state)
+          TX_DUMP: begin
+            if (hsk_tx_ready && tx_n < tx_words) begin
+              tx_rd_ptr <= tx_rd_ptr + 12'd1;
+              tx_cnt <= tx_cnt - 13'd1;
+              if (tx_n == tx_words - 13'd1) begin
+                tx_state <= TX_IDLE;
+                tx_n <= 13'd0;
+              end else begin
+                tx_n <= tx_n + 13'd1;
+              end
+            end
+          end
+          default: ;
+        endcase
       end
-      if (key_load) begin
-        key_enc <= r_key_enc;
-        key_dec <= r_key_dec;
-        cfg_spi <= r_spi;
-        cfg_iv <= {r_salt_hi, r_salt_lo, 32'd0};
-        cfg_src_ip <= r_src_ip;
-        cfg_dst_ip <= r_dst_ip;
-        cfg_src_port <= r_src_port;
-        cfg_dst_port <= r_dst_port;
-        cfg_src_mac <= {r_src_mac_hi, r_src_mac_lo};
-        cfg_dst_mac <= {r_dst_mac_hi, r_dst_mac_lo};
-        cfg_seq <= r_seq;
-      end
-      case (tx_state)
-        TX_DUMP: begin
-          if (hsk_tx_ready && hsk_tx_valid && tx_n < tx_words) begin
-            tx_rd_ptr <= tx_rd_ptr + 11'd1;
-            tx_cnt <= tx_cnt - 12'd1;
-            if (tx_n == tx_words - 13'd1) begin
-              tx_state <= TX_IDLE;
-              tx_n <= 12'd0;
+      case (c_state)
+        C_RUN: begin
+          if (ctrl_ready) begin
+            c_hb <= c_hb + 2'd1;
+            if (c_hb == 2'd3) begin
+              c_rd_ptr <= c_rd_ptr + 4'd1;
+              c_cnt <= c_cnt - 5'd1;
+            end
+            if (c_tx_n == c_len - 9'd1) begin
+              c_state <= C_IDLE;
+              c_tx_n <= 9'd0;
             end else begin
-              tx_n <= tx_n + 12'd1;
+              c_tx_n <= c_tx_n + 9'd1;
             end
           end
         end
@@ -275,52 +316,26 @@ module spi_regs (
     end
   end
 
-  reg [11:0] rd_q;
   reg [31:0] rdata_c;
   always @* begin
     rdata_c = 32'd0;
     case (raddr)
-      7'h00:   rdata_c = r_ctrl;
-      7'h04:   rdata_c = {16'd0, hsk_rx_pending ? 16'h0001 : 16'h0000};
-      7'h08:   rdata_c = r_spi;
-      7'h0C:   rdata_c = r_salt_lo;
-      7'h10:   rdata_c = r_salt_hi;
-      7'h14:   rdata_c = r_src_ip;
-      7'h18:   rdata_c = r_dst_ip;
-      7'h1C:   rdata_c = {16'd0, r_src_port};
-      7'h20:   rdata_c = {16'd0, r_dst_port};
-      7'h24:   rdata_c = r_src_mac_lo;
-      7'h28:   rdata_c = {16'd0, r_src_mac_hi};
-      7'h2C:   rdata_c = r_dst_mac_lo;
-      7'h30:   rdata_c = {16'd0, r_dst_mac_hi};
+      7'h04:   rdata_c = {29'd0, arp_pending, hsk_rx_pending};
       7'h34:   rdata_c = {16'd0, r_hsk_rx_len};
-      7'h74:   rdata_c = r_seq;
-      7'h50:   rdata_c = cnt_badtag;
-      7'h54:   rdata_c = cnt_badpad;
-      7'h58:   rdata_c = cnt_replay;
-      7'h5C:   rdata_c = cnt_oversize;
-      7'h60:   rdata_c = cnt_rxdrop;
       7'h38:   rdata_c = rx_rd_data;
-      7'h3C:   rdata_c = {16'd0, r_hsk_tx_len};
-      7'h44:   rdata_c = r_key_enc[255:224];
-      7'h45:   rdata_c = r_key_enc[223:192];
-      7'h46:   rdata_c = r_key_enc[191:160];
-      7'h47:   rdata_c = r_key_enc[159:128];
-      7'h48:   rdata_c = r_key_enc[127:96];
-      7'h49:   rdata_c = r_key_enc[95:64];
-      7'h4A:   rdata_c = r_key_enc[63:32];
-      7'h4B:   rdata_c = r_key_enc[31:0];
-      7'h64:   rdata_c = r_key_dec[255:224];
-      7'h65:   rdata_c = r_key_dec[223:192];
-      7'h66:   rdata_c = r_key_dec[191:160];
-      7'h67:   rdata_c = r_key_dec[159:128];
-      7'h68:   rdata_c = r_key_dec[127:96];
-      7'h69:   rdata_c = r_key_dec[95:64];
-      7'h6A:   rdata_c = r_key_dec[63:32];
-      7'h6B:   rdata_c = r_key_dec[31:0];
+      7'h50:   rdata_c = {27'd0, err_flags};
+      7'h51:   rdata_c = {8'd0, arp_capture[79:48]};
+      7'h52:   rdata_c = arp_capture[47:16];
+      7'h53:   rdata_c = {8'd0, arp_capture[15:0]};
+      7'h74:   rdata_c = r_seq;
       default: rdata_c = 32'd0;
     endcase
   end
   assign rdata = rdata_c;
+  assign arp_read = rreq && (raddr == 7'h51);
+
+  assign ctrl_valid = (c_state == C_RUN);
+  assign ctrl_data  = c_mem[c_rd_ptr[3:0]][31-8*c_hb -: 8];
+  assign ctrl_last  = (c_tx_n == c_len - 9'd1);
 
 endmodule

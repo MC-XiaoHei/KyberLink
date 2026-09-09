@@ -1,4 +1,4 @@
-module full_top (
+module link_core (
     input  wire clk,
     input  wire rst_n,
     output wire led,
@@ -6,6 +6,7 @@ module full_top (
     input  wire [7:0] lan_rxd,
     input  wire       lan_rx_dv,
     input  wire       lan_rx_last,
+    output wire       lan_rx_ready,
     output wire [7:0] lan_txd,
     output wire       lan_tx_en,
     output wire       lan_tx_last,
@@ -14,6 +15,7 @@ module full_top (
     input  wire [7:0] wan_rxd,
     input  wire       wan_rx_dv,
     input  wire       wan_rx_last,
+    output wire       wan_rx_ready,
     output wire [7:0] wan_txd,
     output wire       wan_tx_en,
     output wire       wan_tx_last,
@@ -80,6 +82,10 @@ module full_top (
   wire err_rxdrop_w;
   wire soft_rst_w;
 
+  wire        hsk_arp_pending;
+  wire [79:0] hsk_arp_capture;
+  wire        hsk_arp_read;
+
   spi_top u_spi (
       .clk(clk),
       .rst_n(rst_n),
@@ -116,6 +122,16 @@ module full_top (
       .err_replay_i(err_replay_w),
       .err_oversize_i(err_oversize_w),
       .err_rxdrop_i(err_rxdrop_w),
+
+      .arp_pending(hsk_arp_pending),
+      .arp_capture(hsk_arp_capture),
+      .arp_read(hsk_arp_read),
+
+      .ctrl_ready(ctrl_tx_tready),
+      .ctrl_valid(ctrl_tx_tvalid),
+      .ctrl_data(ctrl_tx_tdata),
+      .ctrl_last(ctrl_tx_tlast),
+
       .soft_rst(soft_rst_w)
   );
 
@@ -163,13 +179,15 @@ module full_top (
       .err_oversize(err_oversize_w)
   );
 
+  assign lan_rx_ready = enc_s_tready;
+
   ip_udp_eth_rx u_rx_wan (
       .clk(clk),
       .rst_n(rst_n),
       .s_tdata(wan_rxd),
       .s_tvalid(wan_rx_dv),
       .s_tlast(wan_rx_last),
-      .s_tready(dec_s_tready),
+      .s_tready(wan_rx_ready),
       .cfg_src_mac(cfg_src_mac),
       .cfg_dport(cfg_dst_port),
       .m_data_tdata(dec_s_tdata),
@@ -187,19 +205,16 @@ module full_top (
       .err_rxdrop(err_rxdrop_w)
   );
 
-  ctrl_resp u_ctrl (
+  arp_catch u_arp_catch (
       .clk(clk),
       .rst_n(rst_n),
       .s_tdata(ctrl_rx_tdata),
       .s_tvalid(ctrl_rx_tvalid),
       .s_tlast(ctrl_rx_tlast),
-      .cfg_src_mac(cfg_src_mac),
       .cfg_src_ip(cfg_src_ip),
-      .key_load(key_load),
-      .m_tdata(ctrl_tx_tdata),
-      .m_tvalid(ctrl_tx_tvalid),
-      .m_tlast(ctrl_tx_tlast),
-      .m_tready(ctrl_tx_tready)
+      .arp_read(hsk_arp_read),
+      .pending(hsk_arp_pending),
+      .capture(hsk_arp_capture)
   );
 
   ip_udp_eth_tx u_tx_wan (
@@ -232,5 +247,8 @@ module full_top (
   assign lan_tx_last = dec_m_tlast;
   assign dec_m_tready = lan_tx_ready;
   assign led = 1'b1;
+
+  wire rst_n_i = ~rst_n;
+  GSR gsr_inst (.GSRI(rst_n_i));
 
 endmodule
