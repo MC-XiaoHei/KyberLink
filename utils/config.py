@@ -34,7 +34,7 @@ GOWIN_DPB = S("gowin_dpb_sim.v")
 
 
 UNIT = ["aes", "aes_pipe", "aes_bw", "gcm", "spi", "eth", "bram", "bp"]
-INTG = ["bridge", "bw", "node", "dual_rgmii", "kyberlink", "gmii_rx", "diag2", "spi_big"]
+INTG = ["bridge", "bw", "full", "node", "gmii_rx", "diag2", "spi_big"]
 
 SBOX_LEGACY = [
     R("bp_aes_sbox.v"),
@@ -193,20 +193,15 @@ CONF = {
         "top": "bram_128x256",
         "src": [R("bram_128x256.v"), GOWIN_DPB],
     },
+    "full": {
+        "top": "dual_node_sim",
+        "test_module": "tb_full",
+        "src": FULL_CORE + MAC + [GOWIN_DPB, S("dual_node_sim.v")],
+    },
     "node": {
         "top": "link_core",
         "test_module": "tb_node",
         "src": FULL_CORE + [GOWIN_DPB],
-    },
-    "dual_rgmii": {
-        "top": "dual_node_rgmii_sim",
-        "test_module": "tb_dual_rgmii",
-        "src": FULL_CORE + MAC + [GOWIN_DPB, S("dual_node_rgmii_sim.v")],
-    },
-    "kyberlink": {
-        "top": "kyberlink_tb_wrap",
-        "test_module": "tb_kyberlink",
-        "src": FULL_CORE + MAC + [GOWIN_DPB, R("kyberlink_top.v"), S("kyberlink_tb_wrap.v")],
     },
     "gmii_rx": {
         "top": "gmii_rx_top",
@@ -226,7 +221,8 @@ INTG_TEST = {
     "bw": "tb_bridge_bw",
     "diag2": "tb_enc_maxframe",
     "spi_big": "tb_spi_hsk_big",
-    "kyberlink": "tb_kyberlink",
+    "full": "tb_full",
+    "node": "tb_node",
 }
 
 

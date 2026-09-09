@@ -5,6 +5,12 @@ import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles, ReadOnly, Timer
 
+try:
+    from ffi import Fsm, fingerprint
+    HAVE_FFI = True
+except ImportError:
+    HAVE_FFI = False
+
 PAYLOAD = 1400
 MAC_A = 0xAABBCC000001
 MAC_B = 0xAABBCC000002
@@ -449,6 +455,88 @@ async def pipe(dut, data, tag):
     await fa
     rx = await cb
     return rx[0]
+
+
+@cocotb.test()
+async def full_fw_roundtrip(dut):
+    if not HAVE_FFI:
+        print("FFI not available, skip full_fw_roundtrip", flush=True)
+        return
+    spi_a, spi_b = await boot(dut)
+    await cfg_gw(dut, *spi_a, MAC_A, MAC_B, IP_A, IP_B)
+    await cfg_gw(dut, *spi_b, MAC_B, MAC_A, IP_B, IP_A)
+    await ClockCycles(dut.clk, 10)
+
+    fd = bytes(range(0x30, 0x50))
+    fz = bytes(range(0x50, 0x70))
+    nc = bytes(range(0x70, 0x90))
+    seed_a = bytes(range(32))
+    seed_b = bytes(range(64, 96))
+    fp_a = fingerprint(seed_a)
+    fp_b = fingerprint(seed_b)
+    fsm_a = Fsm(seed_identity=seed_a, seed_peer=fp_b,
+                role=0, seed_d=fd, seed_z=fz, nonce=nc)
+    fsm_b = Fsm(seed_identity=seed_b, seed_peer=fp_a,
+                role=1, seed_d=fd, seed_z=fz, nonce=nc)
+    try:
+        done = [False, False]
+        for _ in range(64):
+            if not done[0]:
+                got_a = fsm_a.poll()
+                wa = fsm_a.take_writes()
+                for addr, data in wa:
+                    await spi_write(dut, *spi_a, addr, data)
+                st = await spi_read(dut, *spi_b, 0x04)
+                if st & 1:
+                    ln = await spi_read(dut, *spi_b, 0x34) & 0xFFFF
+                    buf = bytearray()
+                    for _ in range((ln + 3) // 4):
+                        w = await spi_read(dut, *spi_b, 0x38)
+                        buf += w.to_bytes(4, "big")
+                    fsm_b.push_rx(bytes(buf[:ln]))
+                if got_a == 1:
+                    done[0] = True
+
+            if not done[1]:
+                got_b = fsm_b.poll()
+                wb = fsm_b.take_writes()
+                for addr, data in wb:
+                    await spi_write(dut, *spi_b, addr, data)
+                st = await spi_read(dut, *spi_a, 0x04)
+                if st & 1:
+                    ln = await spi_read(dut, *spi_a, 0x34) & 0xFFFF
+                    buf = bytearray()
+                    for _ in range((ln + 3) // 4):
+                        w = await spi_read(dut, *spi_a, 0x38)
+                        buf += w.to_bytes(4, "big")
+                    fsm_a.push_rx(bytes(buf[:ln]))
+                if got_b == 1:
+                    done[1] = True
+
+            if all(done):
+                break
+            await ClockCycles(dut.clk, 40000)
+        assert all(done), "handshake not complete via FW Fsm"
+
+        plain = bytes((j * 7 + 3) & 0xFF for j in range(PAYLOAD))
+        fa = cocotb.start_soon(feed(dut, dut.a_lan_rxd, dut.a_lan_rx_dv, dut.a_lan_rx_last,
+                                    dut.u_a_node.enc_s_tready, plain))
+        cb = cocotb.start_soon(collect(dut, dut.b_lan_txd, dut.b_lan_tx_en, dut.b_lan_tx_last, 1, "FW A->B"))
+        await fa
+        rx_b = await cb
+        assert rx_b[0] == plain, f"FW A->B len {len(rx_b[0])} vs {len(plain)}"
+        print("FW roundtrip A->B PASS", flush=True)
+
+        fb = cocotb.start_soon(feed(dut, dut.b_lan_rxd, dut.b_lan_rx_dv, dut.b_lan_rx_last,
+                                    dut.u_b_node.enc_s_tready, plain))
+        ca = cocotb.start_soon(collect(dut, dut.a_lan_txd, dut.a_lan_tx_en, dut.a_lan_tx_last, 1, "FW B->A"))
+        await fb
+        rx_a = await ca
+        assert rx_a[0] == plain, f"FW B->A mismatch"
+        print("FW roundtrip B->A PASS", flush=True)
+    finally:
+        fsm_a.close()
+        fsm_b.close()
 
 
 @cocotb.test()

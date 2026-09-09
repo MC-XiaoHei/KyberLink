@@ -1,4 +1,4 @@
-module dual_node_rgmii_sim (
+module dual_node_sim (
     input wire clk,
     input wire rst_n,
     input wire [7:0] a_lan_rxd,
