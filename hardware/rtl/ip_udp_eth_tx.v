@@ -113,7 +113,7 @@ module ip_udp_eth_tx (
   assign s_esp_tready = (state == ST_IDLE && s_esp_tvalid) || (state == ST_ESP && m_tready);
   assign s_ctrl_tready = (state == ST_IDLE && s_ctrl_tvalid) || (state == ST_CTRL && m_tready);
   assign s_hsk_tready = (state == ST_PAY) && m_tready &&
-                        (((hb == 2'd3) && (pb + 16'd1) < pay_len) ||
+                        (((hb == 2'd2) && (pb + 16'd1) < pay_len) ||
                          ((pb + 16'd1) == pay_len));
 
   always @(posedge clk or negedge rst_n) begin
@@ -132,21 +132,25 @@ module ip_udp_eth_tx (
       m_tvalid <= 1'b0;
       m_tlast <= 1'b0;
     end else begin
-      m_tvalid <= 1'b0;
-      m_tlast  <= 1'b0;
+      if (m_tvalid && !m_tready) begin
+        m_tlast <= m_tlast;
+      end else begin
+        m_tvalid <= 1'b0;
+        m_tlast  <= 1'b0;
+      end
       case (state)
         ST_IDLE: begin
-          if (s_ctrl_tvalid) begin
+          if (s_ctrl_tvalid && (!m_tvalid || m_tready)) begin
             state <= (s_ctrl_tlast) ? ST_IDLE : ST_CTRL;
             m_tvalid <= 1'b1;
             m_tdata <= s_ctrl_tdata;
             m_tlast <= s_ctrl_tlast;
-          end else if (s_esp_tvalid) begin
+          end else if (s_esp_tvalid && (!m_tvalid || m_tready)) begin
             state <= (s_esp_tlast) ? ST_IDLE : ST_ESP;
             m_tvalid <= 1'b1;
             m_tdata <= s_esp_tdata;
             m_tlast <= s_esp_tlast;
-          end else if (s_hsk_tvalid && !m_tlast) begin
+          end else if (s_hsk_tvalid && !m_tlast && (!m_tvalid || m_tready)) begin
             pay_len <= hsk_len;
             len_sum_r <= 16'd28 + hsk_len;
             state <= ST_PRE1;
@@ -167,10 +171,11 @@ module ip_udp_eth_tx (
           hb <= 2'd0;
           m_tvalid <= 1'b1;
           m_tdata <= cfg_dst_mac[47:40];
+          m_tlast <= 1'b0;
           state <= ST_HDR;
         end
         ST_ESP: begin
-          if (m_tready) begin
+          if (!m_tvalid || m_tready) begin
             m_tvalid <= s_esp_tvalid;
             m_tdata  <= s_esp_tdata;
             m_tlast  <= s_esp_tlast;
@@ -178,7 +183,7 @@ module ip_udp_eth_tx (
           end
         end
         ST_CTRL: begin
-          if (m_tready) begin
+          if (!m_tvalid || m_tready) begin
             m_tvalid <= s_ctrl_tvalid;
             m_tdata  <= s_ctrl_tdata;
             m_tlast  <= s_ctrl_tlast;
@@ -186,7 +191,7 @@ module ip_udp_eth_tx (
           end
         end
         ST_HDR: begin
-          if (m_tready) begin
+          if (!m_tvalid || m_tready) begin
             m_tvalid <= 1'b1;
             if (hcnt == 6'd42) begin
               m_tdata <= s_hsk_tdata[31:24];
@@ -200,12 +205,12 @@ module ip_udp_eth_tx (
           end
         end
         ST_PAY: begin
-          if (m_tready) begin
+          if (!m_tvalid || m_tready) begin
             m_tvalid <= (hb != 2'd0) || s_hsk_tvalid;
             m_tdata  <= s_hsk_tdata[31-8*hb-:8];
+            m_tlast  <= (hb != 2'd0 || s_hsk_tvalid) && (pb == (pay_len - 16'd1));
             if (hb != 2'd0 || s_hsk_tvalid) begin
               if (pb == (pay_len - 16'd1)) begin
-                m_tlast <= 1'b1;
                 state   <= ST_IDLE;
               end else begin
                 pb <= pb + 16'd1;
