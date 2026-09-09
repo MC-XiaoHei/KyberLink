@@ -1,5 +1,4 @@
 use kyberlink_crypto::handshake as hs;
-use kyberlink_crypto::mldsa_internal::sign_precomp_new_into;
 use kyberlink_crypto::kem_internal::EK_LEN;
 use kyberlink_crypto::mldsa_internal::{VerifyPrecomp, VK_LEN};
 
@@ -291,6 +290,7 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
 mod tests {
     use super::*;
     use core::cell::{Cell, RefCell};
+    use kyberlink_crypto::mldsa_internal::sign_precomp_new_into;
 
     struct MockSpi {
         regs: RefCell<[u32; 128]>,

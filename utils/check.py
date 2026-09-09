@@ -15,8 +15,10 @@ def _lint():
         f"$HOME/verible/bin/verible-verilog-lint --rules_config_search && "
         f"cd {repo}/software && cargo clippy -p kyberlink-crypto --all-targets "
         f"--target x86_64-unknown-linux-gnu --features kyberlink-crypto/std -- -D warnings && "
+        f"cargo clippy -p kyberlink-core --all-targets "
+        f"--target x86_64-unknown-linux-gnu --features kyberlink-core/std -- -D warnings && "
         f"cargo clippy -p kyberlink-firmware "
-        f"--target riscv32imc-unknown-none-elf -- -D warnings"
+        f"--target crates/kyberlink-firmware/riscv32imfc-unknown-none-elf.json -- -D warnings"
     )
     r = subprocess.run(["wsl", "--", "bash", "-lc", script], capture_output=True, text=True)
     return (r.stdout + r.stderr).strip()[-400:] if r.returncode else ""

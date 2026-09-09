@@ -4,6 +4,7 @@ members = [
     "crates/kyberlink-vecgen",
     "crates/kyberlink-crypto",
     "crates/kyberlink-stamp",
+    "crates/kyberlink-core",
     "crates/kyberlink-firmware",
 ]
 

@@ -1,0 +1,17 @@
+[package]
+name = "kyberlink-core"
+description = "KyberLink firmware core logic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kyberlink-crypto = { path = "../kyberlink-crypto" }
+embassy-sync = "0.8.0"
+critical-section = "1.2.0"
+
+[features]
+std = ["kyberlink-crypto/std", "critical-section/std"]
+
+[dev-dependencies]
+critical-section = { version = "1.2.0", features = ["std"] }

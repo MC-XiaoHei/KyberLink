@@ -1,15 +1,15 @@
-#![cfg_attr(not(test), no_std)]
-#![cfg_attr(not(test), no_main)]
+#![cfg_attr(target_arch = "riscv32", no_std)]
+#![cfg_attr(target_arch = "riscv32", no_main)]
 #![allow(static_mut_refs)]
 
-#[cfg(not(test))]
+#[cfg(target_arch = "riscv32")]
 mod firmware {
     use ch32_hal::gpio::{Level, Output};
     use ch32_hal::spi::{Config as SpiConfig, Spi};
     use ch32_hal::time::Hertz;
     use embassy_executor::Spawner;
     use embassy_time::Timer;
-    use kyberlink_firmware::handshake_fsm::{write_sa, Config, Fsm, FsmOutcome};
+    use kyberlink_core::handshake_fsm::{write_sa, Config, Fsm, FsmOutcome};
     use kyberlink_firmware::spi::SpiMaster;
 
     include!(concat!(env!("OUT_DIR"), "/spc_rom.rs"));
@@ -89,8 +89,11 @@ mod firmware {
     }
 }
 
-#[cfg(not(test))]
+#[cfg(target_arch = "riscv32")]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     loop {}
 }
+
+#[cfg(not(target_arch = "riscv32"))]
+fn main() {}

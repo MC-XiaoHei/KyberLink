@@ -17,7 +17,7 @@ def _cargo_test():
     script = (
         f"rustup run {tc} cargo test --workspace "
         f"--target {host} "
-        "--features kyberlink-crypto/std,kyberlink-firmware/std"
+        "--features kyberlink-crypto/std,kyberlink-core/std"
     )
     rc = subprocess.call(
         ["cmd", "/c", script], cwd=os.path.join(config.REPO, "software")

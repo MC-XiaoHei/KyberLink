@@ -1,4 +1,4 @@
-#![cfg_attr(not(any(feature = "std", test)), no_std)]
+#![cfg_attr(target_arch = "riscv32", no_std)]
 
-pub mod handshake_fsm;
+#[cfg(target_arch = "riscv32")]
 pub mod spi;

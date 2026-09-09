@@ -14,7 +14,7 @@ def run(args, reporter):
 def firmware():
     tc = os.environ.get("RUST_TOOLCHAIN", "nightly")
     script = (
-        f"rustup run {tc} cargo -Zbuild-std=core "
+        f"rustup run {tc} cargo -Zbuild-std=core,alloc "
         "build -p kyberlink-firmware --release"
     )
     rc = subprocess.call(["cmd", "/c", script], cwd=os.path.join(config.REPO, "software"))
