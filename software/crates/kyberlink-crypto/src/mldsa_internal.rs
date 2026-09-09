@@ -1,19 +1,19 @@
 use crate::shake;
 
-const Q: u64 = 8380417;
+const Q: u32 = 8380417;
 const K: usize = 6;
 const L: usize = 5;
-const ETA: u64 = 4;
+const ETA: u32 = 4;
 pub const TAU: usize = 49;
-const GAMMA1: u64 = 524288;
-const GAMMA2: u64 = 261888;
-const TWO_GAMMA2: u64 = 523776;
-const BETA: u64 = 196;
+const GAMMA1: u32 = 524288;
+const GAMMA2: u32 = 261888;
+const TWO_GAMMA2: u32 = 523776;
+const BETA: u32 = 196;
 const OMEGA: usize = 55;
 const LAMBDA: usize = 48;
 const D: usize = 13;
-const GAMMA1_MINUS_BETA: u64 = GAMMA1 - BETA;
-const GAMMA2_MINUS_BETA: u64 = GAMMA2 - BETA;
+const GAMMA1_MINUS_BETA: u32 = GAMMA1 - BETA;
+const GAMMA2_MINUS_BETA: u32 = GAMMA2 - BETA;
 
 pub const VK_LEN: usize = 1952;
 pub const SK_LEN: usize = 4032;
@@ -25,27 +25,28 @@ fn h(x: &[u8]) -> [u8; 64] {
     out
 }
 
-pub fn ntt(a: &mut [u64; 256]) {
+pub fn ntt(a: &mut [u32; 256]) {
     crate::mldsa_mont::ntt(a);
 }
 
-pub fn invntt(a: &mut [u64; 256]) {
+pub fn invntt(a: &mut [u32; 256]) {
     crate::mldsa_mont::invntt(a);
 }
 
-pub fn rej_ntt_poly(rho: &[u8], r: u8, s: u8) -> [u64; 256] {
+pub fn rej_ntt_poly(rho: &[u8], r: u8, s: u8) -> [u32; 256] {
     let mut seed = [0u8; 34];
     seed[..32].copy_from_slice(rho);
     seed[32] = s;
     seed[33] = r;
-    let mut f = [0u64; 256];
+    let mut f = [0u32; 256];
     let mut n = 0usize;
-    let mut buf = [0u8; 4096];
+    // 6 blocks of 3B coeffs (1008B) covers ~0.1% rejection margin; 840B is marginal
+    let mut buf = [0u8; 1008];
     shake::shake128_squeeze(&[&seed], &mut buf);
     let mut pos = 0usize;
-    while n < 256 && pos + 2 < 4096 {
+    while n < 256 && pos + 2 < 1008 {
         let b2 = buf[pos + 2] as u32 - if buf[pos + 2] > 127 { 128 } else { 0 };
-        let z = ((b2 as u64) << 16) | ((buf[pos + 1] as u64) << 8) | (buf[pos] as u64);
+        let z = ((b2 as u32) << 16) | ((buf[pos + 1] as u32) << 8) | (buf[pos] as u32);
         pos += 3;
         if z < Q {
             f[n] = z;
@@ -55,12 +56,12 @@ pub fn rej_ntt_poly(rho: &[u8], r: u8, s: u8) -> [u64; 256] {
     f
 }
 
-pub fn rej_bounded_poly(rho: &[u8], r: u16) -> [u64; 256] {
+pub fn rej_bounded_poly(rho: &[u8], r: u16) -> [u32; 256] {
     let mut seed = [0u8; 66];
     seed[..64].copy_from_slice(rho);
     seed[64] = (r & 0xff) as u8;
     seed[65] = (r >> 8) as u8;
-    let mut f = [0u64; 256];
+    let mut f = [0u32; 256];
     let mut n = 0usize;
     let mut buf = [0u8; 1024];
     shake::shake256_squeeze(&[&seed], &mut buf);
@@ -71,7 +72,7 @@ pub fn rej_bounded_poly(rho: &[u8], r: u16) -> [u64; 256] {
         pos += 1;
         for cc in [lo, hi] {
             if cc < 9 {
-                let cv = cc as u64;
+                let cv = cc as u32;
                 let coeff = if cv <= 4 { 4 - cv } else { Q - (cv - 4) };
                 f[n] = coeff;
                 n += 1;
@@ -84,27 +85,27 @@ pub fn rej_bounded_poly(rho: &[u8], r: u16) -> [u64; 256] {
     f
 }
 
-pub fn expand_mask_poly(rho: &[u8], mu: u16) -> [u64; 256] {
+pub fn expand_mask_poly(rho: &[u8], mu: u16) -> [u32; 256] {
     let mut seed = [0u8; 66];
     seed[..64].copy_from_slice(rho);
     seed[64] = (mu & 0xff) as u8;
     seed[65] = (mu >> 8) as u8;
     let mut bytes = [0u8; 640];
     shake::shake256_squeeze(&[&seed], &mut bytes);
-    let mut y = [0u64; 256];
+    let mut y = [0u32; 256];
     for (k, oc) in y.iter_mut().enumerate() {
-        let mut v = 0u64;
+        let mut v = 0u32;
         for j in 0..20 {
             let idx = k * 20 + j;
-            v |= (((bytes[idx / 8] >> (idx % 8)) & 1) as u64) << j;
+            v |= (((bytes[idx / 8] >> (idx % 8)) & 1) as u32) << j;
         }
         *oc = (GAMMA1 + Q - v) % Q;
     }
     y
 }
 
-pub fn sample_in_ball(rho: &[u8], tau: usize) -> [u64; 256] {
-    let mut c = [0u64; 256];
+pub fn sample_in_ball(rho: &[u8], tau: usize) -> [u32; 256] {
+    let mut c = [0u32; 256];
     let mut buf = [0u8; 2048];
     shake::shake256_squeeze(&[rho], &mut buf);
     let s = [
@@ -128,29 +129,44 @@ pub fn sample_in_ball(rho: &[u8], tau: usize) -> [u64; 256] {
     c
 }
 
-fn pack(d: usize, coeffs: &[u64], out: &mut [u8]) {
-    for (i, &c) in coeffs.iter().enumerate() {
-        let mut a = c;
-        for j in 0..d {
-            let idx = i * d + j;
-            out[idx / 8] |= ((a & 1) as u8) << (idx % 8);
-            a >>= 1;
+fn pack<const D: usize>(coeffs: &[u32], out: &mut [u8]) {
+    let mut acc: u64 = 0;
+    let mut nbits = 0u32;
+    let mut oi = 0usize;
+    for &c in coeffs {
+        acc |= (c as u64) << nbits;
+        nbits += D as u32;
+        while nbits >= 8 {
+            out[oi] = acc as u8;
+            oi += 1;
+            acc >>= 8;
+            nbits -= 8;
         }
+    }
+    if nbits > 0 {
+        out[oi] = acc as u8;
     }
 }
 
-fn unpack(d: usize, bytes: &[u8], out: &mut [u64]) {
-    for (i, o) in out.iter_mut().enumerate() {
-        let mut v = 0u64;
-        for j in 0..d {
-            let idx = i * d + j;
-            v |= (((bytes[idx / 8] >> (idx % 8)) & 1) as u64) << j;
+fn unpack<const D: usize>(bytes: &[u8], out: &mut [u32]) {
+    let mut bitpos = 0usize;
+    for o in out.iter_mut() {
+        let byte = bitpos / 8;
+        let sh = bitpos % 8;
+        let mut v: u32 = (bytes[byte] as u32) >> sh;
+        let need = (D as isize) - (8 - sh as isize);
+        if need > 0 {
+            v |= (bytes[byte + 1] as u32) << (8 - sh);
         }
-        *o = v;
+        if need > 8 {
+            v |= (bytes[byte + 2] as u32) << (16 - sh);
+        }
+        *o = v & ((1u32 << D) - 1);
+        bitpos += D;
     }
 }
 
-fn mod_plus_minus(x: u64, m: u64) -> u64 {
+fn mod_plus_minus(x: u32, m: u32) -> u32 {
     let r = x % m;
     if r > m >> 1 {
         r + Q - m
@@ -159,13 +175,13 @@ fn mod_plus_minus(x: u64, m: u64) -> u64 {
     }
 }
 
-fn power2round(x: u64) -> (u64, u64) {
+fn power2round(x: u32) -> (u32, u32) {
     let r0 = mod_plus_minus(x, 1 << D);
     let r1 = ((x + Q - r0) % Q) >> D;
     (r1, r0)
 }
 
-fn decompose(x: u64) -> (u64, u64) {
+fn decompose(x: u32) -> (u32, u32) {
     let r0 = mod_plus_minus(x, TWO_GAMMA2);
     let diff = (x + Q - r0) % Q;
     if diff == Q - 1 {
@@ -175,19 +191,19 @@ fn decompose(x: u64) -> (u64, u64) {
     }
 }
 
-fn high_bits(x: u64) -> u64 {
+fn high_bits(x: u32) -> u32 {
     decompose(x).0
 }
 
-fn low_bits(x: u64) -> u64 {
+fn low_bits(x: u32) -> u32 {
     decompose(x).1
 }
 
-fn make_hint(z: u64, r: u64) -> bool {
+fn make_hint(z: u32, r: u32) -> bool {
     high_bits((r + z) % Q) != high_bits(r)
 }
 
-fn use_hint(h: bool, r: u64) -> u64 {
+fn use_hint(h: bool, r: u32) -> u32 {
     let m = (Q - 1) / TWO_GAMMA2;
     let (r1, r0) = decompose(r);
     if h {
@@ -201,14 +217,14 @@ fn use_hint(h: bool, r: u64) -> u64 {
     }
 }
 
-fn infinity_norm(p: &[u64]) -> u64 {
+fn infinity_norm(p: &[u32]) -> u32 {
     p.iter()
         .map(|&x| if x > Q / 2 { Q - x } else { x })
         .max()
         .unwrap()
 }
 
-fn ntt_vec<const N: usize>(v: &[[u64; 256]; N]) -> [[u64; 256]; N] {
+fn ntt_vec<const N: usize>(v: &[[u32; 256]; N]) -> [[u32; 256]; N] {
     let mut out = *v;
     for p in out.iter_mut() {
         ntt(p);
@@ -216,7 +232,7 @@ fn ntt_vec<const N: usize>(v: &[[u64; 256]; N]) -> [[u64; 256]; N] {
     out
 }
 
-fn invntt_vec<const N: usize>(v: &[[u64; 256]; N]) -> [[u64; 256]; N] {
+fn invntt_vec<const N: usize>(v: &[[u32; 256]; N]) -> [[u32; 256]; N] {
     let mut out = *v;
     for p in out.iter_mut() {
         invntt(p);
@@ -224,30 +240,30 @@ fn invntt_vec<const N: usize>(v: &[[u64; 256]; N]) -> [[u64; 256]; N] {
     out
 }
 
-fn poly_mul_ntt(a: &[u64; 256], b: &[u64; 256]) -> [u64; 256] {
-    let mut c = [0u64; 256];
+fn poly_mul_ntt(a: &[u32; 256], b: &[u32; 256]) -> [u32; 256] {
+    let mut c = [0u32; 256];
     for ((oc, &ac), &bc) in c.iter_mut().zip(a.iter()).zip(b.iter()) {
-        *oc = ac * bc % Q;
+        *oc = (ac as u64 * bc as u64 % Q as u64) as u32;
     }
     c
 }
 
-pub fn mat_mul_vec(a: &[[u64; 256]; K * L], v: &[[u64; 256]; L]) -> [[u64; 256]; K] {
-    let mut out = [[0u64; 256]; K];
+pub fn mat_mul_vec(a: &[[u32; 256]; K * L], v: &[[u32; 256]; L]) -> [[u32; 256]; K] {
+    let mut out = [[0u32; 256]; K];
     for (i, row) in a.chunks_exact(L).enumerate() {
         for k in 0..256 {
             let acc = row
                 .iter()
                 .zip(v.iter())
-                .fold(0u64, |acc, (ar, vr)| (acc + ar[k] * vr[k]) % Q);
+                .fold(0u64, |acc, (ar, vr)| (acc + ar[k] as u64 * vr[k] as u64) % Q as u64) as u32;
             out[i][k] = acc;
         }
     }
     out
 }
 
-fn encode_s<const N: usize>(s: &[[u64; 256]; N], out: &mut [u8]) {
-    let mut flat = [0u64; 1536];
+fn encode_s<const N: usize>(s: &[[u32; 256]; N], out: &mut [u8]) {
+    let mut flat = [0u32; 1536];
     let mut fi = 0;
     for p in s {
         for &c in p.iter() {
@@ -255,13 +271,13 @@ fn encode_s<const N: usize>(s: &[[u64; 256]; N], out: &mut [u8]) {
             fi += 1;
         }
     }
-    pack(4, &flat[..N * 256], out);
+    pack::<4>(&flat[..N * 256], out);
 }
 
-fn decode_s<const N: usize>(bytes: &[u8]) -> [[u64; 256]; N] {
-    let mut flat = [0u64; 1536];
-    unpack(4, bytes, &mut flat[..N * 256]);
-    let mut out = [[0u64; 256]; N];
+fn decode_s<const N: usize>(bytes: &[u8]) -> [[u32; 256]; N] {
+    let mut flat = [0u32; 1536];
+    unpack::<4>(bytes, &mut flat[..N * 256]);
+    let mut out = [[0u32; 256]; N];
     for (op, fp) in out.iter_mut().zip(flat.chunks_exact(256)) {
         for (oc, &fc) in op.iter_mut().zip(fp.iter()) {
             *oc = (ETA + Q - fc) % Q;
@@ -270,8 +286,8 @@ fn decode_s<const N: usize>(bytes: &[u8]) -> [[u64; 256]; N] {
     out
 }
 
-fn encode_t0<const N: usize>(t0: &[[u64; 256]; N], out: &mut [u8]) {
-    let mut flat = [0u64; 1536];
+fn encode_t0<const N: usize>(t0: &[[u32; 256]; N], out: &mut [u8]) {
+    let mut flat = [0u32; 1536];
     let mut fi = 0;
     for p in t0 {
         for &c in p.iter() {
@@ -279,13 +295,13 @@ fn encode_t0<const N: usize>(t0: &[[u64; 256]; N], out: &mut [u8]) {
             fi += 1;
         }
     }
-    pack(D, &flat[..N * 256], out);
+    pack::<D>(&flat[..N * 256], out);
 }
 
-fn decode_t0<const N: usize>(bytes: &[u8]) -> [[u64; 256]; N] {
-    let mut flat = [0u64; 1536];
-    unpack(D, bytes, &mut flat[..N * 256]);
-    let mut out = [[0u64; 256]; N];
+fn decode_t0<const N: usize>(bytes: &[u8]) -> [[u32; 256]; N] {
+    let mut flat = [0u32; 1536];
+    unpack::<D>(bytes, &mut flat[..N * 256]);
+    let mut out = [[0u32; 256]; N];
     for (op, fp) in out.iter_mut().zip(flat.chunks_exact(256)) {
         for (oc, &fc) in op.iter_mut().zip(fp.iter()) {
             *oc = ((1 << (D - 1)) + Q - fc) % Q;
@@ -294,8 +310,8 @@ fn decode_t0<const N: usize>(bytes: &[u8]) -> [[u64; 256]; N] {
     out
 }
 
-fn encode_t1<const N: usize>(t1: &[[u64; 256]; N], out: &mut [u8]) {
-    let mut flat = [0u64; 1536];
+fn encode_t1<const N: usize>(t1: &[[u32; 256]; N], out: &mut [u8]) {
+    let mut flat = [0u32; 1536];
     let mut fi = 0;
     for p in t1 {
         for &c in p.iter() {
@@ -303,13 +319,13 @@ fn encode_t1<const N: usize>(t1: &[[u64; 256]; N], out: &mut [u8]) {
             fi += 1;
         }
     }
-    pack(10, &flat[..N * 256], out);
+    pack::<10>(&flat[..N * 256], out);
 }
 
-fn decode_t1<const N: usize>(bytes: &[u8]) -> [[u64; 256]; N] {
-    let mut flat = [0u64; 1536];
-    unpack(10, bytes, &mut flat[..N * 256]);
-    let mut out = [[0u64; 256]; N];
+fn decode_t1<const N: usize>(bytes: &[u8]) -> [[u32; 256]; N] {
+    let mut flat = [0u32; 1536];
+    unpack::<10>(bytes, &mut flat[..N * 256]);
+    let mut out = [[0u32; 256]; N];
     for (op, fp) in out.iter_mut().zip(flat.chunks_exact(256)) {
         for (oc, &fc) in op.iter_mut().zip(fp.iter()) {
             *oc = fc;
@@ -318,8 +334,8 @@ fn decode_t1<const N: usize>(bytes: &[u8]) -> [[u64; 256]; N] {
     out
 }
 
-fn encode_w1<const N: usize>(w1: &[[u64; 256]; N], out: &mut [u8]) {
-    let mut flat = [0u64; 1536];
+fn encode_w1<const N: usize>(w1: &[[u32; 256]; N], out: &mut [u8]) {
+    let mut flat = [0u32; 1536];
     let mut fi = 0;
     for p in w1 {
         for &c in p.iter() {
@@ -327,13 +343,13 @@ fn encode_w1<const N: usize>(w1: &[[u64; 256]; N], out: &mut [u8]) {
             fi += 1;
         }
     }
-    pack(4, &flat[..N * 256], out);
+    pack::<4>(&flat[..N * 256], out);
 }
 
-fn decode_z<const N: usize>(bytes: &[u8]) -> [[u64; 256]; N] {
-    let mut flat = [0u64; 1536];
-    unpack(20, bytes, &mut flat[..N * 256]);
-    let mut out = [[0u64; 256]; N];
+fn decode_z<const N: usize>(bytes: &[u8]) -> [[u32; 256]; N] {
+    let mut flat = [0u32; 1536];
+    unpack::<20>(bytes, &mut flat[..N * 256]);
+    let mut out = [[0u32; 256]; N];
     for (op, fp) in out.iter_mut().zip(flat.chunks_exact(256)) {
         for (oc, &w) in op.iter_mut().zip(fp.iter()) {
             *oc = if w <= GAMMA1 {
@@ -346,8 +362,8 @@ fn decode_z<const N: usize>(bytes: &[u8]) -> [[u64; 256]; N] {
     out
 }
 
-fn encode_z<const N: usize>(z: &[[u64; 256]; N], out: &mut [u8]) {
-    let mut flat = [0u64; 1536];
+fn encode_z<const N: usize>(z: &[[u32; 256]; N], out: &mut [u8]) {
+    let mut flat = [0u32; 1536];
     let mut fi = 0;
     for p in z {
         for &c in p.iter() {
@@ -355,7 +371,7 @@ fn encode_z<const N: usize>(z: &[[u64; 256]; N], out: &mut [u8]) {
             fi += 1;
         }
     }
-    pack(20, &flat[..N * 256], out);
+    pack::<20>(&flat[..N * 256], out);
 }
 
 fn pack_h(h: &[[bool; 256]; K]) -> [u8; OMEGA + K] {
@@ -414,15 +430,15 @@ pub fn keygen_internal(seed: &[u8; 32]) -> ([u8; VK_LEN], [u8; SK_LEN]) {
     rho2.copy_from_slice(&gout[32..96]);
     kk.copy_from_slice(&gout[96..128]);
 
-    let mut a_hat = [[0u64; 256]; K * L];
+    let mut a_hat = [[0u32; 256]; K * L];
     for (i, row) in a_hat.chunks_exact_mut(L).enumerate() {
         for (j, cell) in row.iter_mut().enumerate() {
             *cell = rej_ntt_poly(&rho, i as u8, j as u8);
         }
     }
 
-    let mut s1 = [[0u64; 256]; L];
-    let mut s2 = [[0u64; 256]; K];
+    let mut s1 = [[0u32; 256]; L];
+    let mut s2 = [[0u32; 256]; K];
     for (i, p) in s1.iter_mut().enumerate() {
         *p = rej_bounded_poly(&rho2, i as u16);
     }
@@ -440,8 +456,8 @@ pub fn keygen_internal(seed: &[u8; 32]) -> ([u8; VK_LEN], [u8; SK_LEN]) {
         }
     }
 
-    let mut t1 = [[0u64; 256]; K];
-    let mut t0 = [[0u64; 256]; K];
+    let mut t1 = [[0u32; 256]; K];
+    let mut t0 = [[0u32; 256]; K];
     for i in 0..K {
         for k in 0..256 {
             let (r1, r0) = power2round(t_std[i][k]);
@@ -524,7 +540,7 @@ fn sign_core(sk: &[u8; SK_LEN], mu_b: &[u8; 64], rnd: &[u8; 32]) -> [u8; SIG_LEN
     let s2_hat = ntt_vec(&s2);
     let t0_hat = ntt_vec(&t0);
 
-    let mut a_hat = [[0u64; 256]; K * L];
+    let mut a_hat = [[0u32; 256]; K * L];
     for (i, row) in a_hat.chunks_exact_mut(L).enumerate() {
         for (j, cell) in row.iter_mut().enumerate() {
             *cell = rej_ntt_poly(rho, i as u8, j as u8);
@@ -537,7 +553,7 @@ fn sign_core(sk: &[u8; SK_LEN], mu_b: &[u8; 64], rnd: &[u8; 32]) -> [u8; SIG_LEN
     let mut kappa = 0u16;
     let (c_tilde, z, h);
     loop {
-        let mut y = [[0u64; 256]; L];
+        let mut y = [[0u32; 256]; L];
         for (i, p) in y.iter_mut().enumerate() {
             *p = expand_mask_poly(&rhopp, kappa + i as u16);
         }
@@ -545,7 +561,7 @@ fn sign_core(sk: &[u8; SK_LEN], mu_b: &[u8; 64], rnd: &[u8; 32]) -> [u8; SIG_LEN
         let w = mat_mul_vec(&a_hat, &y_hat);
         let w = invntt_vec(&w);
 
-        let mut w1 = [[0u64; 256]; K];
+        let mut w1 = [[0u32; 256]; K];
         for (w1p, wp) in w1.iter_mut().zip(w.iter()) {
             for (wc, &wv) in w1p.iter_mut().zip(wp.iter()) {
                 *wc = high_bits(wv);
@@ -557,13 +573,14 @@ fn sign_core(sk: &[u8; SK_LEN], mu_b: &[u8; 64], rnd: &[u8; 32]) -> [u8; SIG_LEN
         let mut ctil = [0u8; LAMBDA];
         shake::shake256_squeeze(&[mu_b, &w1_tilde], &mut ctil);
 
+
         let c = sample_in_ball(&ctil, TAU);
-        let mut c_hat = [0u64; 256];
+        let mut c_hat = [0u32; 256];
         c_hat.copy_from_slice(&c);
         ntt(&mut c_hat);
 
-        let mut cs1 = [[0u64; 256]; L];
-        let mut cs2 = [[0u64; 256]; K];
+        let mut cs1 = [[0u32; 256]; L];
+        let mut cs2 = [[0u32; 256]; K];
         for (o, &s) in cs1.iter_mut().zip(s1_hat.iter()) {
             *o = poly_mul_ntt(&c_hat, &s);
         }
@@ -575,7 +592,7 @@ fn sign_core(sk: &[u8; SK_LEN], mu_b: &[u8; 64], rnd: &[u8; 32]) -> [u8; SIG_LEN
 
         let mut zz = y;
         let mut ok = true;
-        let mut w_minus_cs2 = [[0u64; 256]; K];
+        let mut w_minus_cs2 = [[0u32; 256]; K];
         for (zp, c1p) in zz.iter_mut().zip(cs1.iter()) {
             for (zc, &c1c) in zp.iter_mut().zip(c1p.iter()) {
                 *zc = (*zc + c1c) % Q;
@@ -589,7 +606,7 @@ fn sign_core(sk: &[u8; SK_LEN], mu_b: &[u8; 64], rnd: &[u8; 32]) -> [u8; SIG_LEN
                 *oc = (wv + Q - c2c) % Q;
             }
         }
-        let mut r0 = [[0u64; 256]; K];
+        let mut r0 = [[0u32; 256]; K];
         for (rp, wmp) in r0.iter_mut().zip(w_minus_cs2.iter()) {
             for (rc, &wm) in rp.iter_mut().zip(wmp.iter()) {
                 *rc = low_bits(wm);
@@ -603,7 +620,7 @@ fn sign_core(sk: &[u8; SK_LEN], mu_b: &[u8; 64], rnd: &[u8; 32]) -> [u8; SIG_LEN
             continue;
         }
 
-        let mut ct0 = [[0u64; 256]; K];
+        let mut ct0 = [[0u32; 256]; K];
         for (o, &t) in ct0.iter_mut().zip(t0_hat.iter()) {
             *o = poly_mul_ntt(&c_hat, &t);
         }
@@ -671,27 +688,282 @@ pub fn verify_mu_internal(vk: &[u8; VK_LEN], mu_b: &[u8; 64], sig: &[u8; SIG_LEN
     verify_core(vk, mu_b, sig)
 }
 
-fn verify_core(vk: &[u8; VK_LEN], mu_b: &[u8; 64], sig: &[u8; SIG_LEN]) -> bool {
+pub struct VerifyPrecomp {
+    // Packed 3B/coeff (Q < 2^23): a_hat 30*256*3, t1_2d_hat 6*256*3
+    pub a_hat_packed: [u8; K * L * 256 * 3],
+    pub t1_2d_hat_packed: [u8; K * 256 * 3],
+    pub tr_b: [u8; 64],
+    pub vk_hash: [u8; 32],
+}
+
+impl Default for VerifyPrecomp {
+    fn default() -> Self {
+        VerifyPrecomp {
+            a_hat_packed: [0u8; K * L * 256 * 3],
+            t1_2d_hat_packed: [0u8; K * 256 * 3],
+            tr_b: [0u8; 64],
+            vk_hash: [0u8; 32],
+        }
+    }
+}
+
+#[inline(always)]
+fn pack3(p: &mut [u8], idx: usize, v: u32) {
+    p[idx] = v as u8;
+    p[idx + 1] = (v >> 8) as u8;
+    p[idx + 2] = (v >> 16) as u8;
+}
+
+#[inline(always)]
+fn unpack3(p: &[u8], idx: usize) -> u32 {
+    p[idx] as u32 | ((p[idx + 1] as u32) << 8) | ((p[idx + 2] as u32) << 16)
+}
+
+#[repr(C)]
+pub struct SignPrecomp {
+    pub a_hat_packed: [u8; K * L * 256 * 3],
+    pub s1_hat_packed: [u8; L * 256 * 3],
+    pub s2_hat_packed: [u8; K * 256 * 3],
+    pub t0_hat_packed: [u8; K * 256 * 3],
+}
+
+impl Default for SignPrecomp {
+    fn default() -> Self {
+        SignPrecomp {
+            a_hat_packed: [0u8; K * L * 256 * 3],
+            s1_hat_packed: [0u8; L * 256 * 3],
+            s2_hat_packed: [0u8; K * 256 * 3],
+            t0_hat_packed: [0u8; K * 256 * 3],
+        }
+    }
+}
+
+pub fn sign_precomp_new_into(pc: &mut SignPrecomp, sk: &[u8; SK_LEN]) {
+    let rho = &sk[..32];
+    let s1 = decode_s::<L>(&sk[128..128 + L * 128]);
+    let s2 = decode_s::<K>(&sk[128 + L * 128..128 + L * 128 + K * 128]);
+    let t0 = decode_t0::<K>(&sk[128 + L * 128 + K * 128..]);
+
+    for i in 0..K {
+        for j in 0..L {
+            let p = rej_ntt_poly(rho, i as u8, j as u8);
+            for k in 0..256 {
+                pack3(&mut pc.a_hat_packed, ((i * L + j) * 256 + k) * 3, p[k]);
+            }
+        }
+    }
+    for (i, s) in ntt_vec(&s1).iter().enumerate() {
+        for k in 0..256 {
+            pack3(&mut pc.s1_hat_packed, (i * 256 + k) * 3, s[k]);
+        }
+    }
+    for (i, s) in ntt_vec(&s2).iter().enumerate() {
+        for k in 0..256 {
+            pack3(&mut pc.s2_hat_packed, (i * 256 + k) * 3, s[k]);
+        }
+    }
+    for (i, s) in ntt_vec(&t0).iter().enumerate() {
+        for k in 0..256 {
+            pack3(&mut pc.t0_hat_packed, (i * 256 + k) * 3, s[k]);
+        }
+    }
+}
+
+pub fn sign_precomp_into(
+    pc: &SignPrecomp,
+    sk: &[u8; SK_LEN],
+    mu_b: &[u8; 64],
+    rnd: &[u8; 32],
+) -> [u8; SIG_LEN] {
+    let kk = &sk[32..64];
+    let mut rhopp = [0u8; 64];
+    shake::shake256_squeeze(&[kk, rnd, mu_b], &mut rhopp);
+
+    let mut kappa = 0u16;
+    let (c_tilde, z, h);
+    loop {
+        let mut y = [[0u32; 256]; L];
+        for (i, p) in y.iter_mut().enumerate() {
+            *p = expand_mask_poly(&rhopp, kappa + i as u16);
+        }
+        let mut y_hat_packed = [0u8; L * 256 * 3];
+        for (i, yp) in y.iter().enumerate() {
+            let mut tmp = *yp;
+            ntt(&mut tmp);
+            for k in 0..256 {
+                pack3(&mut y_hat_packed, (i * 256 + k) * 3, tmp[k]);
+            }
+        }
+
+        let mut w = [[0u32; 256]; K];
+        for i in 0..K {
+            for k in 0..256 {
+                let mut acc = 0u64;
+                for j in 0..L {
+                    let ar = unpack3(pc.a_hat_packed.as_slice(), ((i * L + j) * 256 + k) * 3);
+                    let yr = unpack3(y_hat_packed.as_slice(), (j * 256 + k) * 3);
+                    acc += ar as u64 * yr as u64;
+                }
+                w[i][k] = (acc % Q as u64) as u32;
+            }
+        }
+        for wp in w.iter_mut() {
+            invntt(wp);
+        }
+
+        let mut w1_tilde = [0u8; K * 128];
+        for (wp, out) in w.iter().zip(w1_tilde.chunks_exact_mut(128)) {
+            let mut hi = [0u32; 256];
+            for (hc, &wv) in hi.iter_mut().zip(wp.iter()) {
+                *hc = high_bits(wv);
+            }
+            pack::<4>(&hi, out);
+        }
+
+        let mut ctil = [0u8; LAMBDA];
+        shake::shake256_squeeze(&[mu_b, w1_tilde.as_slice()], &mut ctil);
+
+
+        let c = sample_in_ball(&ctil, TAU);
+        let mut c_hat = [0u32; 256];
+        c_hat.copy_from_slice(&c);
+        ntt(&mut c_hat);
+
+        let mut ok = true;
+        let mut cp = [0u32; 256];
+        for i in 0..L {
+            for k in 0..256 {
+                let cr = c_hat[k] as u64;
+                let sr = unpack3(pc.s1_hat_packed.as_slice(), (i * 256 + k) * 3) as u64;
+                cp[k] = ((cr * sr) % Q as u64) as u32;
+            }
+            invntt(&mut cp);
+            for (yc, &cc) in y[i].iter_mut().zip(cp.iter()) {
+                *yc = (*yc + cc) % Q;
+            }
+            if infinity_norm(&y[i]) >= GAMMA1_MINUS_BETA {
+                ok = false;
+            }
+        }
+        if !ok {
+            kappa = kappa.wrapping_add(L as u16);
+            continue;
+        }
+
+        // w -= cs2 inplace (w_minus_cs2); r0 = low_bits per-coeff check
+        for i in 0..K {
+            for k in 0..256 {
+                let cr = c_hat[k] as u64;
+                let sr = unpack3(pc.s2_hat_packed.as_slice(), (i * 256 + k) * 3) as u64;
+                cp[k] = ((cr * sr) % Q as u64) as u32;
+            }
+            invntt(&mut cp);
+            for (wc, &cc) in w[i].iter_mut().zip(cp.iter()) {
+                *wc = (*wc + Q - cc) % Q;
+            }
+            let mut rmax = 0u32;
+            for &wm in w[i].iter() {
+                let r0 = low_bits(wm);
+                let mag = if r0 > Q / 2 { Q - r0 } else { r0 };
+                if mag > rmax {
+                    rmax = mag;
+                }
+            }
+            if rmax >= GAMMA2_MINUS_BETA {
+                ok = false;
+            }
+        }
+        // ct0 + hint (reads w_minus_cs2)
+        let mut hh = [[false; 256]; K];
+        let mut wgt = 0usize;
+        for i in 0..K {
+            for k in 0..256 {
+                let cr = c_hat[k] as u64;
+                let tr = unpack3(pc.t0_hat_packed.as_slice(), (i * 256 + k) * 3) as u64;
+                cp[k] = ((cr * tr) % Q as u64) as u32;
+            }
+            invntt(&mut cp);
+            if infinity_norm(&cp) >= GAMMA2 {
+                ok = false;
+            }
+            for (k, (hc, &cv)) in hh[i].iter_mut().zip(cp.iter()).enumerate() {
+                let nct0 = (Q - cv) % Q;
+                let wcc = (w[i][k] + cv) % Q;
+                *hc = make_hint(nct0, wcc);
+                if *hc {
+                    wgt += 1;
+                }
+            }
+        }
+        if !ok || wgt > OMEGA {
+            kappa = kappa.wrapping_add(L as u16);
+            continue;
+        }
+
+        c_tilde = ctil;
+        z = y;
+        h = hh;
+        break;
+    }
+
+    let mut sig = [0u8; SIG_LEN];
+    sig[..LAMBDA].copy_from_slice(&c_tilde);
+    encode_z(&z, &mut sig[LAMBDA..LAMBDA + L * 640]);
+    sig[LAMBDA + L * 640..].copy_from_slice(&pack_h(&h));
+    sig
+}
+
+pub fn verify_precomp_new_into(pc: &mut VerifyPrecomp, vk: &[u8; VK_LEN]) {
     let rho = &vk[..32];
     let t1 = decode_t1::<K>(&vk[32..]);
 
-    let mut a_hat = [[0u64; 256]; K * L];
     for i in 0..K {
         for j in 0..L {
-            a_hat[i * L + j] = rej_ntt_poly(rho, i as u8, j as u8);
+            let a = rej_ntt_poly(rho, i as u8, j as u8);
+            let base = (i * L + j) * 256 * 3;
+            for (k, &v) in a.iter().enumerate() {
+                pack3(&mut pc.a_hat_packed, base + k * 3, v);
+            }
+        }
+    }
+    // t1<<D in NTT domain: per-poly 1K temporary, compute and pack
+    for (i, ip) in t1.iter().enumerate() {
+        let mut tp = [0u32; 256];
+        for (oc, &ic) in tp.iter_mut().zip(ip.iter()) {
+            *oc = (ic as u64 * (1u32 << D) as u64 % Q as u64) as u32;
+        }
+        ntt(&mut tp);
+        let base = i * 256 * 3;
+        for (k, &v) in tp.iter().enumerate() {
+            pack3(&mut pc.t1_2d_hat_packed, base + k * 3, v);
         }
     }
 
-    let mut t1_2d = [[0u64; 256]; K];
-    for (op, ip) in t1_2d.iter_mut().zip(t1.iter()) {
-        for (oc, &ic) in op.iter_mut().zip(ip.iter()) {
-            *oc = ic * (1u64 << D) % Q;
-        }
-    }
-    let t1_2d_hat = ntt_vec(&t1_2d);
+    let mut tr_b = [0u8; 64];
+    shake::shake256_squeeze(&[vk], &mut tr_b);
+    let vk_hash = crate::shake::sha3_256(vk);
+
+    pc.tr_b = tr_b;
+    pc.vk_hash = vk_hash;
+}
+
+pub fn verify_precomp_new(vk: &[u8; VK_LEN]) -> VerifyPrecomp {
+    let mut pc = VerifyPrecomp {
+        a_hat_packed: [0u8; K * L * 256 * 3],
+        t1_2d_hat_packed: [0u8; K * 256 * 3],
+        tr_b: [0u8; 64],
+        vk_hash: [0u8; 32],
+    };
+    verify_precomp_new_into(&mut pc, vk);
+    pc
+}
+
+fn verify_core_precomp(pc: &VerifyPrecomp, mu_b: &[u8; 64], sig: &[u8; SIG_LEN]) -> bool {
+    let a_hat_packed = &pc.a_hat_packed;
+    let t1_2d_hat_packed = &pc.t1_2d_hat_packed;
 
     let c_tilde = &sig[..LAMBDA];
-    let z = decode_z::<L>(&sig[LAMBDA..LAMBDA + L * 640]);
+    let mut z = decode_z::<L>(&sig[LAMBDA..LAMBDA + L * 640]);
     let h = match unpack_h(&sig[LAMBDA + L * 640..]) {
         Some(h) => h,
         None => return false,
@@ -703,47 +975,504 @@ fn verify_core(vk: &[u8; VK_LEN], mu_b: &[u8; 64], sig: &[u8; SIG_LEN]) -> bool 
     }
 
     let c = sample_in_ball(c_tilde, TAU);
-    let mut c_hat = [0u64; 256];
+    let mut c_hat = [0u32; 256];
     c_hat.copy_from_slice(&c);
     ntt(&mut c_hat);
-    let z_hat = ntt_vec(&z);
+    for zp in z.iter_mut() { ntt(zp); }
 
-    let mut az = [[0u64; 256]; K];
-    for (i, row) in a_hat.chunks_exact(L).enumerate() {
+    let mut buf = [[0u32; 256]; K];
+    for i in 0..K {
         for k in 0..256 {
-            let acc = row
-                .iter()
-                .zip(z_hat.iter())
-                .fold(0u64, |acc, (ar, zr)| (acc + ar[k] * zr[k]) % Q);
-            az[i][k] = acc;
+            // u64 accumulation skips interleaved mod: 30 terms < 2^63, single mod at end
+            let mut acc = 0u64;
+            for j in 0..L {
+                const ABASE: usize = 256 * 3;
+                let off = (i * L + j) * ABASE + k * 3;
+                let ar = unpack3(a_hat_packed.as_slice(), off);
+                let zr = z[j][k];
+                acc += ar as u64 * zr as u64;
+            }
+            buf[i][k] = (acc % Q as u64) as u32;
         }
     }
-    let mut w_hat = [[0u64; 256]; K];
-    for ((op, azp), tp) in w_hat.iter_mut().zip(az.iter()).zip(t1_2d_hat.iter()) {
-        for (k, ((oc, &av), &tv)) in op.iter_mut().zip(azp.iter()).zip(tp.iter()).enumerate() {
-            let ct1 = c_hat[k] * tv % Q;
-            *oc = (av + Q - ct1) % Q;
+    for (i, op) in buf.iter_mut().enumerate() {
+        for k in 0..256 {
+            const TBASE: usize = 256 * 3;
+            let tv = unpack3(t1_2d_hat_packed.as_slice(), i * TBASE + k * 3);
+            let av = op[k];  // = az[i][k]; in-place, az no longer needed
+            let ct1 = (c_hat[k] as u64 * tv as u64 % Q as u64) as u32;
+            let d = av + Q - ct1;
+            op[k] = if d >= Q { d - Q } else { d };
         }
     }
-    let w_approx = invntt_vec(&w_hat);
+    for wp in buf.iter_mut() { invntt(wp); }
 
-    let mut w1 = [[0u64; 256]; K];
-    for ((op, ap), hp) in w1.iter_mut().zip(w_approx.iter()).zip(h.iter()) {
-        for ((oc, &av), &hv) in op.iter_mut().zip(ap.iter()).zip(hp.iter()) {
-            *oc = use_hint(hv, av);
+    for (op, hp) in buf.iter_mut().zip(h.iter()) {
+        for (oc, &hv) in op.iter_mut().zip(hp.iter()) {
+            *oc = use_hint(hv, *oc);
         }
     }
     let mut w1_tilde = [0u8; K * 128];
-    encode_w1(&w1, &mut w1_tilde);
+    encode_w1(&buf, &mut w1_tilde);
 
     let mut ctil = [0u8; LAMBDA];
     shake::shake256_squeeze(&[mu_b, &w1_tilde], &mut ctil);
     ctil == *c_tilde
 }
 
+pub fn verify_precomp(pc: &VerifyPrecomp, msg: &[u8], ctx: &[u8], sig: &[u8; SIG_LEN]) -> bool {
+    if ctx.len() > 255 {
+        return false;
+    }
+    let mut mu_b = [0u8; 64];
+    shake::shake256_squeeze(&[&pc.tr_b, &[0x00], &[ctx.len() as u8], ctx, msg], &mut mu_b);
+    verify_core_precomp(pc, &mu_b, sig)
+}
+
+fn verify_core(vk: &[u8; VK_LEN], mu_b: &[u8; 64], sig: &[u8; SIG_LEN]) -> bool {
+    let rho = &vk[..32];
+    let t1 = decode_t1::<K>(&vk[32..]);
+
+    let mut a_hat = [[0u32; 256]; K * L];
+    for i in 0..K {
+        for j in 0..L {
+            a_hat[i * L + j] = rej_ntt_poly(rho, i as u8, j as u8);
+        }
+    }
+
+    let mut t1_2d = [[0u32; 256]; K];
+    for (op, ip) in t1_2d.iter_mut().zip(t1.iter()) {
+        for (oc, &ic) in op.iter_mut().zip(ip.iter()) {
+            *oc = (ic as u64 * (1u32 << D) as u64 % Q as u64) as u32;
+        }
+    }
+    let t1_2d_hat = ntt_vec(&t1_2d);
+
+    let c_tilde = &sig[..LAMBDA];
+    let mut z = decode_z::<L>(&sig[LAMBDA..LAMBDA + L * 640]);
+    let h = match unpack_h(&sig[LAMBDA + L * 640..]) {
+        Some(h) => h,
+        None => return false,
+    };
+    for zp in z.iter() {
+        if infinity_norm(zp) >= GAMMA1_MINUS_BETA {
+            return false;
+        }
+    }
+
+    let c = sample_in_ball(c_tilde, TAU);
+    let mut c_hat = [0u32; 256];
+    c_hat.copy_from_slice(&c);
+    ntt(&mut c_hat);
+    for zp in z.iter_mut() { ntt(zp); }
+
+    let mut buf = [[0u32; 256]; K];
+    for (i, row) in a_hat.chunks_exact(L).enumerate() {
+        for k in 0..256 {
+            // u64 accumulation skips interleaved mod: 30 terms < 2^63, single mod at end
+            let acc = row
+                .iter()
+                .zip(z.iter())
+                .fold(0u64, |acc, (ar, zr)| acc + ar[k] as u64 * zr[k] as u64);
+            buf[i][k] = (acc % Q as u64) as u32;
+        }
+    }
+    for (i, op) in buf.iter_mut().enumerate() {
+        for k in 0..256 {
+            let tv = t1_2d_hat[i][k];
+            let av = op[k];
+            let ct1 = (c_hat[k] as u64 * tv as u64 % Q as u64) as u32;
+            let d = av + Q - ct1;
+            op[k] = if d >= Q { d - Q } else { d };
+        }
+    }
+    for wp in buf.iter_mut() { invntt(wp); }
+
+    for (op, hp) in buf.iter_mut().zip(h.iter()) {
+        for (oc, &hv) in op.iter_mut().zip(hp.iter()) {
+            *oc = use_hint(hv, *oc);
+        }
+    }
+    let mut w1_tilde = [0u8; K * 128];
+    encode_w1(&buf, &mut w1_tilde);
+
+    let mut ctil = [0u8; LAMBDA];
+    shake::shake256_squeeze(&[mu_b, &w1_tilde], &mut ctil);
+    ctil == *c_tilde
+}
+
+#[inline(always)]
+fn mcycle_now() -> u64 {
+    #[cfg(target_arch = "riscv32")]
+    unsafe {
+        let lo: u32;
+        core::arch::asm!("csrr {lo}, mcycle", lo = out(reg) lo, options(nomem, nostack));
+        lo as u64
+    }
+    #[cfg(not(target_arch = "riscv32"))]
+    {
+        0
+    }
+}
+
+pub const VERIFY_SECTIONS: usize = 8;
+
+pub fn verify_precomp_timed(
+    pc: &VerifyPrecomp,
+    msg: &[u8],
+    ctx: &[u8],
+    sig: &[u8; SIG_LEN],
+    times: &mut [u64; VERIFY_SECTIONS],
+) -> bool {
+    if ctx.len() > 255 {
+        return false;
+    }
+    let mut mu_b = [0u8; 64];
+    shake::shake256_squeeze(&[&pc.tr_b, &[0x00], &[ctx.len() as u8], ctx, msg], &mut mu_b);
+    times[0] = mcycle_now();
+
+    let a_hat_packed = &pc.a_hat_packed;
+    let t1_2d_hat_packed = &pc.t1_2d_hat_packed;
+
+    let c_tilde = &sig[..LAMBDA];
+    let mut z = decode_z::<L>(&sig[LAMBDA..LAMBDA + L * 640]);
+    let h = match unpack_h(&sig[LAMBDA + L * 640..]) {
+        Some(h) => h,
+        None => return false,
+    };
+    for zp in z.iter() {
+        if infinity_norm(zp) >= GAMMA1_MINUS_BETA {
+            return false;
+        }
+    }
+    times[1] = mcycle_now();
+
+    let c = sample_in_ball(c_tilde, TAU);
+    let mut c_hat = [0u32; 256];
+    c_hat.copy_from_slice(&c);
+    ntt(&mut c_hat);
+    for zp in z.iter_mut() {
+        ntt(zp);
+    }
+    times[2] = mcycle_now();
+
+    let mut buf = [[0u32; 256]; K];
+    for i in 0..K {
+        for k in 0..256 {
+            let mut acc = 0u64;
+            for j in 0..L {
+                const ABASE: usize = 256 * 3;
+                let off = (i * L + j) * ABASE + k * 3;
+                let ar = unpack3(a_hat_packed.as_slice(), off);
+                let zr = z[j][k];
+                acc += ar as u64 * zr as u64;
+            }
+            buf[i][k] = (acc % Q as u64) as u32;
+        }
+    }
+    times[3] = mcycle_now();
+
+    for (i, op) in buf.iter_mut().enumerate() {
+        for k in 0..256 {
+            const TBASE: usize = 256 * 3;
+            let tv = unpack3(t1_2d_hat_packed.as_slice(), i * TBASE + k * 3);
+            let av = op[k];
+            let ct1 = (c_hat[k] as u64 * tv as u64 % Q as u64) as u32;
+            let d = av + Q - ct1;
+            op[k] = if d >= Q { d - Q } else { d };
+        }
+    }
+    times[4] = mcycle_now();
+
+    for wp in buf.iter_mut() {
+        invntt(wp);
+    }
+    times[5] = mcycle_now();
+
+    for (op, hp) in buf.iter_mut().zip(h.iter()) {
+        for (oc, &hv) in op.iter_mut().zip(hp.iter()) {
+            *oc = use_hint(hv, *oc);
+        }
+    }
+    let mut w1_tilde = [0u8; K * 128];
+    encode_w1(&buf, &mut w1_tilde);
+    times[6] = mcycle_now();
+
+    let mut ctil = [0u8; LAMBDA];
+    shake::shake256_squeeze(&[mu_b.as_slice(), w1_tilde.as_slice()], &mut ctil);
+    times[7] = mcycle_now();
+
+    ctil == *c_tilde
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sign_precomp_stage_debug() {
+        use crate::shake;
+        let seed = [9u8; 32];
+        let (_vk, sk) = keygen_internal(&seed);
+        let mut pc = SignPrecomp::default();
+        sign_precomp_new_into(&mut pc, &sk);
+
+        let msg = b"hello";
+        let tr = &sk[64..128];
+        let len_b = [msg.len() as u8];
+        let mut mu_b = [0u8; 64];
+        shake::shake256_squeeze(&[tr, &[0x00], &len_b, msg], &mut mu_b);
+
+        let rho = &sk[..32];
+        let kk = &sk[32..64];
+        let mut rhopp_a = [0u8; 64];
+        shake::shake256_squeeze(&[kk, &[0u8; 32], &mu_b], &mut rhopp_a);
+
+        let mut y = [[0u32; 256]; L];
+        for (i, p) in y.iter_mut().enumerate() {
+            *p = expand_mask_poly(&rhopp_a, 5 + i as u16);
+        }
+        let mut y_hat_packed = [0u8; L * 256 * 3];
+        for (i, yp) in y.iter().enumerate() {
+            let mut tmp = *yp;
+            ntt(&mut tmp);
+            for k in 0..256 {
+                pack3(&mut y_hat_packed, (i * 256 + k) * 3, tmp[k]);
+            }
+        }
+        let mut a_hat = [[0u32; 256]; K * L];
+        for (i, row) in a_hat.chunks_exact_mut(L).enumerate() {
+            for (j, cell) in row.iter_mut().enumerate() {
+                *cell = rej_ntt_poly(rho, i as u8, j as u8);
+            }
+        }
+        let y_hat = ntt_vec(&y);
+        let w_ref = mat_mul_vec(&a_hat, &y_hat);
+
+        let mut w = [[0u32; 256]; K];
+        for i in 0..K {
+            for k in 0..256 {
+                let mut acc = 0u64;
+                for j in 0..L {
+                    let ar = unpack3(pc.a_hat_packed.as_slice(), ((i * L + j) * 256 + k) * 3);
+                    let yr = unpack3(y_hat_packed.as_slice(), (j * 256 + k) * 3);
+                    acc += ar as u64 * yr as u64;
+                }
+                w[i][k] = (acc % Q as u64) as u32;
+            }
+        }
+        assert_eq!(w, w_ref, "matmul mismatch");
+
+        for wp in w.iter_mut() {
+            invntt(wp);
+        }
+        let w_ref2 = invntt_vec(&w_ref);
+        assert_eq!(w, w_ref2, "invntt mismatch");
+
+        let mut w1_tilde = [0u8; K * 128];
+        for (wp, out) in w.iter().zip(w1_tilde.chunks_exact_mut(128)) {
+            let mut hi = [0u32; 256];
+            for (hc, &wv) in hi.iter_mut().zip(wp.iter()) {
+                *hc = high_bits(wv);
+            }
+            pack::<4>(&hi, out);
+        }
+        let mut w1 = [[0u32; 256]; K];
+        for (w1p, wp) in w1.iter_mut().zip(w_ref2.iter()) {
+            for (wc, &wv) in w1p.iter_mut().zip(wp.iter()) {
+                *wc = high_bits(wv);
+            }
+        }
+        let mut w1_tilde_ref = [0u8; K * 128];
+        encode_w1(&w1, &mut w1_tilde_ref);
+        assert_eq!(w1_tilde, w1_tilde_ref, "w1 encode mismatch");
+
+        let mut ctil = [0u8; LAMBDA];
+        shake::shake256_squeeze(&[&mu_b, &w1_tilde], &mut ctil);
+        let mut ctil_ref = [0u8; LAMBDA];
+        shake::shake256_squeeze(&[&mu_b, &w1_tilde_ref], &mut ctil_ref);
+        assert_eq!(ctil, ctil_ref, "ctil mismatch");
+
+        let c = sample_in_ball(&ctil, TAU);
+        let mut c_hat = [0u32; 256];
+        c_hat.copy_from_slice(&c);
+        ntt(&mut c_hat);
+
+        let s1 = decode_s::<L>(&sk[128..128 + L * 128]);
+        let s2 = decode_s::<K>(&sk[128 + L * 128..128 + L * 128 + K * 128]);
+        let s1_hat = ntt_vec(&s1);
+        let s2_hat = ntt_vec(&s2);
+
+        let mut cs1_hat = [[0u32; 256]; L];
+        for (o, &s) in cs1_hat.iter_mut().zip(s1_hat.iter()) {
+            *o = poly_mul_ntt(&c_hat, &s);
+        }
+        let cs1_ref = invntt_vec(&cs1_hat);
+        let mut z_ref = y.clone();
+        for (zp, c1p) in z_ref.iter_mut().zip(cs1_ref.iter()) {
+            for (zc, &c1c) in zp.iter_mut().zip(c1p.iter()) {
+                *zc = (*zc + c1c) % Q;
+            }
+        }
+
+        let mut cp = [0u32; 256];
+        for i in 0..L {
+            for k in 0..256 {
+                let cr = c_hat[k] as u64;
+                let sr = unpack3(pc.s1_hat_packed.as_slice(), (i * 256 + k) * 3) as u64;
+                cp[k] = ((cr * sr) % Q as u64) as u32;
+            }
+            invntt(&mut cp);
+            for (yc, &cc) in y[i].iter_mut().zip(cp.iter()) {
+                *yc = (*yc + cc) % Q;
+            }
+        }
+        assert_eq!(y, z_ref, "cs1/z mismatch");
+
+        let mut cs2_hat = [[0u32; 256]; K];
+        for (o, &s) in cs2_hat.iter_mut().zip(s2_hat.iter()) {
+            *o = poly_mul_ntt(&c_hat, &s);
+        }
+        let cs2_ref = invntt_vec(&cs2_hat);
+        let mut w0_ref = w_ref2.clone();
+        for ((op, wp), c2p) in w0_ref
+            .iter_mut()
+            .zip(w_ref2.iter())
+            .zip(cs2_ref.iter())
+        {
+            for ((oc, &wv), &c2c) in op.iter_mut().zip(wp.iter()).zip(c2p.iter()) {
+                *oc = (wv + Q - c2c) % Q;
+            }
+        }
+        for i in 0..K {
+            for k in 0..256 {
+                let cr = c_hat[k] as u64;
+                let sr = unpack3(pc.s2_hat_packed.as_slice(), (i * 256 + k) * 3) as u64;
+                cp[k] = ((cr * sr) % Q as u64) as u32;
+            }
+            invntt(&mut cp);
+            for (wc, &cc) in w[i].iter_mut().zip(cp.iter()) {
+                *wc = (*wc + Q - cc) % Q;
+            }
+        }
+        assert_eq!(w, w0_ref, "cs2/w0 mismatch");
+
+        let t0 = decode_t0::<K>(&sk[128 + L * 128 + K * 128..]);
+        let t0_hat = ntt_vec(&t0);
+        let mut ct0_hat = [[0u32; 256]; K];
+        for (o, &t) in ct0_hat.iter_mut().zip(t0_hat.iter()) {
+            *o = poly_mul_ntt(&c_hat, &t);
+        }
+        let ct0_ref = invntt_vec(&ct0_hat);
+        let mut hh_ref = [[false; 256]; K];
+        let mut wgt_ref = 0usize;
+        for ((hp, cp), wmp) in hh_ref
+            .iter_mut()
+            .zip(ct0_ref.iter())
+            .zip(w0_ref.iter())
+        {
+            for ((hc, &cv), &wm) in hp.iter_mut().zip(cp.iter()).zip(wmp.iter()) {
+                let nct0 = (Q - cv) % Q;
+                let wcc = (wm + cv) % Q;
+                *hc = make_hint(nct0, wcc);
+                if *hc {
+                    wgt_ref += 1;
+                }
+            }
+        }
+
+        let mut hh = [[false; 256]; K];
+        let mut wgt = 0usize;
+        for i in 0..K {
+            for k in 0..256 {
+                let cr = c_hat[k] as u64;
+                let tr = unpack3(pc.t0_hat_packed.as_slice(), (i * 256 + k) * 3) as u64;
+                cp[k] = ((cr * tr) % Q as u64) as u32;
+            }
+            invntt(&mut cp);
+            for (k, (hc, &cv)) in hh[i].iter_mut().zip(cp.iter()).enumerate() {
+                let nct0 = (Q - cv) % Q;
+                let wcc = (w[i][k] + cv) % Q;
+                *hc = make_hint(nct0, wcc);
+                if *hc {
+                    wgt += 1;
+                }
+            }
+        }
+        assert_eq!(hh, hh_ref, "hint mismatch");
+        assert_eq!(wgt, wgt_ref, "hint weight mismatch");
+
+        let mut rmax_ref = 0u32;
+        for (wp, wmp) in w_ref2.iter().zip(w0_ref.iter()) {
+            let _ = wp;
+            for &wm in wmp.iter() {
+                let r0 = low_bits(wm);
+                let mag = if r0 > Q / 2 { Q - r0 } else { r0 };
+                if mag > rmax_ref {
+                    rmax_ref = mag;
+                }
+            }
+        }
+        let mut rmax = 0u32;
+        for wp in w.iter() {
+            for &wm in wp.iter() {
+                let r0 = low_bits(wm);
+                let mag = if r0 > Q / 2 { Q - r0 } else { r0 };
+                if mag > rmax {
+                    rmax = mag;
+                }
+            }
+        }
+        assert_eq!(rmax, rmax_ref, "r0 norm mismatch");
+        assert_eq!(rmax >= GAMMA2_MINUS_BETA, rmax_ref >= GAMMA2_MINUS_BETA, "r0 verdict mismatch");
+
+        let mut ct0n_ref = 0u32;
+        for cp in ct0_ref.iter() {
+            let m = infinity_norm(cp);
+            if m > ct0n_ref {
+                ct0n_ref = m;
+            }
+        }
+        let mut ct0n = 0u32;
+        for i in 0..K {
+            for k in 0..256 {
+                let cr = c_hat[k] as u64;
+                let tr = unpack3(pc.t0_hat_packed.as_slice(), (i * 256 + k) * 3) as u64;
+                cp[k] = ((cr * tr) % Q as u64) as u32;
+            }
+            invntt(&mut cp);
+            let m = infinity_norm(&cp);
+            if m > ct0n {
+                ct0n = m;
+            }
+        }
+        assert_eq!(ct0n, ct0n_ref, "ct0 norm mismatch");
+        let _ = y_hat_packed;
+    }
+
+    #[test]
+    fn sign_precomp_matches() {
+        let seed = [9u8; 32];
+        let (vk, sk) = keygen_internal(&seed);
+        let mut pc = SignPrecomp::default();
+        sign_precomp_new_into(&mut pc, &sk);
+
+        for msg in [b"hello".as_slice(), b"", &[42u8; 1000][..]] {
+            let a = sign_internal(&sk, msg, b"");
+            let mut mu_b = [0u8; 64];
+            let tr = &sk[64..128];
+            shake::shake256_squeeze(&[tr, &[0x00], &[0u8], msg], &mut mu_b);
+            let b = sign_precomp_into(&pc, &sk, &mu_b, &[0u8; 32]);
+            assert_eq!(a, b, "msg len {}", msg.len());
+        }
+
+        let mut mu_b = [0u8; 64];
+        let tr = &sk[64..128];
+        shake::shake256_squeeze(&[tr, &[0x00], &[0u8], b"hello".as_slice()], &mut mu_b);
+        let sig = sign_precomp_into(&pc, &sk, &mu_b, &[0u8; 32]);
+        assert!(verify_internal(&vk, b"hello", b"", &sig));
+        assert!(!verify_internal(&vk, b"hellp", b"", &sig));
+    }
 
     #[test]
     fn roundtrip() {

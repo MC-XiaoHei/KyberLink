@@ -778,8 +778,19 @@ name = "kyberlink-firmware"
 version = "0.1.0"
 dependencies = [
  "ch32-hal",
+ "critical-section",
  "embassy-executor",
+ "embassy-sync",
  "embassy-time",
+ "kyberlink-crypto",
+ "kyberlink-stamp",
+]
+
+[[package]]
+name = "kyberlink-stamp"
+version = "0.1.0"
+dependencies = [
+ "getrandom",
  "kyberlink-crypto",
 ]
 

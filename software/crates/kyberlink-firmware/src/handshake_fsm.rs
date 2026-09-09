@@ -1,4 +1,7 @@
 use kyberlink_crypto::handshake as hs;
+use kyberlink_crypto::mldsa_internal::sign_precomp_new_into;
+use kyberlink_crypto::kem_internal::EK_LEN;
+use kyberlink_crypto::mldsa_internal::{VerifyPrecomp, VK_LEN};
 
 pub trait SpiBus {
     /// # Safety
@@ -31,8 +34,8 @@ pub struct Config {
     pub peer_fp: [u8; 32],
     pub seed_kem_d: [u8; 32],
     pub seed_kem_z: [u8; 32],
-    pub seed_dsa: [u8; 32],
     pub nonce: [u8; 32],
+    pub identity: &'static dyn hs::Identity,
 }
 
 pub fn write_sa<S: SpiBus>(spi: &S, sa: &hs::SaParams, initiator: bool, seq: u32) {
@@ -100,6 +103,8 @@ fn hsk_recv<S: SpiBus>(spi: &S, buf: &mut [u8]) -> usize {
     }
 }
 
+use embassy_sync::blocking_mutex::CriticalSectionMutex;
+
 pub enum FsmOutcome {
     Sa(hs::SaParams),
     Wait,
@@ -117,8 +122,11 @@ pub struct Fsm<'a, S: SpiBus> {
     pub session: Option<Session>,
     pub spi_i: u32,
     pub phase: u8,
-    pub buf: [u8; 8192],
+    pub buf: [u8; 6528],
+    pub pc_vk: [u8; VK_LEN],
 }
+
+static PC_CACHE: CriticalSectionMutex<Option<VerifyPrecomp>> = CriticalSectionMutex::new(None);
 
 impl<'a, S: SpiBus> Fsm<'a, S> {
     pub fn new(cfg: &'a Config, spi: &'a S) -> Self {
@@ -129,7 +137,26 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
             session: None,
             spi_i: 0,
             phase: 0,
-            buf: [0; 8192],
+            buf: [0; 6528],
+            pc_vk: [0; VK_LEN],
+        }
+    }
+
+    fn ensure_pc(&mut self, vk: &[u8]) {
+        let vk_hash = hs::fingerprint(vk);
+        let need = PC_CACHE.lock(|s| match s.as_ref() {
+            Some(pc) => pc.vk_hash != vk_hash,
+            None => true,
+        });
+        if need {
+            let mut vk_arr = [0u8; VK_LEN];
+            vk_arr.copy_from_slice(vk);
+            unsafe {
+                PC_CACHE.lock_mut(|s| {
+                    let pc = s.get_or_insert_default();
+                    kyberlink_crypto::mldsa_internal::verify_precomp_new_into(pc, &vk_arr);
+                });
+            }
         }
     }
 
@@ -145,9 +172,9 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
         match self.phase {
             0 => {
                 let (st, m1) = hs::initiator_start(
+                    self.cfg.identity,
                     &self.cfg.seed_kem_d,
                     &self.cfg.seed_kem_z,
-                    &self.cfg.seed_dsa,
                     &self.cfg.nonce,
                 );
                 self.session = Some(Session::Initiator(st));
@@ -160,8 +187,13 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
                 if n == 0 {
                     return FsmOutcome::Wait;
                 }
+                let mut vk_tmp = [0u8; VK_LEN];
+                vk_tmp.copy_from_slice(&self.buf[32 + EK_LEN..32 + EK_LEN + VK_LEN]);
+                self.pc_vk = vk_tmp;
+                let vk = self.pc_vk;
+                self.ensure_pc(&vk);
                 let Session::Initiator(st) = self.session.as_mut().unwrap() else { return FsmOutcome::Wait };
-                match hs::initiator_recv_m2(st, &self.buf[..n], &self.cfg.peer_fp) {
+                PC_CACHE.lock(|s| match hs::initiator_recv_m2(st, self.cfg.identity, &self.buf[..n], &self.cfg.peer_fp, s.as_ref()) {
                     Ok((m3, spi_i)) => {
                         self.spi_i = spi_i;
                         hsk_send(self.spi, &m3);
@@ -172,15 +204,17 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
                         self.phase = 0;
                         FsmOutcome::Wait
                     }
-                }
+                })
             }
             _ => {
                 let n = hsk_recv(self.spi, &mut self.buf);
                 if n == 0 {
                     return FsmOutcome::Wait;
                 }
+                let vk = self.pc_vk;
+                self.ensure_pc(&vk);
                 let Session::Initiator(st) = self.session.as_mut().unwrap() else { return FsmOutcome::Wait };
-                match hs::initiator_recv_m4(st, &self.buf[..n], self.spi_i) {
+                PC_CACHE.lock(|s| match hs::initiator_recv_m4(st, &self.buf[..n], self.spi_i, s.as_ref()) {
                     Ok(sa) => {
                         self.phase = 0;
                         FsmOutcome::Sa(sa)
@@ -189,7 +223,7 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
                         self.phase = 0;
                         FsmOutcome::Wait
                     }
-                }
+                })
             }
         }
     }
@@ -201,16 +235,24 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
                 if n == 0 {
                     return FsmOutcome::Wait;
                 }
+                let mut vk_tmp = [0u8; VK_LEN];
+                vk_tmp.copy_from_slice(&self.buf[32 + EK_LEN..32 + EK_LEN + VK_LEN]);
+                self.pc_vk = vk_tmp;
+                let vk = self.pc_vk;
+                self.ensure_pc(&vk);
                 match hs::responder_start(
+                    self.cfg.identity,
                     &self.cfg.seed_kem_d,
                     &self.cfg.seed_kem_z,
-                    &self.cfg.seed_dsa,
                     &self.cfg.nonce,
                     &self.buf[..n],
                     &self.cfg.peer_fp,
                 ) {
                     Ok((st, m2)) => {
                         self.session = Some(Session::Responder(st));
+                                let mut vk_tmp = [0u8; VK_LEN];
+                        vk_tmp.copy_from_slice(&self.buf[32 + EK_LEN..32 + EK_LEN + VK_LEN]);
+                        self.ensure_pc(&vk_tmp);
                         hsk_send(self.spi, &m2);
                         self.phase = 1;
                         FsmOutcome::Wait
@@ -226,8 +268,10 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
                 let mut sb = [0u8; 4];
                 sb.copy_from_slice(&self.buf[hs::SPI_OFF..hs::SPI_OFF + 4]);
                 self.spi_i = u32::from_be_bytes(sb);
+                let vk = self.pc_vk;
+                self.ensure_pc(&vk);
                 let Session::Responder(st) = self.session.as_mut().unwrap() else { return FsmOutcome::Wait };
-                match hs::responder_recv_m3(st, &self.buf[..n], self.spi_i) {
+                PC_CACHE.lock(|s| match hs::responder_recv_m3(st, self.cfg.identity, &self.buf[..n], self.spi_i, s.as_ref()) {
                     Ok((m4, sa)) => {
                         hsk_send(self.spi, &m4);
                         self.phase = 0;
@@ -237,7 +281,7 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
                         self.phase = 0;
                         FsmOutcome::Wait
                     }
-                }
+                })
             }
         }
     }
@@ -415,32 +459,69 @@ mod tests {
         assert!(m.inbox.borrow().is_empty());
     }
 
+    use kyberlink_crypto::handshake::Identity as _;
+
+    struct TestIdentity {
+        vk: [u8; hs::VK_LEN],
+        sk: [u8; hs::SK_LEN],
+        spc: hs::SignPrecomp,
+    }
+
+    impl hs::Identity for TestIdentity {
+        fn vk(&self) -> &[u8; hs::VK_LEN] {
+            &self.vk
+        }
+        fn sk(&self) -> &[u8; hs::SK_LEN] {
+            &self.sk
+        }
+        fn spc(&self) -> &hs::SignPrecomp {
+            &self.spc
+        }
+    }
+
+    static IDENTITY_I: std::sync::OnceLock<TestIdentity> = std::sync::OnceLock::new();
+    static IDENTITY_R: std::sync::OnceLock<TestIdentity> = std::sync::OnceLock::new();
+
+    fn identity_i() -> &'static TestIdentity {
+        IDENTITY_I.get_or_init(|| {
+            let (vk, sk) = kyberlink_crypto::mldsa_internal::keygen_internal(&[3u8; 32]);
+            let mut spc = hs::SignPrecomp::default();
+            sign_precomp_new_into(&mut spc, &sk);
+            TestIdentity { vk, sk, spc }
+        })
+    }
+
+    fn identity_r() -> &'static TestIdentity {
+        IDENTITY_R.get_or_init(|| {
+            let (vk, sk) = kyberlink_crypto::mldsa_internal::keygen_internal(&[7u8; 32]);
+            let mut spc = hs::SignPrecomp::default();
+            sign_precomp_new_into(&mut spc, &sk);
+            TestIdentity { vk, sk, spc }
+        })
+    }
+
     #[test]
     fn fsm_end_to_end_handshake() {
-        let (ia_probe, m1_probe) =
-            hs::initiator_start(&[1u8; 32], &[2u8; 32], &[3u8; 32], &[4u8; 32]);
-        let fp_i = hs::fingerprint(&ia_probe.vk_i);
-        let (rb_probe, _) = hs::responder_start(
-            &[5u8; 32], &[6u8; 32], &[7u8; 32], &[8u8; 32], &m1_probe, &fp_i,
-        )
-        .unwrap();
-        let fp_r = hs::fingerprint(&rb_probe.vk_r);
+        let id_i = identity_i();
+        let id_r = identity_r();
+        let fp_i = id_i.fingerprint();
+        let fp_r = id_r.fingerprint();
 
         let cfg_i = Config {
             role_initiator: true,
             peer_fp: fp_r,
             seed_kem_d: [1u8; 32],
             seed_kem_z: [2u8; 32],
-            seed_dsa: [3u8; 32],
             nonce: [4u8; 32],
+            identity: id_i,
         };
         let cfg_r = Config {
             role_initiator: false,
             peer_fp: fp_i,
             seed_kem_d: [5u8; 32],
             seed_kem_z: [6u8; 32],
-            seed_dsa: [7u8; 32],
             nonce: [8u8; 32],
+            identity: id_r,
         };
         let bus_i = MockSpi::default();
         let bus_r = MockSpi::default();
@@ -478,8 +559,8 @@ mod tests {
             peer_fp: [9u8; 32],
             seed_kem_d: [1u8; 32],
             seed_kem_z: [2u8; 32],
-            seed_dsa: [3u8; 32],
             nonce: [4u8; 32],
+            identity: identity_i(),
         };
         let bus = MockSpi::default();
         let mut f = Fsm::new(&cfg, &bus);

@@ -7,11 +7,20 @@ license.workspace = true
 
 [dependencies]
 kyberlink-crypto = { path = "../kyberlink-crypto" }
+embassy-sync = "0.8.0"
+critical-section = "1.2.0"
+
+[build-dependencies]
+kyberlink-crypto = { path = "../kyberlink-crypto" }
+kyberlink-stamp = { path = "../kyberlink-stamp" }
 
 [target.'cfg(target_arch = "riscv32")'.dependencies]
-ch32-hal = { git = "https://github.com/ch32-rs/ch32-hal", rev = "07663312c9da6b9962e8699a917c623bc833972e", features = ["ch32v307wcu6", "embassy", "rt", "memory-x"] }
+ch32-hal = { git = "https://github.com/ch32-rs/ch32-hal", rev = "07663312c9da6b9962e8699a917c623bc833972e", features = ["ch32v208gbu6", "embassy", "rt", "memory-x"] }
 embassy-executor = { version = "0.10.0", features = ["platform-riscv32", "executor-thread"] }
 embassy-time = "0.5.1"
 
 [features]
-std = ["kyberlink-crypto/std"]
+std = ["kyberlink-crypto/std", "critical-section/std"]
+
+[dev-dependencies]
+critical-section = { version = "1.2.0", features = ["std"] }

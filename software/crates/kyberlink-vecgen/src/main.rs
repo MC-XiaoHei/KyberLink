@@ -319,11 +319,38 @@ fn gen_esp(n: u64, out_dir: &Path) {
 fn gen_handshake(out_dir: &Path) {
     use kyberlink_crypto::handshake as hs;
 
-    let (mut st_i, m1) =
-        hs::initiator_start(&[0x11u8; 32], &[0x12u8; 32], &[0x22u8; 32], &[0x55u8; 32]);
-    let fp_i = hs::fingerprint(&st_i.vk_i);
+    struct TestIdentity {
+        vk: [u8; hs::VK_LEN],
+        sk: [u8; hs::SK_LEN],
+        spc: hs::SignPrecomp,
+    }
+
+    impl hs::Identity for TestIdentity {
+        fn vk(&self) -> &[u8; hs::VK_LEN] {
+            &self.vk
+        }
+        fn sk(&self) -> &[u8; hs::SK_LEN] {
+            &self.sk
+        }
+        fn spc(&self) -> &hs::SignPrecomp {
+            &self.spc
+        }
+    }
+
+    fn mk_identity(seed: [u8; 32]) -> TestIdentity {
+        let (vk, sk) = kyberlink_crypto::mldsa_internal::keygen_internal(&seed);
+        let mut spc = hs::SignPrecomp::default();
+        kyberlink_crypto::mldsa_internal::sign_precomp_new_into(&mut spc, &sk);
+        TestIdentity { vk, sk, spc }
+    }
+
+    let id_i = mk_identity([0x11u8; 32]);
+    let id_r = mk_identity([0xa1u8; 32]);
+
+    let (mut st_i, m1) = hs::initiator_start(&id_i, &[0x12u8; 32], &[0x22u8; 32], &[0x55u8; 32]);
+    let fp_i = hs::fingerprint(&m1[32 + hs::EK_LEN..32 + hs::EK_LEN + hs::VK_LEN]);
     let (mut st_r, m2) = hs::responder_start(
-        &[0xa1u8; 32],
+        &id_r,
         &[0xa2u8; 32],
         &[0xa3u8; 32],
         &[0xa5u8; 32],
@@ -331,10 +358,10 @@ fn gen_handshake(out_dir: &Path) {
         &fp_i,
     )
     .unwrap();
-    let fp_r = hs::fingerprint(&st_r.vk_r);
-    let (m3, spi_i) = hs::initiator_recv_m2(&mut st_i, &m2, &fp_r).unwrap();
-    let (m4, sa_r) = hs::responder_recv_m3(&mut st_r, &m3, spi_i).unwrap();
-    let sa_i = hs::initiator_recv_m4(&mut st_i, &m4, spi_i).unwrap();
+    let fp_r = hs::fingerprint(&m2[32 + hs::EK_LEN..32 + hs::EK_LEN + hs::VK_LEN]);
+    let (m3, spi_i) = hs::initiator_recv_m2(&mut st_i, &id_i, &m2, &fp_r, None).unwrap();
+    let (m4, sa_r) = hs::responder_recv_m3(&mut st_r, &id_r, &m3, spi_i, None).unwrap();
+    let sa_i = hs::initiator_recv_m4(&mut st_i, &m4, spi_i, None).unwrap();
     assert_eq!(sa_i.spi_i, sa_r.spi_i);
     assert_eq!(sa_i.spi_r, sa_r.spi_r);
     assert_eq!(sa_i.sk_ei, sa_r.sk_ei);

@@ -1,5 +1,5 @@
-/// 40-bit 帧编码（MSB first，bit39=R/W 标志，bit38..32=7 位地址，bit31..0=数据）。
-/// 与硬件 spi_slave 以及测试端字节序列保持一致。
+/// 40-bit frame (MSB first): bit39=R/W, bit38..32=7-bit addr, bit31..0=data.
+/// Matches hardware spi_slave and test byte order.
 pub fn write_frame(addr: u8, data: u32) -> [u8; 5] {
     [
         addr & 0x7F,
@@ -10,7 +10,7 @@ pub fn write_frame(addr: u8, data: u32) -> [u8; 5] {
     ]
 }
 
-/// 读帧：bit39=1 标志 + 7 位地址，其后 4 字节为从机回读槽位。
+/// Read frame: bit39=1 + 7-bit addr, then 4 bytes from slave readback slot.
 pub fn read_frame(addr: u8) -> [u8; 5] {
     [0x80 | (addr & 0x7F), 0, 0, 0, 0]
 }

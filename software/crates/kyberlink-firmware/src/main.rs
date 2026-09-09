@@ -12,15 +12,19 @@ mod firmware {
     use kyberlink_firmware::handshake_fsm::{write_sa, Config, Fsm, FsmOutcome};
     use kyberlink_firmware::spi::SpiMaster;
 
+    include!(concat!(env!("OUT_DIR"), "/spc_rom.rs"));
+    include!(concat!(env!("OUT_DIR"), "/fp_rom.rs"));
+
+    const _: [u8; SPC_SIZE] = SPC_ROM;
+
     static mut PEER_FP: [u8; 32] = [0; 32];
     static mut CFG_VALID: bool = false;
     static mut SPI: Option<SpiMaster> = None;
     static mut CONFIG: Option<Config> = None;
-    static mut FSM: Option<Fsm<SpiMaster>> = None;
+    static mut FSM: core::mem::MaybeUninit<Fsm<SpiMaster>> = core::mem::MaybeUninit::uninit();
 
     const SEED_KEM_D: [u8; 32] = [0x11; 32];
     const SEED_KEM_Z: [u8; 32] = [0x12; 32];
-    const SEED_DSA: [u8; 32] = [0x22; 32];
     const NONCE: [u8; 32] = [0x55; 32];
 
     const SA_SEQ_INIT: u32 = 1;
@@ -36,6 +40,21 @@ mod firmware {
         let spi = Spi::new_blocking::<0>(p.SPI1, p.PA5, p.PA7, p.PA6, spi_config);
         let cs = Output::new(p.PA4, Level::High, Default::default());
 
+        let own_fp: [u8; 32] = kyberlink_crypto::shake::sha3_256(&VK_ROM);
+        if own_fp == FP_ROM {
+            loop {}
+        }
+
+        static SPC: kyberlink_crypto::mldsa_internal::SignPrecomp = unsafe {
+            core::ptr::read(SPC_ROM.as_ptr() as *const kyberlink_crypto::mldsa_internal::SignPrecomp)
+        };
+        static IDENTITY: kyberlink_crypto::handshake::RomIdentity = kyberlink_crypto::handshake::RomIdentity {
+            vk: &VK_ROM,
+            sk: &SK_ROM,
+            spc: &SPC,
+        };
+        let identity: &'static dyn kyberlink_crypto::handshake::Identity = &IDENTITY;
+
         unsafe {
             SPI = Some(SpiMaster::new(spi, cs));
             CONFIG = Some(Config {
@@ -43,26 +62,22 @@ mod firmware {
                 peer_fp: PEER_FP,
                 seed_kem_d: SEED_KEM_D,
                 seed_kem_z: SEED_KEM_Z,
-                seed_dsa: SEED_DSA,
                 nonce: NONCE,
+                identity,
             });
             if let (Some(spi), Some(cfg)) = (SPI.as_ref(), CONFIG.as_ref()) {
-                FSM = Some(Fsm::new(cfg, spi));
+                FSM.write(Fsm::new(cfg, spi));
             }
         }
 
         loop {
             let valid = unsafe { core::ptr::read_volatile(core::ptr::addr_of!(CFG_VALID)) };
             let outcome = unsafe {
-                FSM.as_mut()
-                    .and_then(|f| {
-                        if valid {
-                            Some(f.poll())
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap_or(FsmOutcome::Wait)
+                if valid {
+                    FSM.assume_init_mut().poll()
+                } else {
+                    FsmOutcome::Wait
+                }
             };
             if let FsmOutcome::Sa(sa) = outcome {
                 if let Some(spi) = unsafe { SPI.as_ref() } {
