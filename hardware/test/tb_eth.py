@@ -29,6 +29,10 @@ def setup(dut):
     dut.hsk_len_in.value = 0
     dut.m_data_tready.value = 1
     dut.hsk_ready.value = 1
+    dut.arp_read.value = 0
+    dut.ctrl_data.value = 0
+    dut.ctrl_valid.value = 0
+    dut.ctrl_last.value = 0
     dut.m_tready.value = 1
 
 
@@ -106,9 +110,11 @@ async def tx_hsk_wrap(dut):
         for _ in range(200):
             if int(dut.s_hsk_tready.value):
                 i += 1
+                await ClockCycles(dut.clk, 1)
                 if i < len(words):
                     dut.s_hsk_tdata.value = words[i]
-            await ClockCycles(dut.clk, 1)
+            else:
+                await ClockCycles(dut.clk, 1)
         dut.s_hsk_tvalid.value = 0
         await ClockCycles(dut.clk, 20)
 
@@ -177,18 +183,34 @@ def build_arp_request(spa, tpa, sha=SRC_MAC):
     return eth + arp
 
 
-def build_icmp_echo_request(sid, seq, payload=b"kyberlink"):
-    eth = SRC_MAC.to_bytes(6, "big") + SRC_MAC.to_bytes(6, "big") + b"\x08\x00"
-    total = 20 + 8 + len(payload)
-    ip = bytes([0x45, 0x00]) + total.to_bytes(2, "big") + b"\x00\x00\x40\x00\x40\x01\x00\x00" + SRC_IP.to_bytes(4, "big") + SRC_IP.to_bytes(4, "big")
-    icmp = bytes([8, 0, 0, 0]) + sid.to_bytes(2, "big") + seq.to_bytes(2, "big") + payload
-    s = 0
-    for i in range(0, len(icmp), 2):
-        s += (icmp[i] << 8) | icmp[i + 1]
-    s = (s & 0xFFFF) + (s >> 16)
-    csum = (~s) & 0xFFFF
-    icmp = bytes([8, 0, csum >> 8, csum & 0xFF]) + sid.to_bytes(2, "big") + seq.to_bytes(2, "big") + payload
-    return eth + ip + icmp
+def build_arp_reply(sha, spa):
+    eth = sha.to_bytes(6, "big") + SRC_MAC.to_bytes(6, "big") + b"\x08\x06"
+    arp = bytes([0, 1, 8, 0, 6, 4, 0, 2]) + SRC_MAC.to_bytes(6, "big") + SRC_IP.to_bytes(4, "big") + sha.to_bytes(6, "big") + spa.to_bytes(4, "big")
+    return eth + arp
+
+
+def build_garp():
+    eth = b"\xff" * 6 + SRC_MAC.to_bytes(6, "big") + b"\x08\x06"
+    arp = bytes([0, 1, 8, 0, 6, 4, 0, 1]) + SRC_MAC.to_bytes(6, "big") + SRC_IP.to_bytes(4, "big") + b"\x00" * 6 + SRC_IP.to_bytes(4, "big")
+    return eth + arp
+
+
+async def drive_ctrl(dut, frame):
+    for j, b in enumerate(frame):
+        dut.ctrl_data.value = b
+        dut.ctrl_valid.value = 1
+        dut.ctrl_last.value = 1 if j == len(frame) - 1 else 0
+        await ClockCycles(dut.clk, 1)
+    dut.ctrl_valid.value = 0
+    dut.ctrl_last.value = 0
+
+
+async def wait_arp(dut):
+    for _ in range(200):
+        if int(dut.arp_pending.value):
+            return int(dut.arp_capture.value)
+        await ClockCycles(dut.clk, 1)
+    raise AssertionError("arp pending timeout")
 
 
 @cocotb.test()
@@ -222,6 +244,18 @@ async def arp_reply(dut):
 
     c = cocotb.start_soon(collect())
     await drive()
+
+    cap = await wait_arp(dut)
+    sha = (cap >> 32) & 0xFFFFFFFFFFFF
+    spa = cap & 0xFFFFFFFF
+    assert sha == SRC_MAC, f"capture sha {sha:012x}"
+    assert spa == SRC_IP, f"capture spa {spa:08x}"
+    dut.arp_read.value = 1
+    await ClockCycles(dut.clk, 2)
+    dut.arp_read.value = 0
+    assert int(dut.arp_pending.value) == 0, "arp pending not cleared"
+
+    await drive_ctrl(dut, build_arp_reply(sha, spa))
     await c
 
     assert len(out) == 42, f"arp reply len {len(out)}"
@@ -237,63 +271,6 @@ async def arp_reply(dut):
 
 
 @cocotb.test()
-async def icmp_echo_reply(dut):
-    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
-    dut.rst_n.value = 0
-    setup(dut)
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
-
-    payload = b"ping-kyberlink"
-    req = build_icmp_echo_request(0x1234, 7, payload)
-    out = bytearray()
-
-    async def collect():
-        for _ in range(4000):
-            if int(dut.m_tvalid.value):
-                out.append(int(dut.m_tdata.value))
-                if int(dut.m_tlast.value):
-                    return
-            await ClockCycles(dut.clk, 1)
-
-    async def drive():
-        for j, b in enumerate(req):
-            dut.s_tdata.value = b
-            dut.s_tvalid.value = 1
-            dut.s_tlast.value = 1 if j == len(req) - 1 else 0
-            await ClockCycles(dut.clk, 1)
-        dut.s_tvalid.value = 0
-        dut.s_tlast.value = 0
-
-    c = cocotb.start_soon(collect())
-    await drive()
-    await c
-
-    assert len(out) == len(req), f"icmp reply len {len(out)} vs {len(req)}"
-    assert out[:6] == SRC_MAC.to_bytes(6, "big"), f"dst mac {out[:6].hex()}"
-    assert out[6:12] == SRC_MAC.to_bytes(6, "big")
-    assert out[12:14] == b"\x08\x00"
-    assert out[14] == 0x45
-    assert out[23] == 0x01, f"proto {out[23]:02x}"
-    assert out[34] == 0x00, f"icmp type {out[34]:02x}"
-    assert bytes(out[38:]) == req[38:], f"icmp body {bytes(out[38:]).hex()} vs {req[38:].hex()}"
-    ic = bytes(out[34:])
-    s = 0
-    for i in range(0, len(ic), 2):
-        w = (ic[i] << 8) | (ic[i + 1] if i + 1 < len(ic) else 0)
-        s += w
-    s = (s & 0xFFFF) + (s >> 16)
-    assert (~s) & 0xFFFF == 0, f"icmp csum {s:04x}"
-    ipc = bytes(out[14:34])
-    s = 0
-    for i in range(0, 20, 2):
-        s += (ipc[i] << 8) | ipc[i + 1]
-    s = (s & 0xFFFF) + (s >> 16)
-    assert (~s) & 0xFFFF == 0, f"ip csum {s:04x}"
-
-
-@cocotb.test()
 async def garp_on_key_load(dut):
     cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
     dut.rst_n.value = 0
@@ -301,10 +278,6 @@ async def garp_on_key_load(dut):
     await ClockCycles(dut.clk, 5)
     dut.rst_n.value = 1
     await ClockCycles(dut.clk, 2)
-
-    dut.key_load.value = 1
-    await ClockCycles(dut.clk, 2)
-    dut.key_load.value = 0
 
     out = bytearray()
 
@@ -317,7 +290,7 @@ async def garp_on_key_load(dut):
             await ClockCycles(dut.clk, 1)
 
     c = cocotb.start_soon(collect())
-    await ClockCycles(dut.clk, 5)
+    await drive_ctrl(dut, build_garp())
     await c
 
     assert len(out) == 42, f"garp len {len(out)}"

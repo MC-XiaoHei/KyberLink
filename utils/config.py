@@ -19,6 +19,8 @@ WNO = [
     "-Wno-CASEINCOMPLETE",
 ]
 
+GOWIN_DPB = None
+
 
 def R(*p):
     return os.path.join(RTL, *p)
@@ -28,44 +30,57 @@ def S(*p):
     return os.path.join(TEST_DIR, *p)
 
 
-UNIT = ["aes", "aes_bw", "gcm", "spi", "eth", "bram"]
-INTG = ["bridge", "bw", "full_single", "full_dual", "rgmii", "gmii_rx"]
+GOWIN_DPB = S("gowin_dpb_sim.v")
 
-BRIDGE_SRC = [
+
+UNIT = ["aes", "aes_pipe", "aes_bw", "gcm", "spi", "eth", "bram", "bp"]
+INTG = ["bridge", "bw", "node", "dual_rgmii", "kyberlink", "gmii_rx", "diag2", "spi_big"]
+
+SBOX_LEGACY = [
+    R("bp_aes_sbox.v"),
     R("sbox8.v"),
     R("sbox8_dist.v"),
+    R("sbox_combo_v2.v"),
     R("sbox16.v"),
-    R("aes256_core.v"),
-    R("ghash.v"),
-    R("gcm_enc.v"),
-    R("gcm_dec.v"),
-    R("bram_128x256.v"),
-    R("bridge_enc_path.v"),
-    R("bridge_dec_path.v"),
-    R("bridge_top.v"),
-    S("gowin_dpb_sim.v"),
+    R("sbox_combo.v"),
 ]
-FULL_CORE = [
-    R("sbox8.v"),
-    R("sbox8_dist.v"),
-    R("sbox16.v"),
+
+AES_CORE = [
     R("aes256_core.v"),
+    R("aes256_core_pipe.v"),
+    R("sbox_combo_cf_lut.v"),
+    R("sb_sbox16.v"),
+]
+
+GCM = [
     R("ghash.v"),
-    R("gcm_enc.v"),
-    R("gcm_dec.v"),
+    R("gcm_stream.v"),
+    R("gcm_arb.v"),
+]
+
+BRIDGE = [
+    R("bram_128x256.v"),
+    R("bram_128x16.v"),
     R("bridge_enc_path.v"),
     R("bridge_dec_path.v"),
     R("bridge_top.v"),
-    R("bram_128x256.v"),
+]
+
+CTRL_PLANE = [
     R("bram_32x2048.v"),
+    R("bram_8x256.v"),
     R("spi_slave.v"),
     R("spi_regs.v"),
     R("spi_top.v"),
     R("ip_udp_eth_rx.v"),
     R("ip_udp_eth_tx.v"),
-    R("ctrl_resp.v"),
-    R("full_top.v"),
+    R("arp_catch.v"),
 ]
+
+FULL_CORE = SBOX_LEGACY + AES_CORE + GCM + BRIDGE + CTRL_PLANE + [
+    R("link_core.v"),
+]
+
 MAC = [
     R("mac/eth_mac_1g.v"),
     R("mac/eth_mac_1g_rgmii.v"),
@@ -89,81 +104,129 @@ MAC = [
 ]
 
 CONF = {
+    "bp": {
+        "top": "bp_aes_sbox",
+        "src": [R("bp_aes_sbox.v")],
+    },
     "aes": {
         "top": "aes256_core",
-        "src": [
-            R("sbox8.v"),
-            R("sbox8_dist.v"),
-            R("sbox16.v"),
-            R("aes256_core.v"),
+        "src": SBOX_LEGACY + AES_CORE + [
             R("bram_128x256.v"),
-            S("gowin_dpb_sim.v"),
+            R("bram_128x16.v"),
+            GOWIN_DPB,
         ],
     },
     "aes_bw": {
         "top": "aes256_core",
-        "src": [
-            R("sbox8.v"),
-            R("sbox8_dist.v"),
-            R("sbox16.v"),
-            R("aes256_core.v"),
+        "src": SBOX_LEGACY + AES_CORE + [
             R("bram_128x256.v"),
-            S("gowin_dpb_sim.v"),
+            R("bram_128x16.v"),
+            GOWIN_DPB,
+        ],
+    },
+    "aes_pipe": {
+        "top": "aes256_core_pipe",
+        "test_module": "tb_aes_pipe",
+        "src": [
+            R("sbox_combo_cf_lut.v"),
+            R("sb_sbox16.v"),
+            R("aes256_core_pipe.v"),
+            R("bram_128x16.v"),
+            GOWIN_DPB,
         ],
     },
     "gcm": {
         "top": "gcm_stream",
-        "src": [
-            R("sbox8.v"),
-            R("sbox8_dist.v"),
-            R("sbox16.v"),
-            R("aes256_core.v"),
-            R("ghash.v"),
-            R("gcm_stream.v"),
+        "src": SBOX_LEGACY + AES_CORE + GCM + [
             R("bram_128x256.v"),
-            S("gowin_dpb_sim.v"),
+            R("bram_128x16.v"),
+            GOWIN_DPB,
         ],
     },
     "bridge": {
         "top": "bridge_top",
-        "src": BRIDGE_SRC,
+        "src": SBOX_LEGACY + AES_CORE + GCM + BRIDGE + [GOWIN_DPB],
     },
     "bw": {
         "top": "bridge_top",
-        "src": BRIDGE_SRC,
+        "src": SBOX_LEGACY + AES_CORE + GCM + BRIDGE + [GOWIN_DPB],
+    },
+    "diag2": {
+        "top": "bridge_top",
+        "test_module": "tb_enc_maxframe",
+        "src": SBOX_LEGACY + AES_CORE + GCM + BRIDGE + [GOWIN_DPB],
     },
     "spi": {
         "top": "spi_top",
-        "src": [R("spi_slave.v"), R("spi_regs.v"), R("spi_top.v")],
+        "test_module": "tb_spi_ctrl",
+        "src": [
+            R("spi_slave.v"),
+            R("spi_regs.v"),
+            R("spi_top.v"),
+            R("bram_32x2048.v"),
+            GOWIN_DPB,
+        ],
+    },
+    "spi_big": {
+        "top": "spi_top",
+        "test_module": "tb_spi_hsk_big",
+        "src": [
+            R("spi_slave.v"),
+            R("spi_regs.v"),
+            R("spi_top.v"),
+            R("bram_32x2048.v"),
+            GOWIN_DPB,
+        ],
     },
     "eth": {
         "top": "eth_top",
-        "src": [R("ip_udp_eth_rx.v"), R("ip_udp_eth_tx.v"), R("ctrl_resp.v"), R("eth_top.v")],
+        "src": [
+            R("ip_udp_eth_rx.v"),
+            R("ip_udp_eth_tx.v"),
+            R("arp_catch.v"),
+            R("eth_top.v"),
+            R("bram_8x256.v"),
+            GOWIN_DPB,
+        ],
     },
     "bram": {
         "top": "bram_128x256",
-        "src": [R("bram_128x256.v"), S("gowin_dpb_sim.v")],
+        "src": [R("bram_128x256.v"), GOWIN_DPB],
     },
-    "full_single": {
-        "top": "full_top",
-        "test_module": "tb_full",
-        "src": FULL_CORE + [S("gowin_dpb_sim.v")],
+    "node": {
+        "top": "link_core",
+        "test_module": "tb_node",
+        "src": FULL_CORE + [GOWIN_DPB],
     },
-    "full_dual": {
-        "top": "dual_top",
-        "test_module": "tb_dual",
-        "src": FULL_CORE + MAC + [S("gowin_dpb_sim.v"), S("dual_top.v")],
+    "dual_rgmii": {
+        "top": "dual_node_rgmii_sim",
+        "test_module": "tb_dual_rgmii",
+        "src": FULL_CORE + MAC + [GOWIN_DPB, S("dual_node_rgmii_sim.v")],
     },
-    "rgmii": {
-        "top": "dual_rgmii_top",
-        "test_module": "tb_rgmii",
-        "src": FULL_CORE + MAC + [S("gowin_dpb_sim.v"), S("dual_rgmii_top.v")],
+    "kyberlink": {
+        "top": "kyberlink_tb_wrap",
+        "test_module": "tb_kyberlink",
+        "src": FULL_CORE + MAC + [GOWIN_DPB, R("kyberlink_top.v"), S("kyberlink_tb_wrap.v")],
     },
     "gmii_rx": {
         "top": "gmii_rx_top",
         "test_module": "tb_gmii_rx",
         "src": MAC + [S("gmii_rx_top.v")],
     },
+}
+
+
+UNIT_TEST = {
+    "aes": "tb_aes_core",
+    "gcm": "tb_gcm_stream",
+    "spi": "tb_spi_ctrl",
+    "bp": "tb_sbox_legacy",
+}
+INTG_TEST = {
+    "bw": "tb_bridge_bw",
+    "diag2": "tb_enc_maxframe",
+    "spi_big": "tb_spi_hsk_big",
+    "kyberlink": "tb_kyberlink",
 }
 
 

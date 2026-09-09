@@ -22,7 +22,7 @@ def build_tcl(sdc_path, cst, device, dev_ver, place_opt, route_opt):
         files += glob.glob(os.path.join(config.RTL, "**", ext), recursive=True)
     files = [f.replace("\\", "/") for f in files]
     if top_src:
-        file_top = os.path.join(config.RTL, "full_top.v").replace("\\", "/")
+        file_top = os.path.join(config.RTL, "kyberlink_top.v").replace("\\", "/")
         if file_top in files:
             files.remove(file_top)
         files.append(os.path.abspath(top_src).replace("\\", "/"))
@@ -31,13 +31,27 @@ def build_tcl(sdc_path, cst, device, dev_ver, place_opt, route_opt):
         "set_device %s -name %s -device_version %s"
         % (device, os.environ.get("DEVICE_NAME", "GW5A-25"), dev_ver),
         "set_option -include_path %s" % os.path.dirname(sdc_path).replace("\\", "/"),
-        "set_option -top_module full_top",
+        "set_option -top_module %s" % os.environ.get("PNR_TOP", "kyberlink_top"),
         "set_option -compiler_compatible 1",
         "set_option -resolve_multiple_driver 1",
         "set_option -place_option %d" % place_opt,
-        "set_option -timing_driven 1",
+        "set_option -timing_driven %s" % os.environ.get("PNR_TIMING_DRIVEN", "1"),
         "set_option -route_option %d" % route_opt,
     ]
+    for _opt, _env in (
+        ("resource_sharing", "PNR_RESOURCE_SHARING"),
+        ("maxfan", "PNR_MAXFAN"),
+        ("route_maxfan", "PNR_ROUTE_MAXFAN"),
+        ("replicate_resources", "PNR_REPLICATE"),
+        ("clock_route_order", "PNR_CLOCK_ROUTE_ORDER"),
+        ("fix_gated_and_generated_clocks", "PNR_FIX_GATED_CLK"),
+        ("global_freq", "PNR_GLOBAL_FREQ"),
+        ("bsram_simple_ce", "PNR_BSRAM_SIMPLE_CE"),
+        ("convert_sdp32_36_to_sdp16_18", "PNR_CONVERT_SDP"),
+    ):
+        _v = os.environ.get(_env)
+        if _v:
+            lines.append("set_option -%s %s" % (_opt, _v))
     if os.environ.get("PNR_RETIMING"):
         lines.append("set_option -retiming 1")
     lines += [
@@ -196,7 +210,7 @@ def pnr():
             else os.path.join(work_dir, "pnr.log")
         )
     )
-    cst = os.path.join(config.SYNTH, "full_top.cst")
+    cst = os.path.join(config.SYNTH, "kyberlink_top.cst")
     run = pnr_run(target, place_opt, route_opt, device, dev_ver, work_dir, log_path, cst=cst)
     cfg = {
         "target": target,
