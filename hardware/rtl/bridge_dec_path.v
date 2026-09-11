@@ -119,8 +119,18 @@ module bridge_dec_path (
   (* syn_ramstyle = "block_ram" *) reg [127:0] ct[0:255];
   wire [31:0] seq_fwd_w = seq_p[rx_sel] - last_seq_r;
   wire [31:0] seq_back_w = last_seq_r - seq_p[rx_sel];
-  wire seq_new_w = (seq_fwd_w != 32'd0) && (seq_fwd_w < 32'h8000_0000);
-  wire seq_rx_ok_c = seq_new_w || ((seq_back_w != 32'd0) && (seq_back_w < 32'd64) && !win_r[seq_p[rx_sel][5:0]]);
+  reg [31:0] seq_fwd_q;
+  reg [31:0] seq_back_q;
+  reg seq_new_w_q;
+  reg [5:0] seq_idx_q;
+  always @(posedge clk) begin
+    seq_fwd_q <= seq_fwd_w;
+    seq_back_q <= seq_back_w;
+    seq_new_w_q <= (seq_fwd_w != 32'd0) && (seq_fwd_w < 32'h8000_0000);
+    seq_idx_q <= seq_p[rx_sel][5:0];
+  end
+  wire seq_new_w = seq_new_w_q;
+  wire seq_rx_ok_c = seq_new_w_q || ((seq_back_q != 32'd0) && (seq_back_q < 32'd64) && !win_r[seq_idx_q]);
   reg seq_rx_ok_q;
   wire seq_rx_ok = seq_rx_ok_q;
 

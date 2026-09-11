@@ -13,7 +13,7 @@ wire [7:0] s_out_inv;
 wire [7:0] s_out_fwd;
 
 genvar i;
-generate for(i = 0; i < 8; i=i+1) begin
+generate for(i = 0; i < 8; i=i+1) begin : g_rev
     assign U[i]         = s_in[7-i];
     assign s_out_fwd[i] = S   [7-i];
     assign s_out_inv[i] = W   [7-i];

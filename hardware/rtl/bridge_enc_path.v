@@ -113,8 +113,10 @@ module bridge_enc_path (
   reg     [  8:0] enc_nct;
 
   wire    [ 11:0] frm_len_now = fcnt + 12'd1;
-  wire    [  3:0] pad_now = (16 - ((frm_len_now[3:0] + 4'd2) & 4'hF)) & 4'hF;
-  wire    [ 11:0] pt_len_now = frm_len_now + 12'd2 + {8'd0, pad_now};
+  wire    [  3:0] pad_now = (16 - ((frm_len_now[3:0] + 4'd3) & 4'hF)) & 4'hF;
+  wire    [ 11:0] pt_len_prep = frm_len_now + 12'd3 + {8'd0, pad_now};
+  reg     [ 11:0] pt_len_now_q;
+  always @(posedge clk) if (s_tvalid && s_tready && !s_tlast) pt_len_now_q <= pt_len_prep;
   wire    [  3:0] pad_n_e = (16 - ((frm_len_p[enc_slot][3:0] + 4'd2) & 4'hF)) & 4'hF;
   wire    [ 11:0] pt_len_e = frm_len_p[enc_slot] + 12'd2 + {8'd0, pad_n_e};
   wire    [  8:0] nct_e = {1'b0, pt_len_e[11:4]} + {8'd0, |pt_len_e[3:0]};
@@ -594,16 +596,17 @@ module bridge_enc_path (
                 frm_wr_pend <= 1'b1;
                 frm_wr_addr <= frm_waddr;
               end
-              if (pt_len_now <= 12'd1432) begin
+              if (pt_len_now_q <= 12'd1432) begin
                 frm_len_p[rx_slot] <= fcnt + 12'd1;
                 seq_p[rx_slot] <= seq_r;
                 seq_r <= seq_r + 32'd1;
-                total_len_p[rx_slot] <= 16'd64 + {4'd0, pt_len_now};
-                udp_len_p[rx_slot] <= 16'd44 + {4'd0, pt_len_now};
+                total_len_p[rx_slot] <= 16'd64 + {4'd0, pt_len_now_q};
+                udp_len_p[rx_slot] <= 16'd44 + {4'd0, pt_len_now_q};
                 enc_pend[rx_slot] <= 1'b1;
               end else begin
                 err_oversize <= 1'b1;
               end
+              fcnt <= 12'd0;
               rx_slot  <= rx_slot + 2'd1;
               rx_state <= RX_IDLE;
             end else begin

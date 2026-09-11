@@ -19,6 +19,7 @@ module ghash (
   localparam PHASE_PRE  = 3'd2;
   localparam PHASE_MUL  = 3'd3;
   localparam PHASE_RED  = 3'd4;
+  localparam PHASE_FLUSH = 3'd5;
 
   reg [  2:0] phase;
   reg [127:0] yacc;
@@ -109,10 +110,18 @@ module ghash (
 
   reg [31:0] aw_r, bw0_r, bw1_r;
   reg [4:0] sh0_r, sh1_r;
-  wire [62:0] mul_a = mul32f(aw_r, bw0_r);
-  wire [62:0] mul_b = mul32f(aw_r, bw1_r);
-  wire [255:0] shifted = ({193'd0, mul_a} << ({2'b00, sh0_r, 5'd0})) ^
-                           ({193'd0, mul_b} << ({2'b00, sh1_r, 5'd0}));
+  reg [4:0] sh0_q, sh1_q;
+  reg [30:0] m0a_q, m1a_q, m2a_q, m0b_q, m1b_q, m2b_q;
+  wire [30:0] m0a_c = mul16f(aw_r[15:0], bw0_r[15:0]);
+  wire [30:0] m1a_c = mul16f(aw_r[31:16], bw0_r[31:16]);
+  wire [30:0] m2a_c = mul16f(aw_r[15:0] ^ aw_r[31:16], bw0_r[15:0] ^ bw0_r[31:16]);
+  wire [30:0] m0b_c = mul16f(aw_r[15:0], bw1_r[15:0]);
+  wire [30:0] m1b_c = mul16f(aw_r[31:16], bw1_r[31:16]);
+  wire [30:0] m2b_c = mul16f(aw_r[15:0] ^ aw_r[31:16], bw1_r[15:0] ^ bw1_r[31:16]);
+  wire [62:0] mul_a = {32'd0, m0a_q} ^ {16'd0, m0a_q ^ m1a_q ^ m2a_q, 16'b0} ^ {m1a_q, 32'b0};
+  wire [62:0] mul_b = {32'd0, m0b_q} ^ {16'd0, m0b_q ^ m1b_q ^ m2b_q, 16'b0} ^ {m1b_q, 32'b0};
+  wire [255:0] shifted = ({193'd0, mul_a} << ({2'b00, sh0_q, 5'd0})) ^
+                           ({193'd0, mul_b} << ({2'b00, sh1_q, 5'd0}));
 
   reg [255:0] red;
   reg [  5:0] rcorr;
@@ -173,6 +182,7 @@ module ghash (
           end
         end
         PHASE_PRE: begin
+          prod <= 256'd0;
           aw_r  <= a_h0;
           bw0_r <= b_h0;
           bw1_r <= b_h1;
@@ -182,17 +192,29 @@ module ghash (
         end
 
         PHASE_MUL: begin
-          prod  <= prod ^ shifted;
+          if (cnt != 3'd0) prod <= prod ^ shifted;
+          sh0_q <= sh0_r;
+          sh1_q <= sh1_r;
+          m0a_q <= m0a_c;
+          m1a_q <= m1a_c;
+          m2a_q <= m2a_c;
+          m0b_q <= m0b_c;
+          m1b_q <= m1b_c;
+          m2b_q <= m2b_c;
           aw_r  <= nx_w0;
           bw0_r <= nx_w1;
           bw1_r <= nx_w2;
           sh0_r <= nx_s0;
           sh1_r <= nx_s1;
           if (cnt == 3'd7) begin
-            phase <= PHASE_RED;
+            phase <= PHASE_FLUSH;
           end else begin
             cnt <= cnt + 3'd1;
           end
+        end
+        PHASE_FLUSH: begin
+          prod <= prod ^ shifted;
+          phase <= PHASE_RED;
         end
         PHASE_RED: begin
           block_done <= 1'b1;

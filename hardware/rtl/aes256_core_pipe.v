@@ -71,6 +71,8 @@ module aes256_core_pipe (
     reg [1:0]   blk_sel;
     reg [1:0]   blk_sel_d;
     reg [127:0] out_r;
+    reg         done_q;
+    reg         crypt_rdy_q;
 
     wire [1:0] b1 = (blk_sel == 2'd0) ? 2'd2 : blk_sel - 2'd1;
     wire [1:0] b2 = (blk_sel == 2'd2) ? 2'd0 : (blk_sel == 2'd1) ? 2'd2 : 2'd1;
@@ -172,6 +174,8 @@ module aes256_core_pipe (
             blk_sel <= 2'd0;
             blk_sel_d <= 2'd0;
             out_r <= 128'd0;
+            done_q <= 1'b0;
+            crypt_rdy_q <= 1'b0;
         end else begin
             if (ks_w0) begin
                 k0_r <= key[255:128];
@@ -185,8 +189,10 @@ module aes256_core_pipe (
                             st_prev2 <= key[255:128];
                             rke <= 4'd2;
                             phase <= PHASE_KEYEXP_A;
+                            crypt_rdy_q <= 1'b0;
                         end else begin
                             phase <= PHASE_CRYPT;
+                            crypt_rdy_q <= 1'b1;
                         end
                     end
                 end
@@ -199,9 +205,11 @@ module aes256_core_pipe (
                     if (rke == 4'd14) begin
                         ax_loaded <= 1'b1;
                         phase <= PHASE_CRYPT;
+                        crypt_rdy_q <= 1'b1;
                     end else begin
                         rke <= rke + 4'd1;
                         phase <= PHASE_KEYEXP_A;
+                        crypt_rdy_q <= 1'b0;
                     end
                 end
                 PHASE_CRYPT: begin
@@ -221,6 +229,7 @@ module aes256_core_pipe (
                         st_prev2 <= key[255:128];
                         rke <= 4'd2;
                         phase <= PHASE_KEYEXP_A;
+                        crypt_rdy_q <= 1'b0;
                     end else begin
                         if (blk_valid && (rd[b2] == 4'd0)) begin
                             state[b2] <= block_in ^ k0_r;
@@ -240,6 +249,7 @@ module aes256_core_pipe (
                             state[b1_d] <= state_next;
                             rd[b1_d] <= rd[b1_d] + 4'd1;
                         end
+                        done_q <= (rd[b1] == 4'd14);
                         blk_sel_d <= blk_sel;
                         blk_sel <= (blk_sel == 2'd2) ? 2'd0 : blk_sel + 2'd1;
                     end
@@ -250,8 +260,8 @@ module aes256_core_pipe (
     end
 
     assign busy = (rd[0] != 4'd0) && (rd[1] != 4'd0) && (rd[2] != 4'd0);
-    assign crypt_rdy = (phase == PHASE_CRYPT);
+    assign crypt_rdy = crypt_rdy_q;
     assign load_rdy = (phase == PHASE_CRYPT) && (rd[b2] == 4'd0) && !((key_load || !ax_loaded) && start);
-    assign done = (rd[b1_d] == 4'd14);
+    assign done = done_q;
 
 endmodule

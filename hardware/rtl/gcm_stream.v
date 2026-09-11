@@ -42,21 +42,22 @@ module gcm_stream (
     reg         gh_start;
     reg [7:0]   ghcnt;
     reg         gh_aad_pend;
-    reg [127:0] gh_q [0:3];
+    reg [127:0] gh_q [0:1];
     reg [2:0]   gh_qcnt;
-    reg [1:0]   gh_qwr;
-    reg [1:0]   gh_qrd;
-    reg [127:0] out_q [0:3];
-    reg [1:0]   out_wr;
-    reg [1:0]   out_rd;
+    reg         gh_qwr;
+    reg         gh_qrd;
+    reg [127:0] out_q [0:1];
+    reg         out_wr;
+    reg         out_rd;
     reg [2:0]   out_cnt;
     reg [7:0]   cntr;
-    reg [127:0] pending_q [0:3];
+    reg [3:0]   cb_gap;
+    reg [127:0] pending_q [0:2];
     reg [1:0]   pending_wr;
     reg [1:0]   pending_rd;
     reg [127:0] pt_fifo [0:1];
-    reg [1:0]   pt_wr;
-    reg [1:0]   pt_rd;
+    reg         pt_wr;
+    reg         pt_rd;
     reg [2:0]   pt_cnt;
 
     wire aes_done;
@@ -72,15 +73,16 @@ module gcm_stream (
 
     wire cb_h  = (phase == PHASE_AES_H) && !h_submit && aes_load_rdy && !aes_done;
     wire cb_j0 = (phase == PHASE_AES_J0) && !j0_submit && aes_load_rdy && !aes_done;
-    wire blk_valid_w = cb_h || cb_j0 || cb_submit;
+    wire blk_valid_w = cb_h || cb_j0 || cb_sub_pt;
     wire [127:0] aes_block_w = cb_h ? 128'd0 :
                   cb_j0 ? {nonce, 31'b0, 1'b1} :
                   {nonce, {24'd0, cntr} + 32'd2};
     wire [127:0] len_block = { {56'd0, aad_len, 3'd0}, {49'd0, pt_len_r, 3'd0} };
     wire [127:0] aad_pad = aad & (128'hFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF << (128 - {3'd0, aad_len, 3'd0}));
-    wire [4:0] blk_nb = (ghcnt[7:0] == nct_r[7:0]) ? last_nb_r : 5'd16;
-    wire [127:0] gh_masked = gh_q[gh_qrd] &
-        (128'hFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF << (128 - {2'd0, blk_nb, 3'd0}));
+    wire        gh_is_last = (ghcnt[7:0] == nct_r[7:0]);
+    reg  [127:0] mask_last_q;
+    wire [127:0] gh_masked = gh_q[gh_qrd] & (gh_is_last ? mask_last_q :
+        128'hFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
     wire [127:0] gh_data_in = (ghcnt == 8'd0) ? aad_pad :
                               ((ghcnt <= nct_r[7:0]) ? gh_masked : len_block);
     wire gh_do_feed = gh_ready && gh_busy && (gh_aad_pend || (gh_qcnt > 3'd0) ||
@@ -101,6 +103,10 @@ module gcm_stream (
     reg [11:0]  pt_len_r;
     reg [4:0]   last_nb_r;
 
+    function [127:0] mk_mask(input [4:0] nb);
+        mk_mask = 128'hFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF << (128 - {2'd0, nb, 3'd0});
+    endfunction
+
     ghash u_ghash (
         .clk(clk), .rst_n(rst_n),
         .start(gh_start), .h(h_reg), .data_in(gh_data_in),
@@ -109,15 +115,20 @@ module gcm_stream (
         .tag(gh_tag)
     );
 
+    wire [7:0] cntr_p1 = cntr + 8'd1;
+
     wire cb_avail = (pt_cnt >= 3'd1);
-    wire out_room = (out_cnt + 3'd1) <= 3'd4;
+    wire out_room = (out_cnt + 3'd1) <= 3'd2;
     assign pt_ready = (phase == PHASE_AES_CB) && aes_crypt_rdy &&
-                      (gh_qcnt < 3'd3) && (pt_cnt < 3'd2);
+                      (gh_qcnt < 3'd2) && (pt_cnt < 3'd2);
     assign ct_valid = (out_cnt != 3'd0);
     assign ct_data  = out_q[out_rd];
 
-    wire cb_submit = (phase == PHASE_AES_CB) && out_room && cb_avail &&
-        (gh_qcnt < 3'd2) && aes_load_rdy && !aes_start && !aes_done;
+    wire cb_submit_base = (phase == PHASE_AES_CB) && out_room && cb_avail &&
+        (gh_qcnt < 3'd1) && aes_load_rdy && !aes_start && !aes_done && (cb_gap == 4'd13);
+    (* keep *) wire cb_submit = cb_submit_base;
+    (* keep *) wire cb_sub_pt  = cb_submit_base;
+    (* keep *) wire cb_sub_wr  = cb_submit_base;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -129,31 +140,32 @@ module gcm_stream (
             aes_key_load <= 1'b0;
             gh_start <= 1'b0;
             gh_qcnt <= 3'd0;
-            gh_qwr <= 2'd0;
-            gh_qrd <= 2'd0;
+            gh_qwr <= 1'b0;
+            gh_qrd <= 1'b0;
             gh_aad_pend <= 1'b0;
             ghcnt <= 8'd0;
             cntr <= 8'd0;
             h_reg <= 128'd0;
             tag_mask <= 128'd0;
-            out_wr <= 2'd0;
-            out_rd <= 2'd0;
+            out_wr <= 1'b0;
+            out_rd <= 1'b0;
             out_cnt <= 3'd0;
             pending_wr <= 2'd0;
             pending_rd <= 2'd0;
-            pt_wr <= 2'd0;
-            pt_rd <= 2'd0;
+            pt_wr <= 1'b0;
+            pt_rd <= 1'b0;
             pt_cnt <= 3'd0;
             nct_r <= 9'd0;
             pt_len_r <= 12'd0;
             last_nb_r <= 5'd0;
+            cb_gap <= 4'd0;
         end else begin
             done <= 1'b0;
             aes_start <= 1'b0;
             gh_start <= 1'b0;
             if (pt_valid && pt_ready) begin
                 pt_fifo[pt_wr] <= pt_data;
-                pt_wr <= pt_wr + 2'd1;
+                pt_wr <= ~pt_wr;
             end
             if (aes_done) begin
                 if (h_submit) begin
@@ -167,35 +179,38 @@ module gcm_stream (
                     ghcnt <= 8'd0;
                     gh_aad_pend <= 1'b1;
                     gh_qcnt <= 3'd0;
-                    gh_qwr <= 2'd0;
-                    gh_qrd <= 2'd0;
+                    gh_qwr <= 1'b0;
+                    gh_qrd <= 1'b0;
                     nct_r <= {1'b0, pt_len[11:4]} + {8'd0, |pt_len[3:0]};
                     pt_len_r <= pt_len;
                     last_nb_r <= |pt_len[3:0] ? {1'b0, pt_len[3:0]} : 5'd16;
-                    out_wr <= 2'd0;
-                    out_rd <= 2'd0;
+                    mask_last_q <= |pt_len[3:0]
+                        ? 128'hFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF << (128 - {5'd0, pt_len[3:0], 3'd0})
+                        : 128'hFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
+                    out_wr <= 1'b0;
+                    out_rd <= 1'b0;
                     out_cnt <= 3'd0;
                 end else if (phase == PHASE_AES_CB) begin
                     gh_q[gh_qwr] <= decrypt ? pending_q[pending_rd] : (aes_out ^ pending_q[pending_rd]);
-                    gh_qwr <= gh_qwr + 2'd1;
+                    gh_qwr <= ~gh_qwr;
                     out_q[out_wr] <= aes_out ^ pending_q[pending_rd];
-                    out_wr <= out_wr + 2'd1;
-                    pending_rd <= pending_rd + 2'd1;
+                    out_wr <= ~out_wr;
+                    pending_rd <= (pending_rd == 2'd2) ? 2'd0 : pending_rd + 2'd1;
                 end
             end
             if (ct_valid && ct_ready) begin
-                out_rd <= out_rd + 2'd1;
+                out_rd <= ~out_rd;
             end
             if (gh_do_feed) begin
                 if (gh_aad_pend) begin
                     gh_aad_pend <= 1'b0;
                 end else begin
-                    gh_qrd <= gh_qrd + 2'd1;
+                    gh_qrd <= ~gh_qrd;
                 end
                 ghcnt <= ghcnt + 8'd1;
             end
             pt_cnt <= pt_cnt + (pt_valid && pt_ready ? 3'd1 : 3'd0)
-                            - (cb_submit ? 3'd1 : 3'd0);
+                            - (cb_sub_pt ? 3'd1 : 3'd0);
             out_cnt <= out_cnt + ((aes_done && (phase == PHASE_AES_CB) && !h_submit && !j0_submit) ? 3'd1 : 3'd0)
                             - (ct_valid && ct_ready ? 3'd1 : 3'd0);
             gh_qcnt <= gh_qcnt + ((aes_done && (phase == PHASE_AES_CB) && !h_submit && !j0_submit) ? 3'd1 : 3'd0)
@@ -222,18 +237,20 @@ module gcm_stream (
                         cntr <= 8'd0;
                         pending_wr <= 2'd0;
                         pending_rd <= 2'd0;
-                        pt_wr <= 2'd0;
-                        pt_rd <= 2'd0;
+                        pt_wr <= 1'b0;
+                        pt_rd <= 1'b0;
                         pt_cnt <= 3'd0;
                         phase <= PHASE_AES_CB;
                     end
                 end
                 PHASE_AES_CB: begin
-                    if (cb_submit) begin
+                    if (cb_gap != 4'd13) cb_gap <= cb_gap + 4'd1;
+                    if (cb_sub_wr) begin
                         pending_q[pending_wr] <= pt_fifo[pt_rd];
-                        pending_wr <= pending_wr + 2'd1;
-                        pt_rd <= pt_rd + 2'd1;
-                        cntr <= cntr + 8'd1;
+                        pending_wr <= (pending_wr == 2'd2) ? 2'd0 : pending_wr + 2'd1;
+                        pt_rd <= ~pt_rd;
+                        cntr <= cntr_p1;
+                        cb_gap <= 4'd0;
                     end
                     if (!j0_submit && (cntr >= nct_r[7:0]) && (gh_qcnt == 3'd0) &&
                         (ghcnt >= (nct_r[7:0] + 8'd1)) && (pt_cnt == 3'd0)) begin
