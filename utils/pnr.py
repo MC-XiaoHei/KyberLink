@@ -48,6 +48,9 @@ def build_tcl(sdc_path, cst, device, dev_ver, place_opt, route_opt):
         ("global_freq", "PNR_GLOBAL_FREQ"),
         ("bsram_simple_ce", "PNR_BSRAM_SIMPLE_CE"),
         ("convert_sdp32_36_to_sdp16_18", "PNR_CONVERT_SDP"),
+        ("inc_place", "PNR_INC_PLACE"),
+        ("inc_pnr", "PNR_INC_PNR"),
+        ("opt_goal", "PNR_OPT_GOAL"),
     ):
         _v = os.environ.get(_env)
         if _v:
