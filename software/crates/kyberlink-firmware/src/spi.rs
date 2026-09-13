@@ -34,10 +34,9 @@ impl kyberlink_core::handshake_fsm::SpiBus for SpiMaster {
 
     unsafe fn read_reg(&self, addr: u8) -> u32 {
         self.cs.borrow_mut().set_low();
-        let mut buf = [0u8; 9];
-        buf[..5].copy_from_slice(&read_frame(addr));
+        let mut buf = read_frame(addr);
         self.xfer(&mut buf);
         self.cs.borrow_mut().set_high();
-        u32::from_be_bytes([buf[5], buf[6], buf[7], buf[8]])
+        u32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]])
     }
 }

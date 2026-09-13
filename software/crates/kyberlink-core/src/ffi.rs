@@ -211,7 +211,7 @@ fn fsm_create(
 }
 
 #[no_mangle]
-pub extern "C" fn kyb_fsm_new(
+pub unsafe extern "C" fn kyb_fsm_new(
     role: u32,
     peer_fp: *const u8,
     seed_identity: *const u8,
@@ -232,7 +232,7 @@ pub extern "C" fn kyb_fsm_new(
 }
 
 #[no_mangle]
-pub extern "C" fn kyb_fsm_free(h: *mut FsmHandle) {
+pub unsafe extern "C" fn kyb_fsm_free(h: *mut FsmHandle) {
     if !h.is_null() {
         unsafe {
             drop(Box::from_raw(h));
@@ -241,7 +241,7 @@ pub extern "C" fn kyb_fsm_free(h: *mut FsmHandle) {
 }
 
 #[no_mangle]
-pub extern "C" fn kyb_qbus_tick(h: *mut FsmHandle, n: u32) {
+pub unsafe extern "C" fn kyb_qbus_tick(h: *mut FsmHandle, n: u32) {
     unsafe {
         let h = &*h;
         h.qbus.tick(n);
@@ -249,7 +249,7 @@ pub extern "C" fn kyb_qbus_tick(h: *mut FsmHandle, n: u32) {
 }
 
 #[no_mangle]
-pub extern "C" fn kyb_fsm_poll(h: *mut FsmHandle) -> u32 {
+pub unsafe extern "C" fn kyb_fsm_poll(h: *mut FsmHandle) -> u32 {
     unsafe {
         let h = &*h;
         let outcome = h.fsm.lock().poll();
@@ -264,7 +264,7 @@ pub extern "C" fn kyb_fsm_poll(h: *mut FsmHandle) -> u32 {
 }
 
 #[no_mangle]
-pub extern "C" fn kyb_fsm_take_writes(h: *mut FsmHandle, out: *mut u64, cap: u32) -> u32 {
+pub unsafe extern "C" fn kyb_fsm_take_writes(h: *mut FsmHandle, out: *mut u64, cap: u32) -> u32 {
     unsafe {
         let h = &*h;
         let writes = h.qbus.take_writes_n(cap as usize);
@@ -277,7 +277,7 @@ pub extern "C" fn kyb_fsm_take_writes(h: *mut FsmHandle, out: *mut u64, cap: u32
 }
 
 #[no_mangle]
-pub extern "C" fn kyb_fsm_push_rx(h: *mut FsmHandle, data: *const u8, len: u32) {
+pub unsafe extern "C" fn kyb_fsm_push_rx(h: *mut FsmHandle, data: *const u8, len: u32) {
     unsafe {
         let h = &*h;
         h.qbus
@@ -286,7 +286,7 @@ pub extern "C" fn kyb_fsm_push_rx(h: *mut FsmHandle, data: *const u8, len: u32) 
 }
 
 #[no_mangle]
-pub extern "C" fn kyb_fsm_fingerprint(seed: *const u8, out: *mut u8) {
+pub unsafe extern "C" fn kyb_fsm_fingerprint(seed: *const u8, out: *mut u8) {
     unsafe {
         let (vk, _) = keygen_internal(std::slice::from_raw_parts(seed, 32).try_into().unwrap());
         let fp = hs::fingerprint(&vk);
