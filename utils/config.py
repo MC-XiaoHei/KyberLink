@@ -38,11 +38,7 @@ INTG = ["bridge", "bw", "full", "node", "gmii_rx", "diag2", "spi_big"]
 
 SBOX_LEGACY = [
     R("bp_aes_sbox.v"),
-    R("sbox8.v"),
-    R("sbox8_dist.v"),
-    R("sbox_combo_v2.v"),
     R("sbox16.v"),
-    R("sbox_combo.v"),
 ]
 
 AES_CORE = [
@@ -68,6 +64,7 @@ BRIDGE = [
 
 CTRL_PLANE = [
     R("bram_32x2048.v"),
+    R("bram_32x512.v"),
     R("bram_8x256.v"),
     R("spi_slave.v"),
     R("spi_regs.v"),
@@ -77,9 +74,16 @@ CTRL_PLANE = [
     R("arp_catch.v"),
 ]
 
-FULL_CORE = SBOX_LEGACY + AES_CORE + GCM + BRIDGE + CTRL_PLANE + [
-    R("link_core.v"),
-]
+FULL_CORE = (
+    SBOX_LEGACY
+    + AES_CORE
+    + GCM
+    + BRIDGE
+    + CTRL_PLANE
+    + [
+        R("link_core.v"),
+    ]
+)
 
 MAC = [
     R("mac/eth_mac_1g.v"),
@@ -110,7 +114,9 @@ CONF = {
     },
     "aes": {
         "top": "aes256_core",
-        "src": SBOX_LEGACY + AES_CORE + [
+        "src": SBOX_LEGACY
+        + AES_CORE
+        + [
             R("bram_128x256.v"),
             R("bram_128x16.v"),
             GOWIN_DPB,
@@ -118,7 +124,9 @@ CONF = {
     },
     "aes_bw": {
         "top": "aes256_core",
-        "src": SBOX_LEGACY + AES_CORE + [
+        "src": SBOX_LEGACY
+        + AES_CORE
+        + [
             R("bram_128x256.v"),
             R("bram_128x16.v"),
             GOWIN_DPB,
@@ -137,7 +145,10 @@ CONF = {
     },
     "gcm": {
         "top": "gcm_stream",
-        "src": SBOX_LEGACY + AES_CORE + GCM + [
+        "src": SBOX_LEGACY
+        + AES_CORE
+        + GCM
+        + [
             R("bram_128x256.v"),
             R("bram_128x16.v"),
             GOWIN_DPB,
@@ -164,6 +175,7 @@ CONF = {
             R("spi_regs.v"),
             R("spi_top.v"),
             R("bram_32x2048.v"),
+            R("bram_32x512.v"),
             GOWIN_DPB,
         ],
     },
@@ -175,6 +187,7 @@ CONF = {
             R("spi_regs.v"),
             R("spi_top.v"),
             R("bram_32x2048.v"),
+            R("bram_32x512.v"),
             GOWIN_DPB,
         ],
     },
