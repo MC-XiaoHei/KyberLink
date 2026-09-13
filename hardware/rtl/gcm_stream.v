@@ -39,6 +39,7 @@ module gcm_stream (
   reg [127:0] tag_mask;
   reg aes_start;
   reg aes_key_load;
+  reg key_dirty;
   reg gh_start;
   reg [7:0] ghcnt;
   reg gh_aad_pend;
@@ -152,6 +153,7 @@ module gcm_stream (
       tag_valid <= 1'b0;
       aes_start <= 1'b0;
       aes_key_load <= 1'b0;
+      key_dirty <= 1'b1;
       gh_start <= 1'b0;
       gh_qcnt <= 3'd0;
       gh_qwr <= 1'b0;
@@ -233,7 +235,7 @@ module gcm_stream (
           tag_valid <= 1'b0;
           if (start) begin
             aes_start <= 1'b1;
-            aes_key_load <= 1'b1;
+            aes_key_load <= key_dirty || key_load;
             busy <= 1'b1;
             phase <= PHASE_AES_H;
           end
@@ -281,6 +283,8 @@ module gcm_stream (
         end
         default: phase <= PHASE_IDLE;
       endcase
+      if (start) key_dirty <= 1'b0;
+      else if (key_load) key_dirty <= 1'b1;
     end
   end
 

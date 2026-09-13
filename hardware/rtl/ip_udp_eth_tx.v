@@ -40,6 +40,7 @@ module ip_udp_eth_tx (
   reg [ 5:0] hcnt;
   reg [ 1:0] hb;
   reg [15:0] pay_len;
+  reg [15:0] pay_len_m1;
   reg [15:0] len_sum_r;
   reg [15:0] ip_sum_r;
   reg [15:0] total_len_r;
@@ -113,8 +114,8 @@ module ip_udp_eth_tx (
   assign s_esp_tready = (state == ST_IDLE && s_esp_tvalid) || (state == ST_ESP && m_tready);
   assign s_ctrl_tready = (state == ST_IDLE && s_ctrl_tvalid) || (state == ST_CTRL && m_tready);
   assign s_hsk_tready = (state == ST_PAY) && m_tready &&
-                        (((hb == 2'd2) && (pb + 16'd1) < pay_len) ||
-                         ((pb + 16'd1) == pay_len));
+                        (((hb == 2'd2) && (pb < pay_len_m1)) ||
+                         (pb == pay_len_m1));
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -122,6 +123,7 @@ module ip_udp_eth_tx (
       hcnt <= 6'd0;
       hb <= 2'd0;
       pay_len <= 16'd0;
+      pay_len_m1 <= 16'd0;
       len_sum_r <= 16'd0;
       ip_sum_r <= 16'd0;
       total_len_r <= 16'd0;
@@ -152,6 +154,7 @@ module ip_udp_eth_tx (
             m_tlast <= s_esp_tlast;
           end else if (s_hsk_tvalid && !m_tlast && (!m_tvalid || m_tready)) begin
             pay_len <= hsk_len;
+            pay_len_m1 <= hsk_len - 16'd1;
             len_sum_r <= 16'd28 + hsk_len;
             state <= ST_PRE1;
           end
@@ -208,9 +211,9 @@ module ip_udp_eth_tx (
           if (!m_tvalid || m_tready) begin
             m_tvalid <= (hb != 2'd0) || s_hsk_tvalid;
             m_tdata  <= s_hsk_tdata[31-8*hb-:8];
-            m_tlast  <= (hb != 2'd0 || s_hsk_tvalid) && (pb == (pay_len - 16'd1));
+            m_tlast  <= (hb != 2'd0 || s_hsk_tvalid) && (pb == pay_len_m1);
             if (hb != 2'd0 || s_hsk_tvalid) begin
-              if (pb == (pay_len - 16'd1)) begin
+              if (pb == pay_len_m1) begin
                 state <= ST_IDLE;
               end else begin
                 pb <= pb + 16'd1;

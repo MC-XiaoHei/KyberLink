@@ -112,6 +112,13 @@ module ssio_ddr_in #(
 
       end
 
+    end else if (TARGET == "GOWIN") begin
+
+
+      assign clk_io = input_clk;
+      assign clk_int = input_clk;
+      assign output_clk = clk_int;
+
     end else begin
 
 

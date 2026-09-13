@@ -1,7 +1,6 @@
 module link_core (
-    input  wire clk,
-    input  wire rst_n,
-    output wire led,
+    input wire clk,
+    input wire rst_n,
 
     input  wire [7:0] lan_rxd,
     input  wire       lan_rx_dv,
@@ -24,8 +23,7 @@ module link_core (
     input  wire spi_sck,
     input  wire spi_mosi,
     output wire spi_miso,
-    input  wire spi_csn,
-    output wire tag_ok
+    input  wire spi_csn
 );
 
   wire         key_load;
@@ -62,9 +60,6 @@ module link_core (
   wire [ 15:0] hsk_len;
   wire         hsk_ready;
   wire [  9:0] hsk_room;
-  wire [  7:0] ctrl_rx_tdata;
-  wire         ctrl_rx_tvalid;
-  wire         ctrl_rx_tlast;
   wire [  7:0] ctrl_tx_tdata;
   wire         ctrl_tx_tvalid;
   wire         ctrl_tx_tlast;
@@ -82,10 +77,6 @@ module link_core (
   wire         err_oversize_w;
   wire         err_rxdrop_w;
   wire         soft_rst_w;
-
-  wire         hsk_arp_pending;
-  wire [ 79:0] hsk_arp_capture;
-  wire         hsk_arp_read;
 
   spi_top u_spi (
       .clk(clk),
@@ -124,10 +115,6 @@ module link_core (
       .err_replay_i(err_replay_w),
       .err_oversize_i(err_oversize_w),
       .err_rxdrop_i(err_rxdrop_w),
-
-      .arp_pending(hsk_arp_pending),
-      .arp_capture(hsk_arp_capture),
-      .arp_read(hsk_arp_read),
 
       .ctrl_ready(ctrl_tx_tready),
       .ctrl_valid(ctrl_tx_tvalid),
@@ -173,7 +160,6 @@ module link_core (
       .m_dec_tvalid(dec_m_tvalid),
       .m_dec_tlast(dec_m_tlast),
       .m_dec_tready(dec_m_tready),
-      .tag_ok(tag_ok),
       .soft_rst(soft_rst_w),
       .err_badtag(err_badtag_w),
       .err_badpad(err_badpad_w),
@@ -202,22 +188,7 @@ module link_core (
       .hsk_len(hsk_len),
       .hsk_ready(hsk_ready),
       .hsk_room(hsk_room),
-      .m_ctrl_tdata(ctrl_rx_tdata),
-      .m_ctrl_tvalid(ctrl_rx_tvalid),
-      .m_ctrl_tlast(ctrl_rx_tlast),
       .err_rxdrop(err_rxdrop_w)
-  );
-
-  arp_catch u_arp_catch (
-      .clk(clk),
-      .rst_n(rst_n),
-      .s_tdata(ctrl_rx_tdata),
-      .s_tvalid(ctrl_rx_tvalid),
-      .s_tlast(ctrl_rx_tlast),
-      .cfg_src_ip(cfg_src_ip),
-      .arp_read(hsk_arp_read),
-      .pending(hsk_arp_pending),
-      .capture(hsk_arp_capture)
   );
 
   ip_udp_eth_tx u_tx_wan (
@@ -249,7 +220,6 @@ module link_core (
   assign lan_tx_en = dec_m_tvalid;
   assign lan_tx_last = dec_m_tlast;
   assign dec_m_tready = lan_tx_ready;
-  assign led = 1'b1;
 
   wire rst_n_i = ~rst_n;
   GSR gsr_inst (.GSRI(rst_n_i));

@@ -35,10 +35,6 @@ module eth_top (
     input  wire       s_esp_tlast,
     output wire       s_esp_tready,
 
-    output wire        arp_pending,
-    output wire [79:0] arp_capture,
-    input  wire        arp_read,
-
     input  wire       ctrl_valid,
     input  wire [7:0] ctrl_data,
     input  wire       ctrl_last,
@@ -49,10 +45,6 @@ module eth_top (
     output wire       m_tlast,
     input  wire       m_tready
 );
-
-  wire [7:0] ctrl_a_tdata;
-  wire ctrl_a_tvalid;
-  wire ctrl_a_tlast;
 
   ip_udp_eth_rx u_rx (
       .clk(clk),
@@ -72,22 +64,7 @@ module eth_top (
       .hsk_last(hsk_last),
       .hsk_len(hsk_len),
       .hsk_ready(hsk_ready),
-      .hsk_room(hsk_room),
-      .m_ctrl_tdata(ctrl_a_tdata),
-      .m_ctrl_tvalid(ctrl_a_tvalid),
-      .m_ctrl_tlast(ctrl_a_tlast)
-  );
-
-  arp_catch u_arp_catch (
-      .clk(clk),
-      .rst_n(rst_n),
-      .s_tdata(ctrl_a_tdata),
-      .s_tvalid(ctrl_a_tvalid),
-      .s_tlast(ctrl_a_tlast),
-      .cfg_src_ip(cfg_src_ip),
-      .arp_read(arp_read),
-      .pending(arp_pending),
-      .capture(arp_capture)
+      .hsk_room(hsk_room)
   );
 
   ip_udp_eth_tx u_tx (

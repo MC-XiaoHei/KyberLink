@@ -22,10 +22,6 @@ module ip_udp_eth_rx (
     input  wire        hsk_ready,
     input  wire [ 9:0] hsk_room,
 
-    output reg [7:0] m_ctrl_tdata,
-    output reg       m_ctrl_tvalid,
-    output reg       m_ctrl_tlast,
-
     output reg err_rxdrop
 );
 
@@ -86,15 +82,10 @@ module ip_udp_eth_rx (
       hsk_data <= 32'd0;
       hsk_last <= 1'b0;
       hsk_len <= 16'd0;
-      m_ctrl_tdata <= 8'd0;
-      m_ctrl_tvalid <= 1'b0;
-      m_ctrl_tlast <= 1'b0;
       err_rxdrop <= 1'b0;
     end else begin
       m_data_tvalid <= 1'b0;
       m_data_tlast <= 1'b0;
-      m_ctrl_tvalid <= 1'b0;
-      m_ctrl_tlast <= 1'b0;
       hsk_wr <= 1'b0;
       hsk_last <= 1'b0;
       err_rxdrop <= 1'b0;
@@ -116,17 +107,11 @@ module ip_udp_eth_rx (
             udp_len_r <= 16'd0;
             pay_done <= 1'b0;
             hsk_tail_v <= 1'b0;
-            m_ctrl_tdata <= d;
-            m_ctrl_tvalid <= 1'b1;
-            m_ctrl_tlast <= 1'b0;
             state <= ST_RX;
           end
         end
         ST_RX: begin
           if (s_tvalid && s_tready) begin
-            m_ctrl_tdata  <= d;
-            m_ctrl_tvalid <= 1'b1;
-            m_ctrl_tlast  <= s_tlast;
             if (bad_here) drop <= 1'b1;
             if (cnt == 14'd37) begin
               if (d == 8'h95) hsk_seen <= 1'b1;

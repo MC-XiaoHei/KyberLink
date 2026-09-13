@@ -92,6 +92,19 @@ module iddr #(
           assign q1[n] = q1_delay;
         end
       end
+    end else if (TARGET == "GOWIN") begin
+      for (n = 0; n < WIDTH; n = n + 1) begin : iddr
+        IDDRC #(
+            .Q0_INIT(1'b0),
+            .Q1_INIT(1'b0)
+        ) iddr_inst (
+            .Q0(q1[n]),
+            .Q1(q2[n]),
+            .D(d[n]),
+            .CLK(clk),
+            .CLEAR(1'b0)
+        );
+      end
     end else if (TARGET == "ALTERA") begin
       wire [WIDTH-1:0] q1_int;
       reg  [WIDTH-1:0] q1_delay;

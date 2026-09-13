@@ -176,7 +176,7 @@ module aes256_core_pipe (
 
   wire [127:0] mid_cmb = (rd[b1_d] == 4'd14) ? sbox_c_d : mc_comb;
   wire [127:0] state_next = mid_cmb ^ ksch_q;
-  assign block_out = (rd[b1_d] == 4'd14) ? state_next : out_r;
+  assign block_out = out_r;
 
   wire [127:0] ksch_q;
   wire ks_w0 = start && (key_load || !ax_loaded) &&
@@ -299,7 +299,7 @@ module aes256_core_pipe (
               state[b1_d] <= state_next;
               rd[b1_d] <= rd[b1_d] + 4'd1;
             end
-            done_q <= (rd[b1] == 4'd14);
+            done_q <= (rd[b1_d] == 4'd14);
             blk_sel_d <= blk_sel;
             b1_d <= b1;
             blk_sel <= (blk_sel == 2'd2) ? 2'd0 : blk_sel + 2'd1;

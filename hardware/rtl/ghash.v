@@ -106,11 +106,10 @@ module ghash (
   wire [31:0] nx_w1 = (nx_0 == 2'd0) ? b_h0 : (nx_0 == 2'd1) ? b_h1 : (nx_0 == 2'd2) ? b_h2 : b_h3;
   wire [31:0] nx_w2 = (nx_1 == 2'd0) ? b_h0 : (nx_1 == 2'd1) ? b_h1 : (nx_1 == 2'd2) ? b_h2 : b_h3;
   wire [ 4:0] nx_s0 = {2'd0, nx_i} + {2'd0, nx_0};
-  wire [ 4:0] nx_s1 = {2'd0, nx_i} + {2'd0, nx_1};
 
   reg [31:0] aw_r, bw0_r, bw1_r;
-  reg [4:0] sh0_r, sh1_r;
-  reg [4:0] sh0_q, sh1_q;
+  reg [4:0] sh0_r;
+  reg [4:0] sh0_q;
   reg [30:0] m0a_q, m1a_q, m2a_q, m0b_q, m1b_q, m2b_q;
   wire [30:0] m0a_c = mul16f(aw_r[15:0], bw0_r[15:0]);
   wire [30:0] m1a_c = mul16f(aw_r[31:16], bw0_r[31:16]);
@@ -120,8 +119,7 @@ module ghash (
   wire [30:0] m2b_c = mul16f(aw_r[15:0] ^ aw_r[31:16], bw1_r[15:0] ^ bw1_r[31:16]);
   wire [62:0] mul_a = {32'd0, m0a_q} ^ {16'd0, m0a_q ^ m1a_q ^ m2a_q, 16'b0} ^ {m1a_q, 32'b0};
   wire [62:0] mul_b = {32'd0, m0b_q} ^ {16'd0, m0b_q ^ m1b_q ^ m2b_q, 16'b0} ^ {m1b_q, 32'b0};
-  wire [255:0] shifted = ({193'd0, mul_a} << ({2'b00, sh0_q, 5'd0})) ^
-                           ({193'd0, mul_b} << ({2'b00, sh1_q, 5'd0}));
+  wire [255:0] shifted = {192'd0, mul_a ^ {31'd0, mul_b, 32'b0}} << ({2'b00, sh0_q, 5'd0});
 
   reg [255:0] red;
   reg [5:0] rcorr;
@@ -187,14 +185,12 @@ module ghash (
           bw0_r <= b_h0;
           bw1_r <= b_h1;
           sh0_r <= 5'd0;
-          sh1_r <= 5'd1;
           phase <= PHASE_MUL;
         end
 
         PHASE_MUL: begin
           if (cnt != 3'd0) prod <= prod ^ shifted;
           sh0_q <= sh0_r;
-          sh1_q <= sh1_r;
           m0a_q <= m0a_c;
           m1a_q <= m1a_c;
           m2a_q <= m2a_c;
@@ -205,7 +201,6 @@ module ghash (
           bw0_r <= nx_w1;
           bw1_r <= nx_w2;
           sh0_r <= nx_s0;
-          sh1_r <= nx_s1;
           if (cnt == 3'd7) begin
             phase <= PHASE_FLUSH;
           end else begin

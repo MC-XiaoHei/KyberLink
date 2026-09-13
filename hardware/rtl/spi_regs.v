@@ -38,10 +38,7 @@ module spi_regs (
     input wire        seq_upd,
     input wire [31:0] seq_val,
 
-    input  wire [ 4:0] err_pulse,
-    input  wire        arp_pending,
-    input  wire [79:0] arp_capture,
-    output wire        arp_read,
+    input wire [4:0] err_pulse,
 
     output wire       ctrl_valid,
     output wire [7:0] ctrl_data,
@@ -76,6 +73,7 @@ module spi_regs (
   assign soft_rst = soft_rst_r;
 
   wire [31:0] rx_rd_data;
+  reg  [31:0] rx_rd_hold;
   reg  [ 8:0] rx_wr_ptr;
   reg  [ 8:0] rx_rd_ptr;
   reg  [ 9:0] rx_cnt;
@@ -172,6 +170,7 @@ module spi_regs (
       len_rd_ptr <= 4'd0;
       len_cnt <= 5'd0;
       rx_left <= 16'd0;
+      rx_rd_hold <= 32'd0;
       key_load <= 1'b0;
       r_seq <= 32'd1;
       err_flags <= 5'd0;
@@ -270,6 +269,7 @@ module spi_regs (
         rx_rd_ptr <= rx_rd_ptr + 9'd1;
         rx_cnt    <= rx_cnt - 10'd1;
       end
+      if (rreq && (raddr == 7'h38)) rx_rd_hold <= rx_rd_data;
       if (hsk_rx_wr) begin
         rx_wr_ptr <= rx_wr_ptr + 9'd1;
         rx_cnt    <= rx_cnt + 10'd1;
@@ -345,19 +345,15 @@ module spi_regs (
   always @* begin
     rdata_c = 32'd0;
     case (raddr)
-      7'h04:   rdata_c = {27'd0, arp_pending, tx_busy, hsk_rx_pending};
+      7'h04:   rdata_c = {28'd0, tx_busy, hsk_rx_pending};
       7'h34:   rdata_c = {16'd0, (len_cnt != 5'd0) ? len_q[len_rd_ptr] : 16'd0};
-      7'h38:   rdata_c = rx_rd_data;
+      7'h38:   rdata_c = rx_rd_hold;
       7'h50:   rdata_c = {27'd0, err_flags};
-      7'h51:   rdata_c = {8'd0, arp_capture[79:48]};
-      7'h52:   rdata_c = arp_capture[47:16];
-      7'h53:   rdata_c = {8'd0, arp_capture[15:0]};
       7'h74:   rdata_c = r_seq;
       default: rdata_c = 32'd0;
     endcase
   end
   assign rdata = rdata_c;
-  assign arp_read = rreq && (raddr == 7'h51);
 
   assign ctrl_valid = (c_state == C_RUN);
   assign ctrl_data = c_mem[c_rd_ptr[3:0]][31-8*c_hb-:8];

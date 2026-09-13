@@ -48,12 +48,6 @@ module eth_mac_1g_rgmii_fifo #(
     parameter ENABLE_PADDING = 1,
     parameter MIN_FRAME_LENGTH = 64,
     parameter SPEED_FORCE = 1'b0,
-    parameter TX_FIFO_DEPTH = 4096,
-    parameter TX_FIFO_RAM_PIPELINE = 1,
-    parameter TX_FRAME_FIFO = 1,
-    parameter TX_DROP_OVERSIZE_FRAME = TX_FRAME_FIFO,
-    parameter TX_DROP_BAD_FRAME = TX_DROP_OVERSIZE_FRAME,
-    parameter TX_DROP_WHEN_FULL = 0,
     parameter RX_FIFO_DEPTH = 4096,
     parameter RX_FIFO_RAM_PIPELINE = 1,
     parameter RX_FRAME_FIFO = 1,
@@ -113,12 +107,6 @@ module eth_mac_1g_rgmii_fifo #(
   wire       rx_clk;
   wire       tx_rst;
   wire       rx_rst;
-
-  wire [7:0] tx_fifo_axis_tdata;
-  wire       tx_fifo_axis_tvalid;
-  wire       tx_fifo_axis_tready;
-  wire       tx_fifo_axis_tlast;
-  wire       tx_fifo_axis_tuser;
 
   wire [7:0] rx_fifo_axis_tdata;
   wire       rx_fifo_axis_tvalid;
@@ -214,11 +202,11 @@ module eth_mac_1g_rgmii_fifo #(
       .tx_rst(tx_rst),
       .rx_clk(rx_clk),
       .rx_rst(rx_rst),
-      .tx_axis_tdata(tx_fifo_axis_tdata),
-      .tx_axis_tvalid(tx_fifo_axis_tvalid),
-      .tx_axis_tready(tx_fifo_axis_tready),
-      .tx_axis_tlast(tx_fifo_axis_tlast),
-      .tx_axis_tuser(tx_fifo_axis_tuser),
+      .tx_axis_tdata(tx_axis_tdata),
+      .tx_axis_tvalid(tx_axis_tvalid),
+      .tx_axis_tready(tx_axis_tready),
+      .tx_axis_tlast(tx_axis_tlast),
+      .tx_axis_tuser(tx_axis_tuser),
       .rx_axis_tdata(rx_fifo_axis_tdata),
       .rx_axis_tvalid(rx_fifo_axis_tvalid),
       .rx_axis_tlast(rx_fifo_axis_tlast),
@@ -238,14 +226,9 @@ module eth_mac_1g_rgmii_fifo #(
       .cfg_rx_enable(cfg_rx_enable)
   );
 
-  assign tx_fifo_axis_tdata  = tx_axis_tdata;
-  assign tx_fifo_axis_tvalid = tx_axis_tvalid;
-  assign tx_fifo_axis_tlast  = tx_axis_tlast;
-  assign tx_fifo_axis_tuser  = tx_axis_tuser;
-  assign tx_axis_tready      = tx_fifo_axis_tready;
-  assign tx_fifo_overflow    = 1'b0;
-  assign tx_fifo_bad_frame   = 1'b0;
-  assign tx_fifo_good_frame  = 1'b0;
+  assign tx_fifo_overflow   = 1'b0;
+  assign tx_fifo_bad_frame  = 1'b0;
+  assign tx_fifo_good_frame = 1'b0;
 
   axis_async_fifo_adapter #(
       .DEPTH(RX_FIFO_DEPTH),

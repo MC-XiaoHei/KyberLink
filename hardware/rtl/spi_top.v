@@ -41,10 +41,6 @@ module spi_top (
     input wire err_oversize_i,
     input wire err_rxdrop_i,
 
-    input  wire        arp_pending,
-    input  wire [79:0] arp_capture,
-    output wire        arp_read,
-
     input  wire       ctrl_ready,
     output wire       ctrl_valid,
     output wire [7:0] ctrl_data,
@@ -110,9 +106,6 @@ module spi_top (
       .seq_upd(seq_upd),
       .seq_val(seq_val),
       .err_pulse({err_rxdrop_i, err_oversize_i, err_replay_i, err_badpad_i, err_badtag_i}),
-      .arp_pending(arp_pending),
-      .arp_capture(arp_capture),
-      .arp_read(arp_read),
       .ctrl_valid(ctrl_valid),
       .ctrl_data(ctrl_data),
       .ctrl_last(ctrl_last),

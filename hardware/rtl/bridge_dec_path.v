@@ -122,15 +122,13 @@ module bridge_dec_path (
   reg [31:0] seq_fwd_q;
   reg [31:0] seq_back_q;
   reg seq_new_w_q;
-  reg [5:0] seq_idx_q;
   always @(posedge clk) begin
     seq_fwd_q   <= seq_fwd_w;
     seq_back_q  <= seq_back_w;
     seq_new_w_q <= (seq_fwd_w != 32'd0) && (seq_fwd_w < 32'h8000_0000);
-    seq_idx_q   <= seq_p[rx_sel][5:0];
   end
   wire seq_new_w = seq_new_w_q;
-  wire seq_rx_ok_c = seq_new_w_q || ((seq_back_q != 32'd0) && (seq_back_q < 32'd64) && !win_r[seq_idx_q]);
+  wire seq_rx_ok_c = seq_new_w_q || ((seq_back_q != 32'd0) && (seq_back_q < 32'd64) && !win_r[seq_back_q[5:0]]);
   reg seq_rx_ok_q;
   wire seq_rx_ok = seq_rx_ok_q;
 
@@ -139,7 +137,7 @@ module bridge_dec_path (
   end
   assign gcm_pt_valid = pt_data_v;
   assign gcm_pt_data = pt_rd_data;
-  assign gcm_ct_ready = (ct_idx < 8'd96);
+  assign gcm_ct_ready = (ct_idx < 8'd128);
   assign m_tdata = m_tdata_r;
   assign m_tvalid = m_tvalid_r;
   assign s_tready = (rx_state == RX_RUN) || ((rx_state == RX_IDLE) && !dec_pend[rx_sel]);
@@ -431,10 +429,15 @@ module bridge_dec_path (
               end
               ct_len_p[rx_sel] <= fcnt + 12'd1 - 12'd36;
               tag_p[rx_sel] <= {tail18[119:0], s_tdata};
-              if (seq_rx_ok && (fcnt < 12'd2082)) begin
+              if (seq_rx_ok && (fcnt < 12'd2082) && (fcnt >= 12'd35)) begin
                 dec_pend[rx_sel] <= 1'b1;
-                if (seq_new_w) last_seq_r <= seq_p[rx_sel];
-                else win_r[seq_p[rx_sel][5:0]] <= 1'b1;
+                if (seq_new_w) begin
+                  last_seq_r <= seq_p[rx_sel];
+                  win_r <= (seq_fwd_q >= 32'd64) ? 64'd0 : (win_r << seq_fwd_q);
+                  win_r[6'd0] <= 1'b1;
+                end else begin
+                  win_r[seq_back_q[5:0]] <= 1'b1;
+                end
               end else if (!seq_rx_ok) begin
                 err_replay <= 1'b1;
               end
