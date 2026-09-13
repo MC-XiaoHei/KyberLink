@@ -17,6 +17,7 @@ module spi_top (
     output wire [15:0] hsk_tx_len,
     input  wire        hsk_tx_ready,
     output wire        hsk_rx_ready,
+    output wire [ 9:0] hsk_rx_room,
 
     output wire         key_load,
     output wire [255:0] key_enc,
@@ -34,20 +35,20 @@ module spi_top (
     input wire        seq_upd,
     input wire [31:0] seq_val,
 
-    input  wire err_badtag_i,
-    input  wire err_badpad_i,
-    input  wire err_replay_i,
-    input  wire err_oversize_i,
-    input  wire err_rxdrop_i,
+    input wire err_badtag_i,
+    input wire err_badpad_i,
+    input wire err_replay_i,
+    input wire err_oversize_i,
+    input wire err_rxdrop_i,
 
     input  wire        arp_pending,
     input  wire [79:0] arp_capture,
     output wire        arp_read,
 
-    input  wire        ctrl_ready,
-    output wire        ctrl_valid,
-    output wire [ 7:0] ctrl_data,
-    output wire        ctrl_last,
+    input  wire       ctrl_ready,
+    output wire       ctrl_valid,
+    output wire [7:0] ctrl_data,
+    output wire       ctrl_last,
 
     output wire soft_rst
 );
@@ -93,6 +94,7 @@ module spi_top (
       .hsk_tx_len(hsk_tx_len),
       .hsk_tx_ready(hsk_tx_ready),
       .hsk_rx_ready(hsk_rx_ready),
+      .hsk_rx_room(hsk_rx_room),
       .key_load(key_load),
       .key_enc(key_enc),
       .key_dec(key_dec),

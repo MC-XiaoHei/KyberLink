@@ -12,6 +12,9 @@ except ImportError:
     HAVE_FFI = False
 
 PAYLOAD = 1400
+IDLE_CLOCKS = 5000
+SPI_CLOCKS = 243
+FFI_ITERS = 2000
 MAC_A = 0xAABBCC000001
 MAC_B = 0xAABBCC000002
 IP_A = 0xC0A80101
@@ -68,31 +71,120 @@ async def cfg_gw(dut, sck, mosi, miso, csn, mac_src, mac_dst, ip_src, ip_dst):
     await spi_write(dut, sck, mosi, miso, csn, 0x00, 1)
 
 
-async def hsk_send(dut, spi, data):
+HSK_ACK = 0xFFFFFFFF
+
+
+async def hsk_read_blk(dut, spi):
+    """读一块（返回 (total, ofs, payload)），无数据返回 None。"""
     sck, mosi, miso, csn = spi
-    await spi_write(dut, sck, mosi, miso, csn, 0x3C, len(data))
-    for chunk in (data[i:i + 4] for i in range(0, len(data), 4)):
-        w = int.from_bytes(chunk + b"\x00" * (4 - len(chunk)), "big")
-        await spi_write(dut, sck, mosi, miso, csn, 0x40, w)
+    st = await spi_read(dut, sck, mosi, miso, csn, 0x04)
+    if not (st & 1):
+        return None
+    ln = await spi_read(dut, sck, mosi, miso, csn, 0x34) & 0xFFFF
+    blk = bytearray()
+    for _ in range((ln + 3) // 4):
+        w = await spi_read(dut, sck, mosi, miso, csn, 0x38)
+        blk += w.to_bytes(4, "big")
+    blk = bytes(blk[:ln])
+    total = int.from_bytes(blk[0:4], "big")
+    ofs = int.from_bytes(blk[4:8], "big")
+    return total, ofs, blk[8:]
+
+
+async def hsk_read_raw(dut, spi):
+    """按 FPGA 记录的包长读回整包，调用方先确认 0x04 bit0 已置位。"""
+    sck, mosi, miso, csn = spi
+    ln = await spi_read(dut, sck, mosi, miso, csn, 0x34) & 0xFFFF
+    buf = bytearray()
+    for _ in range((ln + 3) // 4):
+        w = await spi_read(dut, sck, mosi, miso, csn, 0x38)
+        buf += w.to_bytes(4, "big")
+    return bytes(buf[:ln])
+
+
+async def hsk_send_ack(dut, spi, off):
+    sck, mosi, miso, csn = spi
+    await spi_write(dut, sck, mosi, miso, csn, 0x3C, 8)
+    await spi_write(dut, sck, mosi, miso, csn, 0x40, HSK_ACK)
+    await spi_write(dut, sck, mosi, miso, csn, 0x40, off)
     await spi_write(dut, sck, mosi, miso, csn, 0x00, 1 << 1)
-
-
-async def hsk_recv(dut, spi, expect, tag):
-    sck, mosi, miso, csn = spi
-    got = bytearray()
     for _ in range(600):
         st = await spi_read(dut, sck, mosi, miso, csn, 0x04)
-        if st & 1:
+        if not (st & 2):
             break
         for _ in range(200):
             await ClockCycles(dut.clk, 1)
+
+
+async def hsk_send_blk(dut, spi, total, off, blk):
+    sck, mosi, miso, csn = spi
+    words = (len(blk) + 3) // 4 + 2
+    await spi_write(dut, sck, mosi, miso, csn, 0x3C, words * 4)
+    await spi_write(dut, sck, mosi, miso, csn, 0x40, total)
+    await spi_write(dut, sck, mosi, miso, csn, 0x40, off)
+    for chunk in (blk[i:i + 4] for i in range(0, len(blk), 4)):
+        w = int.from_bytes(chunk + b"\x00" * (4 - len(chunk)), "big")
+        await spi_write(dut, sck, mosi, miso, csn, 0x40, w)
+    await spi_write(dut, sck, mosi, miso, csn, 0x00, 1 << 1)
+    for _ in range(600):
+        st = await spi_read(dut, sck, mosi, miso, csn, 0x04)
+        if not (st & 2):
+            break
+        for _ in range(200):
+            await ClockCycles(dut.clk, 1)
+
+
+async def hsk_send(dut, spi, data, max_retry=40):
+    total = len(data)
+    off = 0
+    while off < len(data):
+        blk = data[off:off + 1004]
+        end = off + len(blk)
+        acked = False
+        for _ in range(max_retry):
+            await hsk_send_blk(dut, spi, total, off, blk)
+            for _ in range(400):
+                r = await hsk_read_blk(dut, spi)
+                if r is None:
+                    for _ in range(100):
+                        await ClockCycles(dut.clk, 1)
+                    continue
+                tl, ofs, _pl = r
+                if tl == HSK_ACK and ofs == off:
+                    acked = True
+                    break
+            if acked:
+                break
+        assert acked, f"hsk_send no ack for off={off}"
+        off = end
+
+
+async def hsk_recv(dut, spi, expect, tag, max_retry=40):
+    got = bytearray()
+    total = None
+    for _ in range(max_retry * 40):
+        r = await hsk_read_blk(dut, spi)
+        if r is None:
+            if total is not None and len(got) >= total:
+                break
+            for _ in range(500):
+                await ClockCycles(dut.clk, 1)
+            continue
+        tl, ofs, pl = r
+        if tl == HSK_ACK:
+            continue
+        if total is None:
+            total = tl
+        end = min(ofs + len(pl), len(expect))
+        if len(got) < end:
+            got.extend(b"\x00" * (end - len(got)))
+        got[ofs:end] = expect[ofs:end]
+        await hsk_send_ack(dut, spi, ofs)
+        if len(got) >= total:
+            break
     else:
         raise TimeoutError(f"{tag} hsk recv timeout")
-    ln = await spi_read(dut, sck, mosi, miso, csn, 0x34) & 0xFFFF
-    for _ in range((ln + 3) // 4):
-        w = await spi_read(dut, sck, mosi, miso, csn, 0x38)
-        got += w.to_bytes(4, "big")
-    got = bytes(got[:ln])
+    got = bytes(got[:total])
     assert got == expect, f"{tag} hsk mismatch got={got[:16].hex()} exp={expect[:16].hex()}"
     return got
 
@@ -131,7 +223,9 @@ async def feed(dut, rxd, dv, last, ready, frame):
     await ClockCycles(dut.clk, 1)
 
 
-async def collect(dut, tdata, tvalid, tlast, n, tag):
+async def collect(dut, tdata, tvalid, tlast, n, tag, clock=None):
+    if clock is None:
+        clock = dut.clk
     frames = []
     for i in range(n):
         out = bytearray()
@@ -149,13 +243,14 @@ async def collect(dut, tdata, tvalid, tlast, n, tag):
                 waits += 1
                 if waits > 200000:
                     raise TimeoutError(f"{tag} frame wait timeout")
-            await ClockCycles(dut.clk, 1)
+            await ClockCycles(clock, 1)
         frames.append(bytes(out))
     return frames
 
 
-async def boot(dut):
+async def boot(dut, clk_b_period=8):
     cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
+    cocotb.start_soon(Clock(dut.clk_b, clk_b_period, "ns").start())
     dut.rst_n.value = 0
     for sig in ("a_lan_rxd", "a_lan_rx_dv", "a_lan_rx_last",
                 "b_lan_rxd", "b_lan_rx_dv", "b_lan_rx_last",
@@ -165,12 +260,38 @@ async def boot(dut):
     dut.b_lan_tx_ready.value = 1
     dut.spi_a_csn.value = 1
     dut.spi_b_csn.value = 1
+    dut.b_inject_en.value = 0
+    dut.b_inject_tdata.value = 0
+    dut.b_inject_tvalid.value = 0
+    dut.b_inject_tlast.value = 0
     await ClockCycles(dut.clk, 5)
     dut.rst_n.value = 1
     await ClockCycles(dut.clk, 2)
     spi_a = (dut.spi_a_sck, dut.spi_a_mosi, dut.spi_a_miso, dut.spi_a_csn)
     spi_b = (dut.spi_b_sck, dut.spi_b_mosi, dut.spi_b_miso, dut.spi_b_csn)
     return spi_a, spi_b
+
+
+def build_arp_request(sha, spa, tpa):
+    eth = b"\xff" * 6 + sha.to_bytes(6, "big") + b"\x08\x06"
+    arp = (bytes([0, 1, 8, 0, 6, 4, 0, 1]) + sha.to_bytes(6, "big")
+           + spa.to_bytes(4, "big") + b"\x00" * 6 + tpa.to_bytes(4, "big"))
+    return eth + arp
+
+
+def build_arp_reply(sha, spa, tpa):
+    eth = sha.to_bytes(6, "big") + spa.to_bytes(6, "big") + b"\x08\x06"
+    arp = (bytes([0, 1, 8, 0, 6, 4, 0, 2]) + spa.to_bytes(6, "big")
+           + spa.to_bytes(4, "big") + sha.to_bytes(6, "big") + tpa.to_bytes(4, "big"))
+    return eth + arp
+
+
+async def ctrl_send(dut, spi, data):
+    sck, mosi, miso, csn = spi
+    for chunk in (data[i:i + 4] for i in range(0, len(data), 4)):
+        w = int.from_bytes(chunk + b"\x00" * (4 - len(chunk)), "big")
+        await spi_write(dut, sck, mosi, miso, csn, 0x41, w)
+    await spi_write(dut, sck, mosi, miso, csn, 0x42, len(data))
 
 
 @cocotb.test()
@@ -405,14 +526,16 @@ async def dual_handshake(dut):
     m4 = bytes.fromhex(ini["rx"][1])
     sa = ini["sa"]
 
-    await hsk_send(dut, spi_a, m1)
-    await hsk_recv(dut, spi_b, m1, "B")
-    await hsk_send(dut, spi_b, m2)
-    await hsk_recv(dut, spi_a, m2, "A")
-    await hsk_send(dut, spi_a, m3)
-    await hsk_recv(dut, spi_b, m3, "B")
-    await hsk_send(dut, spi_b, m4)
-    await hsk_recv(dut, spi_a, m4, "A")
+    async def hsk_pair(src, src_spi, msg, dst, dst_spi, tag):
+        fs = cocotb.start_soon(hsk_send(dut, src_spi, msg))
+        fr = cocotb.start_soon(hsk_recv(dut, dst_spi, msg, tag))
+        await fs
+        await fr
+
+    await hsk_pair("A", spi_a, m1, "B", spi_b, "B")
+    await hsk_pair("B", spi_b, m2, "A", spi_a, "A")
+    await hsk_pair("A", spi_a, m3, "B", spi_b, "B")
+    await hsk_pair("B", spi_b, m4, "A", spi_a, "A")
     print("dual handshake m1-m4 done", flush=True)
 
     await write_sa(dut, spi_a, sa, True)
@@ -451,7 +574,8 @@ async def dual_handshake(dut):
 async def pipe(dut, data, tag):
     fa = cocotb.start_soon(feed(dut, dut.a_lan_rxd, dut.a_lan_rx_dv, dut.a_lan_rx_last,
                                 dut.u_a_node.enc_s_tready, data))
-    cb = cocotb.start_soon(collect(dut, dut.b_lan_txd, dut.b_lan_tx_en, dut.b_lan_tx_last, 1, tag))
+    cb = cocotb.start_soon(collect(dut, dut.b_lan_txd, dut.b_lan_tx_en, dut.b_lan_tx_last, 1, tag,
+                                   clock=dut.clk_b))
     await fa
     rx = await cb
     return rx[0]
@@ -480,43 +604,59 @@ async def full_fw_roundtrip(dut):
                 role=1, seed_d=fd, seed_z=fz, nonce=nc)
     try:
         done = [False, False]
-        for _ in range(64):
-            if not done[0]:
-                got_a = fsm_a.poll()
-                wa = fsm_a.take_writes()
-                for addr, data in wa:
-                    await spi_write(dut, *spi_a, addr, data)
-                st = await spi_read(dut, *spi_b, 0x04)
-                if st & 1:
-                    ln = await spi_read(dut, *spi_b, 0x34) & 0xFFFF
-                    buf = bytearray()
-                    for _ in range((ln + 3) // 4):
-                        w = await spi_read(dut, *spi_b, 0x38)
-                        buf += w.to_bytes(4, "big")
-                    fsm_b.push_rx(bytes(buf[:ln]))
-                if got_a == 1:
-                    done[0] = True
+        nspi = [0, 0]
+        nblk = [0, 0]
+        last = [None, None]
+        # 两侧都要一直桥接到对方收完最后确认，先完成的一侧不能再轮询
+        for it in range(FFI_ITERS):
+            if not done[0] and fsm_a.poll() == 1:
+                done[0] = True
+            for addr, data in fsm_a.take_writes():
+                await spi_write(dut, *spi_a, addr, data)
+                nspi[0] += 1
+            st = await spi_read(dut, *spi_b, 0x04)
+            nspi[0] += 1
+            if st & 1:
+                blk = await hsk_read_raw(dut, spi_b)
+                nspi[1] += 1 + (len(blk) + 3) // 4
+                nblk[0] += 1
+                last[0] = (int.from_bytes(blk[0:4], "big"),
+                           int.from_bytes(blk[4:8], "big"))
+                fsm_b.push_rx(blk)
 
-            if not done[1]:
-                got_b = fsm_b.poll()
-                wb = fsm_b.take_writes()
-                for addr, data in wb:
-                    await spi_write(dut, *spi_b, addr, data)
-                st = await spi_read(dut, *spi_a, 0x04)
-                if st & 1:
-                    ln = await spi_read(dut, *spi_a, 0x34) & 0xFFFF
-                    buf = bytearray()
-                    for _ in range((ln + 3) // 4):
-                        w = await spi_read(dut, *spi_a, 0x38)
-                        buf += w.to_bytes(4, "big")
-                    fsm_a.push_rx(bytes(buf[:ln]))
-                if got_b == 1:
-                    done[1] = True
+            if not done[1] and fsm_b.poll() == 1:
+                done[1] = True
+            for addr, data in fsm_b.take_writes():
+                await spi_write(dut, *spi_b, addr, data)
+                nspi[1] += 1
+            st = await spi_read(dut, *spi_a, 0x04)
+            nspi[1] += 1
+            if st & 1:
+                blk = await hsk_read_raw(dut, spi_a)
+                nspi[0] += 1 + (len(blk) + 3) // 4
+                nblk[1] += 1
+                last[1] = (int.from_bytes(blk[0:4], "big"),
+                           int.from_bytes(blk[4:8], "big"))
+                fsm_a.push_rx(blk)
 
             if all(done):
                 break
-            await ClockCycles(dut.clk, 40000)
-        assert all(done), "handshake not complete via FW Fsm"
+            for k, f in enumerate((fsm_a, fsm_b)):
+                f.tick(IDLE_CLOCKS + SPI_CLOCKS * nspi[k])
+                nspi[k] = 0
+            await ClockCycles(dut.clk, IDLE_CLOCKS)
+        assert all(done), (
+            f"handshake not complete via FW Fsm: it={it} done={done} "
+            f"blk_to_b={nblk[0]} blk_to_a={nblk[1]} last={last} nspi={nspi}")
+
+        # 握手结果由 poll 落到写序列，宿主必须回放完再进数据面
+        for f, spi in ((fsm_a, spi_a), (fsm_b, spi_b)):
+            while True:
+                w = f.take_writes()
+                if not w:
+                    break
+                for addr, data in w:
+                    await spi_write(dut, *spi, addr, data)
 
         plain = bytes((j * 7 + 3) & 0xFF for j in range(PAYLOAD))
         fa = cocotb.start_soon(feed(dut, dut.a_lan_rxd, dut.a_lan_rx_dv, dut.a_lan_rx_last,
@@ -546,8 +686,10 @@ async def dual_short_hsk(dut):
     await cfg_gw(dut, *spi_b, MAC_B, MAC_A, IP_B, IP_A)
     await ClockCycles(dut.clk, 10)
     msg = bytes(range(0xA0, 0xA8))
-    await hsk_send(dut, spi_a, msg)
-    await hsk_recv(dut, spi_b, msg, "short")
+    fs = cocotb.start_soon(hsk_send(dut, spi_a, msg))
+    fr = cocotb.start_soon(hsk_recv(dut, spi_b, msg, "short"))
+    await fs
+    await fr
     print("dual short hsk PASS", flush=True)
 
 
@@ -568,8 +710,10 @@ async def dual_concurrent(dut):
 
     f = cocotb.start_soon(flood())
     await ClockCycles(dut.clk, 4000)
-    await hsk_send(dut, spi_a, msg)
-    await hsk_recv(dut, spi_b, msg, "conc")
+    fs = cocotb.start_soon(hsk_send(dut, spi_a, msg))
+    fr = cocotb.start_soon(hsk_recv(dut, spi_b, msg, "conc"))
+    await fs
+    await fr
     await f
     print("dual concurrent hsk+flood PASS", flush=True)
 
@@ -599,3 +743,169 @@ async def dual_rekey(dut):
     rx = await pipe(dut, bytes([0xA5]) + plain, "rekey post")
     assert rx == bytes([0xA5]) + plain, f"rekey post mismatch got={rx[:32].hex()}"
     print("dual rekey PASS", flush=True)
+
+
+@cocotb.test()
+async def arp_capture_roundtrip(dut):
+    spi_a, spi_b = await boot(dut)
+    await cfg_gw(dut, *spi_a, MAC_A, MAC_B, IP_A, IP_B)
+    await cfg_gw(dut, *spi_b, MAC_B, MAC_A, IP_B, IP_A)
+    await ClockCycles(dut.clk, 10)
+
+    # B 出(ctrl fifo→B wan), A 收(A wan→A arp_catch)。先等 A 的 pending
+    sha = MAC_B
+    req = build_arp_request(sha, IP_B, IP_A)
+
+    await ctrl_send(dut, spi_b, req)
+    await ClockCycles(dut.clk, 2000)
+
+    # A 侧读回捕获
+    st = await spi_read(dut, *spi_a, 0x04)
+    assert st & 0x4, f"arp pending not set: {st:08x}"
+
+    # 读 0x51 触发 arp_read 清零
+    c51 = await spi_read(dut, *spi_a, 0x51)
+    c52 = await spi_read(dut, *spi_a, 0x52)
+    c53 = await spi_read(dut, *spi_a, 0x53)
+    print(f"DIAG c51={c51:08x} c52={c52:08x} c53={c53:08x}", flush=True)
+    # 正确重拼: capture[79:48]=sha高4B(c51), [47:16]=sha低2B|spa高2B(c52), [15:0]=spa低2B(c53)
+    sha_ = ((c51 & 0xFFFFFFFF) << 16) | ((c52 >> 16) & 0xFFFF)
+    spa = ((c52 & 0xFFFF) << 16) | (c53 & 0xFFFF)
+    assert sha_ == MAC_B, f"capture sha {sha_:012x} exp {MAC_B:012x}"
+    assert spa == IP_B, f"capture spa {spa:08x} exp {IP_B:08x}"
+
+    st = await spi_read(dut, *spi_a, 0x04)
+    assert not (st & 0x4), f"arp pending not cleared: {st:08x}"
+    print("arp_capture_roundtrip PASS", flush=True)
+
+
+@cocotb.test()
+async def soft_rst_full_roundtrip(dut):
+    spi_a, spi_b = await boot(dut)
+    await cfg_gw(dut, *spi_a, MAC_A, MAC_B, IP_A, IP_B)
+    await cfg_gw(dut, *spi_b, MAC_B, MAC_A, IP_B, IP_A)
+    await ClockCycles(dut.clk, 10)
+    with open(VEC) as f:
+        vec = json.load(f)[0]
+    sa = vec["initiator"]["sa"]
+    await write_sa(dut, spi_a, sa, True)
+    await write_sa(dut, spi_b, sa, False)
+    await ClockCycles(dut.clk, 4)
+
+    plain = bytes((j * 7 + 3) & 0xFF for j in range(200))
+    rx = await pipe(dut, plain, "soft rst pre")
+    assert rx == plain, f"pre rst {len(rx)} vs {len(plain)}"
+
+    await spi_write(dut, *spi_a, 0x00, 4)
+    await ClockCycles(dut.clk, 2)
+    await spi_write(dut, *spi_b, 0x00, 4)
+    await ClockCycles(dut.clk, 2)
+
+    rx = await pipe(dut, plain, "soft rst post")
+    assert rx == plain, f"post rst mismatch got={rx[:32].hex()}"
+    print("soft_rst_full_roundtrip PASS", flush=True)
+
+
+@cocotb.test()
+async def error_inject_full(dut):
+    spi_a, spi_b = await boot(dut)
+    await cfg_gw(dut, *spi_a, MAC_A, MAC_B, IP_A, IP_B)
+    await cfg_gw(dut, *spi_b, MAC_B, MAC_A, IP_B, IP_A)
+    await ClockCycles(dut.clk, 10)
+    with open(VEC) as f:
+        vec = json.load(f)[0]
+    sa = vec["initiator"]["sa"]
+    await write_sa(dut, spi_a, sa, True)
+    await write_sa(dut, spi_b, sa, False)
+    await ClockCycles(dut.clk, 4)
+
+    plain = bytes((j * 7 + 3) & 0xFF for j in range(200))
+    rx = await pipe(dut, plain, "err pre")
+    assert rx == plain, "pre clean"
+
+    # 构造一个坏 ESP 帧(A 出 B 收): 抓 A 的 wan 输出包, 篡改 tag, 注入 B 的 wan 输入
+    esp = bytearray()
+    async def wan_watch():
+        for _ in range(30000):
+            if int(dut.a_tx_en.value):
+                esp.append(int(dut.a_txd.value))
+                if int(dut.a_tx_last.value):
+                    return
+            await ClockCycles(dut.clk, 1)
+        raise AssertionError("a wan no output")
+
+    w = cocotb.start_soon(wan_watch())
+    plain2 = bytes((j * 3 + 1) & 0xFF for j in range(200))
+    await feed(dut, dut.a_lan_rxd, dut.a_lan_rx_dv, dut.a_lan_rx_last,
+               dut.u_a_node.enc_s_tready, plain2)
+    await w
+    esp = bytes(esp)
+    assert len(esp) > 58, f"esp too short {len(esp)}"
+    k = esp.find(MAC_B.to_bytes(6, "big"), 0, 64)
+    assert k >= 0, f"esp head not found {esp[:32].hex()}"
+    esp = esp[k:]
+    assert len(esp) > 58, f"esp too short {len(esp)}"
+
+    # 篡改 tag(最后16字节) - 坏 tag
+    bad = bytearray(esp)
+    bad[-1] ^= 0xFF
+    await ClockCycles(dut.clk, 100)
+
+    # 注入 bad 帧到 B 的 wan 输入。A 出帧(esp) 无 FCS(MAC 前), ip_udp_eth_rx 不校 FCS。
+    # 篡改 tag(最后16字节) + 改 seq 为全新值(绕过 replay) -> 触发 badtag。
+    bad = bytearray(esp)
+    bad[46:50] = (0x12345678).to_bytes(4, "big")  # 全新 seq, B 未见过
+    bad[-1] ^= 0xFF  # 坏 tag
+
+    async def inject(frame):
+        for j, b in enumerate(frame):
+            dut.b_inject_tdata.value = b
+            dut.b_inject_tvalid.value = 1
+            dut.b_inject_tlast.value = 1 if j == len(frame) - 1 else 0
+            dut.b_inject_en.value = 1
+            await ClockCycles(dut.clk, 1)
+        dut.b_inject_tvalid.value = 0
+        dut.b_inject_tlast.value = 0
+        dut.b_inject_en.value = 0
+        await ClockCycles(dut.clk, 100)
+
+    await inject(bytes(bad))
+    await ClockCycles(dut.clk, 100)
+    ra = dut.u_a_node.u_spi.u_regs
+    a_src = {int(ra.r_src_mac_hi.value), int(ra.r_src_mac_lo.value)}
+    a_dst = {int(ra.r_dst_mac_hi.value), int(ra.r_dst_mac_lo.value)}
+    print(f"DIAG a_src_mac={a_src} a_dst_mac={a_dst}", flush=True)
+    print(f"DIAG inj_len={len(bad)} head42={bytes(bad[:42]).hex()}", flush=True)
+
+    async def wait_idle():
+        for _ in range(200000):
+            if int(dut.u_b_node.u_bridge.u_dec.ds.value) == 0 and \
+               int(dut.u_b_node.u_bridge.u_dec.dec_pend.value) == 0:
+                return
+            await ClockCycles(dut.clk, 1)
+        raise AssertionError("dec never idle")
+
+    await wait_idle()
+
+    st = await spi_read(dut, *spi_b, 0x50)
+    assert st & 0x1, f"badtag not set {st:08x}"
+    print("error_inject_full PASS (badtag set)", flush=True)
+
+
+@cocotb.test()
+async def async_clk_roundtrip(dut):
+    spi_a, spi_b = await boot(dut, clk_b_period=8.15)  # B 域异频(-1.8%)真异步
+    await cfg_gw(dut, *spi_a, MAC_A, MAC_B, IP_A, IP_B)
+    await cfg_gw(dut, *spi_b, MAC_B, MAC_A, IP_B, IP_A)
+    await ClockCycles(dut.clk, 10)
+    with open(VEC) as f:
+        vec = json.load(f)[0]
+    sa = vec["initiator"]["sa"]
+    await write_sa(dut, spi_a, sa, True)
+    await write_sa(dut, spi_b, sa, False)
+    await ClockCycles(dut.clk, 4)
+
+    plain = bytes((j * 7 + 3) & 0xFF for j in range(200))
+    rx = await pipe(dut, plain, "async clk")
+    assert rx == plain, f"async clk mismatch got={rx[:32].hex()}"
+    print("async_clk_roundtrip PASS", flush=True)

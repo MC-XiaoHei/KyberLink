@@ -27,6 +27,8 @@ def _load():
     lib.kyb_fsm_free.argtypes = [ctypes.c_void_p]
     lib.kyb_fsm_poll.restype = ctypes.c_uint32
     lib.kyb_fsm_poll.argtypes = [ctypes.c_void_p]
+    lib.kyb_qbus_tick.restype = None
+    lib.kyb_qbus_tick.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
     lib.kyb_fsm_take_writes.restype = ctypes.c_uint32
     lib.kyb_fsm_take_writes.argtypes = [
         ctypes.c_void_p,
@@ -64,6 +66,9 @@ class Fsm:
 
     def poll(self) -> int:
         return int(_LIB.kyb_fsm_poll(self.h))
+
+    def tick(self, n: int) -> None:
+        _LIB.kyb_qbus_tick(self.h, n)
 
     def take_writes(self):
         n = 4096

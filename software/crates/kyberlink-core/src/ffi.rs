@@ -7,7 +7,6 @@ use kyberlink_crypto::handshake as hs;
 use kyberlink_crypto::mldsa_internal::{keygen_internal, sign_precomp_new_into};
 
 const VK_LEN: usize = 32;
-const RX_CHUNK: usize = 6528;
 
 pub struct FsmHandle {
     fsm: Mutex<Fsm<'static, QBus>>,
@@ -15,102 +14,142 @@ pub struct FsmHandle {
     qbus: &'static QBus,
 }
 
+pub const RX_FIFO_WORDS: usize = 512;
+pub const RX_LENQ_DEPTH: usize = 16;
+pub const TX_FIFO_WORDS: usize = 512;
+/// UDP 发送引擎每字 4 拍出队（8 bit/拍）。
+pub const DRAIN_CYCLES_PER_WORD: u32 = 4;
+
+#[derive(Default)]
+struct QBusInner {
+    /// 待测试台转写到真实 FPGA 的寄存器写序列。
+    outbox: Vec<u64>,
+    /// RX 数据 FIFO，深度与 RTL 一致。
+    rx: Vec<u32>,
+    /// 每个已收包的(字节长度, 剩余字数)，队首对应 FIFO 队首。
+    lens: Vec<(usize, usize)>,
+    tx: Vec<u32>,
+    tx_len: u16,
+    tx_len_r: u16,
+    tx_dump: bool,
+    tx_dump_left: u32,
+    tx_phase: u32,
+}
+
+/// 仿真里的 FPGA 侧 SPI 从机模型，语义对齐 spi_regs.v。
 pub struct QBus {
-    outbox: Mutex<Vec<u64>>,
-    inbox: Mutex<Vec<u32>>,
-    rx_len: Mutex<usize>,
-    last_writes: Mutex<Vec<(u8, u32)>>,
+    inner: Mutex<QBusInner>,
 }
 
 impl QBus {
     fn new() -> Self {
         QBus {
-            outbox: Mutex::new(Vec::new()),
-            inbox: Mutex::new(Vec::new()),
-            rx_len: Mutex::new(0),
-            last_writes: Mutex::new(Vec::new()),
+            inner: Mutex::new(QBusInner::default()),
         }
     }
 
-    fn drain_writes(&self) -> Vec<(u8, u32)> {
-        let mut w = self.outbox.lock();
-        let mut v = Vec::new();
-        while let Some(tx) = w.pop() {
-            v.push((tx as u8, (tx >> 32) as u32));
-        }
-        v.reverse();
-        v
-    }
-
-    fn push_rx(&self, data: &[u8]) {
-        let mut words = Vec::new();
-        for chunk in data.chunks(4) {
+    /// 模拟 FPGA 收包：装不下就整包丢弃，不产生半个包。
+    fn push_rx(&self, payload: &[u8]) {
+        let words = payload.len().div_ceil(4);
+        let mut w = Vec::with_capacity(words);
+        for chunk in payload.chunks(4) {
             let mut b = [0u8; 4];
             b[..chunk.len()].copy_from_slice(chunk);
-            words.push(u32::from_be_bytes(b));
+            w.push(u32::from_be_bytes(b));
         }
-        self.inbox.lock().extend(words);
-        *self.rx_len.lock() = data.len();
+        let mut s = self.inner.lock();
+        if payload.len() < 8 || s.rx.len() + words > RX_FIFO_WORDS || s.lens.len() >= RX_LENQ_DEPTH
+        {
+            return;
+        }
+        s.rx.extend_from_slice(&w);
+        s.lens.push((payload.len(), words));
     }
 
-    fn has_rx(&self) -> bool {
-        !self.inbox.lock().is_empty()
+    /// 推进 n 个 FPGA 时钟，TX 侧按 DRAIN_CYCLES_PER_WORD 出队。
+    fn tick(&self, n: u32) {
+        let mut s = self.inner.lock();
+        s.tx_phase += n;
+        let mut words = s.tx_phase / DRAIN_CYCLES_PER_WORD;
+        s.tx_phase %= DRAIN_CYCLES_PER_WORD;
+        while words > 0 && !s.tx.is_empty() {
+            s.tx.remove(0);
+            words -= 1;
+            if s.tx_dump_left > 0 {
+                s.tx_dump_left -= 1;
+            }
+        }
+        if s.tx_dump_left == 0 {
+            s.tx_dump = false;
+        }
     }
 
     fn take_writes_n(&self, cap: usize) -> Vec<(u8, u32)> {
-        let mut w = self.outbox.lock();
-        let mut v: Vec<u64> = Vec::new();
-        while let Some(tx) = w.pop() {
-            v.push(tx);
-        }
-        v.reverse();
-        let rest: Vec<u64> = v.split_off(cap.min(v.len()));
-        for tx in rest.into_iter().rev() {
-            w.push(tx);
-        }
-        v.into_iter().map(|tx| (tx as u8, (tx >> 32) as u32)).collect()
+        let mut s = self.inner.lock();
+        let n = cap.min(s.outbox.len());
+        let rest = s.outbox.split_off(n);
+        let head = core::mem::replace(&mut s.outbox, rest);
+        head.into_iter()
+            .map(|tx| (tx as u8, (tx >> 32) as u32))
+            .collect()
     }
 }
 
 impl SpiBus for QBus {
     unsafe fn write_reg(&self, addr: u8, data: u32) {
-        self.outbox.lock().push(((data as u64) << 32) | addr as u64);
+        {
+            let mut s = self.inner.lock();
+            match addr {
+                0x3C => s.tx_len = data as u16,
+                0x40 => {
+                    if s.tx.len() < TX_FIFO_WORDS {
+                        s.tx.push(data);
+                    }
+                }
+                0x00 if data & (1 << 1) != 0 => {
+                    s.tx_len_r = s.tx_len;
+                    s.tx_dump = true;
+                    s.tx_dump_left = (s.tx_len_r as usize).div_ceil(4) as u32;
+                }
+                _ => {}
+            }
+            s.outbox.push(((data as u64) << 32) | addr as u64);
+        }
     }
 
     unsafe fn read_reg(&self, addr: u8) -> u32 {
+        let mut s = self.inner.lock();
         match addr {
             0x04 => {
-                if self.has_rx() {
-                    1
-                } else {
-                    0
-                }
+                let p = if s.lens.is_empty() { 0 } else { 1 };
+                let b = if !s.tx.is_empty() || s.tx_dump { 2 } else { 0 };
+                p | b
             }
-            0x34 => *self.rx_len.lock() as u32,
-            0x38 => self.inbox.lock().remove(0),
+            0x34 => s.lens.first().map_or(0, |e| e.0 as u32),
+            0x38 => {
+                if s.rx.is_empty() {
+                    return 0;
+                }
+                let w = s.rx.remove(0);
+                if let Some(e) = s.lens.first_mut() {
+                    e.1 -= 1;
+                    if e.1 == 0 {
+                        s.lens.remove(0);
+                    }
+                }
+                w
+            }
             _ => 0,
         }
     }
 }
 
-impl<'a> SpiBus for &'a QBus {
+impl SpiBus for &QBus {
     unsafe fn write_reg(&self, addr: u8, data: u32) {
-        self.outbox.lock().push(((data as u64) << 32) | addr as u64);
+        QBus::write_reg(self, addr, data)
     }
-
     unsafe fn read_reg(&self, addr: u8) -> u32 {
-        match addr {
-            0x04 => {
-                if self.has_rx() {
-                    1
-                } else {
-                    0
-                }
-            }
-            0x34 => *self.rx_len.lock() as u32,
-            0x38 => self.inbox.lock().remove(0),
-            _ => 0,
-        }
+        QBus::read_reg(self, addr)
     }
 }
 
@@ -139,7 +178,14 @@ fn identity_from_seed(seed: &[u8]) -> &'static TestIdentity {
     Box::leak(Box::new(TestIdentity { vk, sk, spc }))
 }
 
-fn fsm_create(role: u32, peer_fp: &[u8], seed_identity: &[u8], seed_d: &[u8], seed_z: &[u8], nonce: &[u8]) -> *mut FsmHandle {
+fn fsm_create(
+    role: u32,
+    peer_fp: &[u8],
+    seed_identity: &[u8],
+    seed_d: &[u8],
+    seed_z: &[u8],
+    nonce: &[u8],
+) -> *mut FsmHandle {
     let id = identity_from_seed(seed_identity);
     let fp = hs::fingerprint(&id.vk);
     let peer_fp_arr: [u8; 32] = if peer_fp.iter().any(|&x| x != 0) {
@@ -191,6 +237,14 @@ pub extern "C" fn kyb_fsm_free(h: *mut FsmHandle) {
         unsafe {
             drop(Box::from_raw(h));
         }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn kyb_qbus_tick(h: *mut FsmHandle, n: u32) {
+    unsafe {
+        let h = &*h;
+        h.qbus.tick(n);
     }
 }
 

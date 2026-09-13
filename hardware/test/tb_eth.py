@@ -29,6 +29,7 @@ def setup(dut):
     dut.hsk_len_in.value = 0
     dut.m_data_tready.value = 1
     dut.hsk_ready.value = 1
+    dut.hsk_room.value = 512
     dut.arp_read.value = 0
     dut.ctrl_data.value = 0
     dut.ctrl_valid.value = 0

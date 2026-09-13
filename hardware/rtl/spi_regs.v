@@ -9,10 +9,10 @@ module spi_regs (
     input  wire        rreq,
     output wire [31:0] rdata,
 
-    input  wire        hsk_rx_wr,
-    input  wire [31:0] hsk_rx_data,
-    input  wire        hsk_rx_last,
-    input  wire [15:0] hsk_rx_len,
+    input wire        hsk_rx_wr,
+    input wire [31:0] hsk_rx_data,
+    input wire        hsk_rx_last,
+    input wire [15:0] hsk_rx_len,
 
     output wire        hsk_tx_valid,
     output wire [31:0] hsk_tx_data,
@@ -20,6 +20,7 @@ module spi_regs (
     output wire [15:0] hsk_tx_len,
     input  wire        hsk_tx_ready,
     output wire        hsk_rx_ready,
+    output wire [ 9:0] hsk_rx_room,
 
     output reg          key_load,
     output wire [255:0] key_enc,
@@ -34,18 +35,18 @@ module spi_regs (
     output wire [ 47:0] cfg_dst_mac,
     output wire [ 31:0] cfg_seq,
 
-    input  wire        seq_upd,
-    input  wire [31:0] seq_val,
+    input wire        seq_upd,
+    input wire [31:0] seq_val,
 
     input  wire [ 4:0] err_pulse,
     input  wire        arp_pending,
     input  wire [79:0] arp_capture,
     output wire        arp_read,
 
-    output wire        ctrl_valid,
-    output wire [ 7:0] ctrl_data,
-    output wire        ctrl_last,
-    input  wire        ctrl_ready,
+    output wire       ctrl_valid,
+    output wire [7:0] ctrl_data,
+    output wire       ctrl_last,
+    input  wire       ctrl_ready,
 
     output wire soft_rst
 );
@@ -65,47 +66,63 @@ module spi_regs (
   reg [255:0] r_key_enc;
   reg [255:0] r_key_dec;
   reg [ 15:0] r_hsk_tx_len;
-  reg [ 15:0] r_hsk_rx_len;
-  reg         hsk_rx_pending;
-  reg [ 4:0]  err_flags;
+  reg [ 15:0] len_q        [0:15];
+  reg [  3:0] len_wr_ptr;
+  reg [  3:0] len_rd_ptr;
+  reg [  4:0] len_cnt;
+  reg [ 15:0] rx_left;
+  reg [  4:0] err_flags;
   reg         soft_rst_r;
   assign soft_rst = soft_rst_r;
 
   wire [31:0] rx_rd_data;
-  reg [ 11:0] rx_wr_ptr;
-  reg [ 11:0] rx_rd_ptr;
-  reg [ 12:0] rx_cnt;
-  reg [ 11:0] tx_wr_ptr;
-  reg [ 11:0] tx_rd_ptr;
-  reg [ 12:0] tx_cnt;
-  reg [  1:0] tx_state;
-  reg [ 12:0] tx_n;
-  reg [ 15:0] tx_len_r;
+  reg  [ 8:0] rx_wr_ptr;
+  reg  [ 8:0] rx_rd_ptr;
+  reg  [ 9:0] rx_cnt;
+  reg  [ 8:0] tx_wr_ptr;
+  reg  [ 8:0] tx_rd_ptr;
+  reg  [ 9:0] tx_cnt;
+  reg  [ 1:0] tx_state;
+  reg  [12:0] tx_n;
+  reg  [15:0] tx_len_r;
 
   wire [31:0] tx_rd_data;
   reg         hsk_tx_valid_r;
   reg         hsk_tx_last_r;
 
-  reg [31:0] c_mem [0:15];
-  reg [ 3:0] c_wr_ptr;
-  reg [ 3:0] c_rd_ptr;
-  reg [ 4:0] c_cnt;
-  reg [ 8:0] c_len;
-  reg [ 1:0] c_state;
-  reg [ 1:0] c_hb;
-  reg [ 8:0] c_tx_n;
+  reg  [31:0] c_mem          [0:15];
+  reg  [ 3:0] c_wr_ptr;
+  reg  [ 3:0] c_rd_ptr;
+  reg  [ 4:0] c_cnt;
+  reg  [ 8:0] c_len;
+  reg  [ 1:0] c_state;
+  reg  [ 1:0] c_hb;
+  reg  [ 8:0] c_tx_n;
 
   localparam TX_IDLE = 2'd0;
   localparam TX_DUMP = 2'd1;
-  localparam C_IDLE = 2'd0;
-  localparam C_RUN = 2'd1;
+  localparam C_IDLE  = 2'd0;
+  localparam C_RUN   = 2'd1;
 
+  wire tx_busy = (tx_cnt != 10'd0) || (tx_state == TX_DUMP);
   wire [15:0] tx_words = {2'd0, tx_len_r[15:2]} + {14'd0, |tx_len_r[1:0]};
-  assign hsk_tx_len   = tx_len_r;
-  assign hsk_rx_ready = (rx_cnt != 13'd2048);
-  assign hsk_tx_data  = tx_rd_data;
+  assign hsk_tx_len = tx_len_r;
+  wire [ 3:0] nxt_ptr = len_rd_ptr + 4'd1;
+  wire        len_push = hsk_rx_last && (len_cnt != 5'd16);
+  wire        rd_pop = rreq && (raddr == 7'h38) && (rx_cnt != 13'd0);
+  wire        pop_last = rd_pop && (rx_left <= 16'd1);
+  wire [15:0] push_words = {2'd0, hsk_rx_len[15:2]} + {14'd0, |hsk_rx_len[1:0]};
+  wire [15:0] nxt_len = (len_push && (len_wr_ptr == nxt_ptr)) ? hsk_rx_len : len_q[nxt_ptr];
+  wire [15:0] nxt_words = {2'd0, nxt_len[15:2]} + {14'd0, |nxt_len[1:0]};
+  wire        left_load = (len_push && (len_cnt == 5'd0)) || pop_last;
+  wire [15:0] left_val = (len_push && (len_cnt == 5'd0)) ? push_words : nxt_words;
+  wire        hsk_rx_pending = (len_cnt != 5'd0);
+
+  assign hsk_rx_ready = (rx_cnt != 10'd512) && (len_cnt != 5'd16);
+  assign hsk_rx_room = 10'd512 - rx_cnt[9:0];
+  assign hsk_tx_data = tx_rd_data;
   assign hsk_tx_valid = hsk_tx_valid_r;
-  assign hsk_tx_last  = hsk_tx_last_r;
+  assign hsk_tx_last = hsk_tx_last_r;
   assign key_enc = r_key_enc;
   assign key_dec = r_key_dec;
   assign cfg_spi = r_spi;
@@ -118,20 +135,20 @@ module spi_regs (
   assign cfg_dst_mac = {r_dst_mac_hi, r_dst_mac_lo};
   assign cfg_seq = r_seq;
 
-  bram_32x2048 u_rx_fifo (
+  bram_32x512 u_rx_fifo (
       .clk(clk),
-      .waddr(rx_wr_ptr[10:0]),
+      .waddr(rx_wr_ptr[8:0]),
       .wdata(hsk_rx_data),
       .we(hsk_rx_wr),
-      .raddr(rx_rd_ptr[10:0]),
+      .raddr(rx_rd_ptr[8:0]),
       .rdata(rx_rd_data)
   );
-  bram_32x2048 u_tx_fifo (
+  bram_32x512 u_tx_fifo (
       .clk(clk),
-      .waddr(tx_wr_ptr[10:0]),
+      .waddr(tx_wr_ptr[8:0]),
       .wdata(wdata),
       .we(wvalid && (waddr == 7'h40)),
-      .raddr(tx_rd_ptr[10:0]),
+      .raddr(tx_rd_ptr[8:0]),
       .rdata(tx_rd_data)
   );
 
@@ -151,18 +168,20 @@ module spi_regs (
       r_key_enc <= 256'd0;
       r_key_dec <= 256'd0;
       r_hsk_tx_len <= 16'd0;
-      r_hsk_rx_len <= 16'd0;
-      hsk_rx_pending <= 1'b0;
+      len_wr_ptr <= 4'd0;
+      len_rd_ptr <= 4'd0;
+      len_cnt <= 5'd0;
+      rx_left <= 16'd0;
       key_load <= 1'b0;
       r_seq <= 32'd1;
       err_flags <= 5'd0;
       soft_rst_r <= 1'b0;
-      rx_wr_ptr <= 12'd0;
-      rx_rd_ptr <= 12'd0;
-      rx_cnt <= 13'd0;
-      tx_wr_ptr <= 12'd0;
-      tx_rd_ptr <= 12'd0;
-      tx_cnt <= 13'd0;
+      rx_wr_ptr <= 9'd0;
+      rx_rd_ptr <= 9'd0;
+      rx_cnt <= 10'd0;
+      tx_wr_ptr <= 9'd0;
+      tx_rd_ptr <= 9'd0;
+      tx_cnt <= 10'd0;
       tx_state <= TX_IDLE;
       tx_n <= 13'd0;
       tx_len_r <= 16'd0;
@@ -176,14 +195,14 @@ module spi_regs (
       c_hb <= 2'd0;
       c_tx_n <= 9'd0;
     end else begin
-      key_load <= 1'b0;
+      key_load   <= 1'b0;
       soft_rst_r <= 1'b0;
       if (tx_state == TX_DUMP && tx_n < tx_words) begin
         hsk_tx_valid_r <= 1'b1;
-        hsk_tx_last_r <= (tx_n == (tx_words - 16'd1));
+        hsk_tx_last_r  <= (tx_n == (tx_words - 16'd1));
       end else begin
         hsk_tx_valid_r <= 1'b0;
-        hsk_tx_last_r <= 1'b0;
+        hsk_tx_last_r  <= 1'b0;
       end
       if (wvalid) begin
         case (waddr)
@@ -210,8 +229,8 @@ module spi_regs (
           7'h74:   r_seq <= wdata;
           7'h3C:   r_hsk_tx_len <= wdata[15:0];
           7'h40: begin
-            tx_wr_ptr <= tx_wr_ptr + 12'd1;
-            tx_cnt <= tx_cnt + 13'd1;
+            tx_wr_ptr <= tx_wr_ptr + 9'd1;
+            tx_cnt <= tx_cnt + 10'd1;
           end
           7'h41: begin
             if (c_cnt < 5'd16) begin
@@ -247,20 +266,23 @@ module spi_regs (
           default: ;
         endcase
       end
-      if (rreq && (raddr == 7'h38) && (rx_cnt != 13'd0)) begin
-        rx_rd_ptr <= rx_rd_ptr + 12'd1;
-        rx_cnt <= rx_cnt - 13'd1;
+      if (rd_pop) begin
+        rx_rd_ptr <= rx_rd_ptr + 9'd1;
+        rx_cnt    <= rx_cnt - 10'd1;
       end
       if (hsk_rx_wr) begin
-        rx_wr_ptr <= rx_wr_ptr + 12'd1;
-        rx_cnt <= rx_cnt + 13'd1;
+        rx_wr_ptr <= rx_wr_ptr + 9'd1;
+        rx_cnt    <= rx_cnt + 10'd1;
       end
-      if (hsk_rx_last) begin
-        r_hsk_rx_len   <= hsk_rx_len;
-        hsk_rx_pending <= 1'b1;
+      if (len_push) begin
+        len_q[len_wr_ptr] <= hsk_rx_len;
+        len_wr_ptr <= len_wr_ptr + 4'd1;
       end
+      len_cnt <= len_cnt + (len_push ? 5'd1 : 5'd0) - (pop_last ? 5'd1 : 5'd0);
+      if (pop_last) len_rd_ptr <= len_rd_ptr + 4'd1;
+      if (left_load) rx_left <= left_val;
+      else if (rd_pop) rx_left <= rx_left - 16'd1;
       if (seq_upd) r_seq <= seq_val;
-      if (rx_cnt == 13'd0) hsk_rx_pending <= 1'b0;
       if (err_pulse[0]) err_flags[0] <= 1'b1;
       if (err_pulse[1]) err_flags[1] <= 1'b1;
       if (err_pulse[2]) err_flags[2] <= 1'b1;
@@ -268,13 +290,16 @@ module spi_regs (
       if (err_pulse[4]) err_flags[4] <= 1'b1;
       if (soft_rst_r) begin
         err_flags <= 5'd0;
-        rx_wr_ptr <= 12'd0;
-        rx_rd_ptr <= 12'd0;
-        rx_cnt <= 13'd0;
-        hsk_rx_pending <= 1'b0;
-        tx_wr_ptr <= 12'd0;
-        tx_rd_ptr <= 12'd0;
-        tx_cnt <= 13'd0;
+        rx_wr_ptr <= 9'd0;
+        rx_rd_ptr <= 9'd0;
+        rx_cnt <= 10'd0;
+        len_wr_ptr <= 4'd0;
+        len_rd_ptr <= 4'd0;
+        len_cnt <= 5'd0;
+        rx_left <= 16'd0;
+        tx_wr_ptr <= 9'd0;
+        tx_rd_ptr <= 9'd0;
+        tx_cnt <= 10'd0;
         tx_state <= TX_IDLE;
         tx_n <= 13'd0;
         tx_len_r <= 16'd0;
@@ -282,8 +307,8 @@ module spi_regs (
         case (tx_state)
           TX_DUMP: begin
             if (hsk_tx_ready && tx_n < tx_words) begin
-              tx_rd_ptr <= tx_rd_ptr + 12'd1;
-              tx_cnt <= tx_cnt - 13'd1;
+              tx_rd_ptr <= tx_rd_ptr + 9'd1;
+              tx_cnt <= tx_cnt - 10'd1;
               if (tx_n == tx_words - 13'd1) begin
                 tx_state <= TX_IDLE;
                 tx_n <= 13'd0;
@@ -305,7 +330,7 @@ module spi_regs (
             end
             if (c_tx_n == c_len - 9'd1) begin
               c_state <= C_IDLE;
-              c_tx_n <= 9'd0;
+              c_tx_n  <= 9'd0;
             end else begin
               c_tx_n <= c_tx_n + 9'd1;
             end
@@ -320,8 +345,8 @@ module spi_regs (
   always @* begin
     rdata_c = 32'd0;
     case (raddr)
-      7'h04:   rdata_c = {29'd0, arp_pending, hsk_rx_pending};
-      7'h34:   rdata_c = {16'd0, r_hsk_rx_len};
+      7'h04:   rdata_c = {27'd0, arp_pending, tx_busy, hsk_rx_pending};
+      7'h34:   rdata_c = {16'd0, (len_cnt != 5'd0) ? len_q[len_rd_ptr] : 16'd0};
       7'h38:   rdata_c = rx_rd_data;
       7'h50:   rdata_c = {27'd0, err_flags};
       7'h51:   rdata_c = {8'd0, arp_capture[79:48]};
@@ -335,7 +360,7 @@ module spi_regs (
   assign arp_read = rreq && (raddr == 7'h51);
 
   assign ctrl_valid = (c_state == C_RUN);
-  assign ctrl_data  = c_mem[c_rd_ptr[3:0]][31-8*c_hb -: 8];
-  assign ctrl_last  = (c_tx_n == c_len - 9'd1);
+  assign ctrl_data = c_mem[c_rd_ptr[3:0]][31-8*c_hb-:8];
+  assign ctrl_last = (c_tx_n == c_len - 9'd1);
 
 endmodule

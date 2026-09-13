@@ -28,63 +28,64 @@ module link_core (
     output wire tag_ok
 );
 
-  wire key_load;
+  wire         key_load;
   wire [255:0] key_enc;
   wire [255:0] key_dec;
-  wire [31:0] cfg_spi;
-  wire [95:0] cfg_iv;
-  wire [31:0] cfg_src_ip;
-  wire [31:0] cfg_dst_ip;
-  wire [15:0] cfg_src_port;
-  wire [15:0] cfg_dst_port;
-  wire [47:0] cfg_src_mac;
-  wire [47:0] cfg_dst_mac;
-  wire [31:0] cfg_seq;
+  wire [ 31:0] cfg_spi;
+  wire [ 95:0] cfg_iv;
+  wire [ 31:0] cfg_src_ip;
+  wire [ 31:0] cfg_dst_ip;
+  wire [ 15:0] cfg_src_port;
+  wire [ 15:0] cfg_dst_port;
+  wire [ 47:0] cfg_src_mac;
+  wire [ 47:0] cfg_dst_mac;
+  wire [ 31:0] cfg_seq;
 
-  wire enc_s_tready;
-  wire [7:0] enc_m_tdata;
-  wire enc_m_tvalid;
-  wire enc_m_tlast;
-  wire enc_m_tready;
+  wire         enc_s_tready;
+  wire [  7:0] enc_m_tdata;
+  wire         enc_m_tvalid;
+  wire         enc_m_tlast;
+  wire         enc_m_tready;
 
-  wire [7:0] dec_s_tdata;
-  wire dec_s_tvalid;
-  wire dec_s_tlast;
-  wire dec_s_tready;
-  wire [7:0] dec_m_tdata;
-  wire dec_m_tvalid;
-  wire dec_m_tlast;
-  wire dec_m_tready;
+  wire [  7:0] dec_s_tdata;
+  wire         dec_s_tvalid;
+  wire         dec_s_tlast;
+  wire         dec_s_tready;
+  wire [  7:0] dec_m_tdata;
+  wire         dec_m_tvalid;
+  wire         dec_m_tlast;
+  wire         dec_m_tready;
 
-  wire hsk_wr;
-  wire [31:0] hsk_data;
-  wire hsk_last;
-  wire [15:0] hsk_len;
-  wire hsk_ready;
-  wire [7:0] ctrl_rx_tdata;
-  wire ctrl_rx_tvalid;
-  wire ctrl_rx_tlast;
-  wire [7:0] ctrl_tx_tdata;
-  wire ctrl_tx_tvalid;
-  wire ctrl_tx_tlast;
-  wire ctrl_tx_tready;
+  wire         hsk_wr;
+  wire [ 31:0] hsk_data;
+  wire         hsk_last;
+  wire [ 15:0] hsk_len;
+  wire         hsk_ready;
+  wire [  9:0] hsk_room;
+  wire [  7:0] ctrl_rx_tdata;
+  wire         ctrl_rx_tvalid;
+  wire         ctrl_rx_tlast;
+  wire [  7:0] ctrl_tx_tdata;
+  wire         ctrl_tx_tvalid;
+  wire         ctrl_tx_tlast;
+  wire         ctrl_tx_tready;
 
-  wire hsk_tx_valid;
-  wire [31:0] hsk_tx_data;
-  wire hsk_tx_last;
-  wire [15:0] hsk_tx_len;
-  wire hsk_tx_ready;
+  wire         hsk_tx_valid;
+  wire [ 31:0] hsk_tx_data;
+  wire         hsk_tx_last;
+  wire [ 15:0] hsk_tx_len;
+  wire         hsk_tx_ready;
 
-  wire err_badtag_w;
-  wire err_badpad_w;
-  wire err_replay_w;
-  wire err_oversize_w;
-  wire err_rxdrop_w;
-  wire soft_rst_w;
+  wire         err_badtag_w;
+  wire         err_badpad_w;
+  wire         err_replay_w;
+  wire         err_oversize_w;
+  wire         err_rxdrop_w;
+  wire         soft_rst_w;
 
-  wire        hsk_arp_pending;
-  wire [79:0] hsk_arp_capture;
-  wire        hsk_arp_read;
+  wire         hsk_arp_pending;
+  wire [ 79:0] hsk_arp_capture;
+  wire         hsk_arp_read;
 
   spi_top u_spi (
       .clk(clk),
@@ -103,6 +104,7 @@ module link_core (
       .hsk_tx_len(hsk_tx_len),
       .hsk_tx_ready(hsk_tx_ready),
       .hsk_rx_ready(hsk_ready),
+      .hsk_rx_room(hsk_room),
       .key_load(key_load),
       .key_enc(key_enc),
       .key_dec(key_dec),
@@ -129,8 +131,8 @@ module link_core (
 
       .ctrl_ready(ctrl_tx_tready),
       .ctrl_valid(ctrl_tx_tvalid),
-      .ctrl_data(ctrl_tx_tdata),
-      .ctrl_last(ctrl_tx_tlast),
+      .ctrl_data (ctrl_tx_tdata),
+      .ctrl_last (ctrl_tx_tlast),
 
       .soft_rst(soft_rst_w)
   );
@@ -199,6 +201,7 @@ module link_core (
       .hsk_last(hsk_last),
       .hsk_len(hsk_len),
       .hsk_ready(hsk_ready),
+      .hsk_room(hsk_room),
       .m_ctrl_tdata(ctrl_rx_tdata),
       .m_ctrl_tvalid(ctrl_rx_tvalid),
       .m_ctrl_tlast(ctrl_rx_tlast),

@@ -23,6 +23,7 @@ module eth_top (
     output wire        hsk_last,
     output wire [15:0] hsk_len,
     input  wire        hsk_ready,
+    input  wire [ 9:0] hsk_room,
 
     input  wire [31:0] s_hsk_tdata,
     input  wire        s_hsk_tvalid,
@@ -38,10 +39,10 @@ module eth_top (
     output wire [79:0] arp_capture,
     input  wire        arp_read,
 
-    input  wire        ctrl_valid,
-    input  wire [ 7:0] ctrl_data,
-    input  wire        ctrl_last,
-    output wire        ctrl_ready,
+    input  wire       ctrl_valid,
+    input  wire [7:0] ctrl_data,
+    input  wire       ctrl_last,
+    output wire       ctrl_ready,
 
     output wire [7:0] m_tdata,
     output wire       m_tvalid,
@@ -71,6 +72,7 @@ module eth_top (
       .hsk_last(hsk_last),
       .hsk_len(hsk_len),
       .hsk_ready(hsk_ready),
+      .hsk_room(hsk_room),
       .m_ctrl_tdata(ctrl_a_tdata),
       .m_ctrl_tvalid(ctrl_a_tvalid),
       .m_ctrl_tlast(ctrl_a_tlast)

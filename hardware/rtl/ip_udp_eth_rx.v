@@ -20,10 +20,11 @@ module ip_udp_eth_rx (
     output reg         hsk_last,
     output reg  [15:0] hsk_len,
     input  wire        hsk_ready,
+    input  wire [ 9:0] hsk_room,
 
-    output reg  [7:0] m_ctrl_tdata,
-    output reg        m_ctrl_tvalid,
-    output reg        m_ctrl_tlast,
+    output reg [7:0] m_ctrl_tdata,
+    output reg       m_ctrl_tvalid,
+    output reg       m_ctrl_tlast,
 
     output reg err_rxdrop
 );
@@ -38,6 +39,7 @@ module ip_udp_eth_rx (
   reg [31:0] hsk_acc;
   reg [15:0] hsk_len_r;
   reg is_hsk;
+  reg hsk_seen;
   reg is_data;
   reg [15:0] udp_len_r;
   reg pay_done;
@@ -48,6 +50,8 @@ module ip_udp_eth_rx (
   wire [15:0] pay_w = udp_len_r - 16'd8;
   wire in_pay = (cnt >= 14'd42) && (cnt < 14'd42 + {2'd0, pay_w});
   wire pay_end = (cnt == 14'd41 + {2'd0, pay_w});
+  wire [15:0] pay_words = {2'd0, pay_w[15:2]} + {14'd0, |pay_w[1:0]};
+  wire hsk_fit = (pay_w >= 16'd8) && ({6'd0, hsk_room} >= pay_words);
 
   wire dmac_ok = (cnt < 14'd6) ? (d == cfg_src_mac[47-8*cnt[2:0]-:8]) : 1'b1;
   wire etype_ok = (cnt == 14'd12) ? (d == 8'h08) : (cnt == 14'd13) ? (d == 8'h00) : 1'b1;
@@ -69,6 +73,7 @@ module ip_udp_eth_rx (
       hsk_acc <= 32'd0;
       hsk_len_r <= 16'd0;
       is_hsk <= 1'b0;
+      hsk_seen <= 1'b0;
       is_data <= 1'b0;
       udp_len_r <= 16'd0;
       pay_done <= 1'b0;
@@ -106,6 +111,7 @@ module ip_udp_eth_rx (
             hsk_acc <= 32'd0;
             hsk_len_r <= 16'd0;
             is_hsk <= 1'b0;
+            hsk_seen <= 1'b0;
             is_data <= 1'b0;
             udp_len_r <= 16'd0;
             pay_done <= 1'b0;
@@ -118,14 +124,15 @@ module ip_udp_eth_rx (
         end
         ST_RX: begin
           if (s_tvalid && s_tready) begin
-            m_ctrl_tdata <= d;
+            m_ctrl_tdata  <= d;
             m_ctrl_tvalid <= 1'b1;
-            m_ctrl_tlast <= s_tlast;
+            m_ctrl_tlast  <= s_tlast;
             if (bad_here) drop <= 1'b1;
             if (cnt == 14'd37) begin
-              if (d == 8'h95) is_hsk <= 1'b1;
+              if (d == 8'h95) hsk_seen <= 1'b1;
               else if ((d == 8'h94) || (d == cfg_dport[7:0])) is_data <= 1'b1;
             end
+            if (cnt == 14'd40 && hsk_seen && hsk_ready && hsk_fit) is_hsk <= 1'b1;
             if (cnt == 14'd38) udp_len_r[15:8] <= d;
             if (cnt == 14'd39) udp_len_r[7:0] <= d;
             if (cnt >= 14'd42 && in_pay && !drop && !pay_done) begin
@@ -157,8 +164,9 @@ module ip_udp_eth_rx (
                 hsk_len <= hsk_len_r + 16'd1;
               end
             end
-      if (s_tlast) begin
+            if (s_tlast) begin
               if (drop && is_data) err_rxdrop <= 1'b1;
+              if (drop && is_hsk) err_rxdrop <= 1'b1;
               if (is_hsk && !drop && !pay_done) begin
                 hsk_tail <= hsk_bc + 2'd1;
                 hsk_tail_v <= 1'b1;
