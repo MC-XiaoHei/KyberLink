@@ -39,11 +39,11 @@ fn main() {
     let (ek, dk) = keygen_internal(&seed, &seed);
 
     let t = Instant::now();
-    let (ss, ct) = encaps_internal(&ek, &seed);
+    let (_, ct) = encaps_internal(&ek, &seed);
     println!("self ML-KEM encaps : {:?}", t.elapsed());
 
     let t = Instant::now();
-    let ss2 = decaps_internal(&dk, &ct);
+    let _ = decaps_internal(&dk, &ct);
     println!("self ML-KEM decaps : {:?}", t.elapsed());
 
     use kyberlink_crypto::kem::{encapsulate_deterministic, decapsulate, KemKeyPair};
@@ -52,10 +52,10 @@ fn main() {
     println!("ml-kem   keygen     : {:?}", t.elapsed());
 
     let t = Instant::now();
-    let (ct_std, ss_std) = encapsulate_deterministic(&kpk.ek, &[2u8; 32]);
+    let (ct_std, _) = encapsulate_deterministic(&kpk.ek, &[2u8; 32]);
     println!("ml-kem   encaps     : {:?}", t.elapsed());
 
     let t = Instant::now();
-    let ss2_std = decapsulate(&kpk.dk, &ct_std);
+    let _ = decapsulate(&kpk.dk, &ct_std);
     println!("ml-kem   decaps     : {:?}", t.elapsed());
 }

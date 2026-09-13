@@ -202,7 +202,7 @@ fn kpke_keygen(d: &[u8; 32]) -> ([u8; EK_LEN], [u8; DK_PKE_LEN], KeygenMid) {
     sigma.copy_from_slice(&out[32..]);
 
     let mut a = [[0u16; 256]; 9];
-    for (i, row) in a.chunks_exact_mut(3).enumerate() {
+    for (i, row) in a.as_chunks_mut::<3>().0.iter_mut().enumerate() {
         for (j, cell) in row.iter_mut().enumerate() {
             *cell = sample_ntt_poly(&rho, j as u8, i as u8);
         }
@@ -292,7 +292,7 @@ fn kpke_encrypt(ek: &[u8], m: &[u8; 32], r: &[u8; 32]) -> ([u8; CT_LEN], EncapsM
     rho.copy_from_slice(&ek[1152..1184]);
 
     let mut a = [[0u16; 256]; 9];
-    for (i, row) in a.chunks_exact_mut(3).enumerate() {
+    for (i, row) in a.as_chunks_mut::<3>().0.iter_mut().enumerate() {
         for (j, cell) in row.iter_mut().enumerate() {
             *cell = sample_ntt_poly(&rho, j as u8, i as u8);
         }

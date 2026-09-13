@@ -1,5 +1,4 @@
 fn main() {
-    let q: u64 = 8380417;
     let zeta = 1753u64;
     fn pow_mod(mut b: u64, mut e: u64) -> u64 {
         let mut r = 1u64;

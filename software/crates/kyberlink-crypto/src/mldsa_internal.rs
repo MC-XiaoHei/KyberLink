@@ -46,7 +46,7 @@ pub fn rej_ntt_poly(rho: &[u8], r: u8, s: u8) -> [u32; 256] {
     let mut pos = 0usize;
     while n < 256 && pos + 2 < 1008 {
         let b2 = buf[pos + 2] as u32 - if buf[pos + 2] > 127 { 128 } else { 0 };
-        let z = ((b2 as u32) << 16) | ((buf[pos + 1] as u32) << 8) | (buf[pos] as u32);
+        let z = (b2 << 16) | ((buf[pos + 1] as u32) << 8) | (buf[pos] as u32);
         pos += 3;
         if z < Q {
             f[n] = z;
@@ -250,7 +250,7 @@ fn poly_mul_ntt(a: &[u32; 256], b: &[u32; 256]) -> [u32; 256] {
 
 pub fn mat_mul_vec(a: &[[u32; 256]; K * L], v: &[[u32; 256]; L]) -> [[u32; 256]; K] {
     let mut out = [[0u32; 256]; K];
-    for (i, row) in a.chunks_exact(L).enumerate() {
+    for (i, row) in a.as_chunks::<L>().0.iter().enumerate() {
         for k in 0..256 {
             let acc = row
                 .iter()
@@ -278,7 +278,7 @@ fn decode_s<const N: usize>(bytes: &[u8]) -> [[u32; 256]; N] {
     let mut flat = [0u32; 1536];
     unpack::<4>(bytes, &mut flat[..N * 256]);
     let mut out = [[0u32; 256]; N];
-    for (op, fp) in out.iter_mut().zip(flat.chunks_exact(256)) {
+    for (op, fp) in out.iter_mut().zip(flat.as_chunks::<256>().0.iter()) {
         for (oc, &fc) in op.iter_mut().zip(fp.iter()) {
             *oc = (ETA + Q - fc) % Q;
         }
@@ -302,7 +302,7 @@ fn decode_t0<const N: usize>(bytes: &[u8]) -> [[u32; 256]; N] {
     let mut flat = [0u32; 1536];
     unpack::<D>(bytes, &mut flat[..N * 256]);
     let mut out = [[0u32; 256]; N];
-    for (op, fp) in out.iter_mut().zip(flat.chunks_exact(256)) {
+    for (op, fp) in out.iter_mut().zip(flat.as_chunks::<256>().0.iter()) {
         for (oc, &fc) in op.iter_mut().zip(fp.iter()) {
             *oc = ((1 << (D - 1)) + Q - fc) % Q;
         }
@@ -326,7 +326,7 @@ fn decode_t1<const N: usize>(bytes: &[u8]) -> [[u32; 256]; N] {
     let mut flat = [0u32; 1536];
     unpack::<10>(bytes, &mut flat[..N * 256]);
     let mut out = [[0u32; 256]; N];
-    for (op, fp) in out.iter_mut().zip(flat.chunks_exact(256)) {
+    for (op, fp) in out.iter_mut().zip(flat.as_chunks::<256>().0.iter()) {
         for (oc, &fc) in op.iter_mut().zip(fp.iter()) {
             *oc = fc;
         }
@@ -350,7 +350,7 @@ fn decode_z<const N: usize>(bytes: &[u8]) -> [[u32; 256]; N] {
     let mut flat = [0u32; 1536];
     unpack::<20>(bytes, &mut flat[..N * 256]);
     let mut out = [[0u32; 256]; N];
-    for (op, fp) in out.iter_mut().zip(flat.chunks_exact(256)) {
+    for (op, fp) in out.iter_mut().zip(flat.as_chunks::<256>().0.iter()) {
         for (oc, &w) in op.iter_mut().zip(fp.iter()) {
             *oc = if w <= GAMMA1 {
                 (GAMMA1 - w) % Q
@@ -431,7 +431,7 @@ pub fn keygen_internal(seed: &[u8; 32]) -> ([u8; VK_LEN], [u8; SK_LEN]) {
     kk.copy_from_slice(&gout[96..128]);
 
     let mut a_hat = [[0u32; 256]; K * L];
-    for (i, row) in a_hat.chunks_exact_mut(L).enumerate() {
+    for (i, row) in a_hat.as_chunks_mut::<L>().0.iter_mut().enumerate() {
         for (j, cell) in row.iter_mut().enumerate() {
             *cell = rej_ntt_poly(&rho, i as u8, j as u8);
         }
@@ -541,7 +541,7 @@ fn sign_core(sk: &[u8; SK_LEN], mu_b: &[u8; 64], rnd: &[u8; 32]) -> [u8; SIG_LEN
     let t0_hat = ntt_vec(&t0);
 
     let mut a_hat = [[0u32; 256]; K * L];
-    for (i, row) in a_hat.chunks_exact_mut(L).enumerate() {
+    for (i, row) in a_hat.as_chunks_mut::<L>().0.iter_mut().enumerate() {
         for (j, cell) in row.iter_mut().enumerate() {
             *cell = rej_ntt_poly(rho, i as u8, j as u8);
         }
@@ -747,24 +747,24 @@ pub fn sign_precomp_new_into(pc: &mut SignPrecomp, sk: &[u8; SK_LEN]) {
     for i in 0..K {
         for j in 0..L {
             let p = rej_ntt_poly(rho, i as u8, j as u8);
-            for k in 0..256 {
-                pack3(&mut pc.a_hat_packed, ((i * L + j) * 256 + k) * 3, p[k]);
+            for (k, &v) in p.iter().enumerate() {
+                pack3(&mut pc.a_hat_packed, ((i * L + j) * 256 + k) * 3, v);
             }
         }
     }
     for (i, s) in ntt_vec(&s1).iter().enumerate() {
-        for k in 0..256 {
-            pack3(&mut pc.s1_hat_packed, (i * 256 + k) * 3, s[k]);
+        for (k, &v) in s.iter().enumerate() {
+            pack3(&mut pc.s1_hat_packed, (i * 256 + k) * 3, v);
         }
     }
     for (i, s) in ntt_vec(&s2).iter().enumerate() {
-        for k in 0..256 {
-            pack3(&mut pc.s2_hat_packed, (i * 256 + k) * 3, s[k]);
+        for (k, &v) in s.iter().enumerate() {
+            pack3(&mut pc.s2_hat_packed, (i * 256 + k) * 3, v);
         }
     }
     for (i, s) in ntt_vec(&t0).iter().enumerate() {
-        for k in 0..256 {
-            pack3(&mut pc.t0_hat_packed, (i * 256 + k) * 3, s[k]);
+        for (k, &v) in s.iter().enumerate() {
+            pack3(&mut pc.t0_hat_packed, (i * 256 + k) * 3, v);
         }
     }
 }
@@ -790,21 +790,21 @@ pub fn sign_precomp_into(
         for (i, yp) in y.iter().enumerate() {
             let mut tmp = *yp;
             ntt(&mut tmp);
-            for k in 0..256 {
-                pack3(&mut y_hat_packed, (i * 256 + k) * 3, tmp[k]);
+            for (k, &v) in tmp.iter().enumerate() {
+                pack3(&mut y_hat_packed, (i * 256 + k) * 3, v);
             }
         }
 
         let mut w = [[0u32; 256]; K];
-        for i in 0..K {
-            for k in 0..256 {
+        for (i, wi) in w.iter_mut().enumerate() {
+            for (k, wc) in wi.iter_mut().enumerate() {
                 let mut acc = 0u64;
                 for j in 0..L {
                     let ar = unpack3(pc.a_hat_packed.as_slice(), ((i * L + j) * 256 + k) * 3);
                     let yr = unpack3(y_hat_packed.as_slice(), (j * 256 + k) * 3);
                     acc += ar as u64 * yr as u64;
                 }
-                w[i][k] = (acc % Q as u64) as u32;
+                *wc = (acc % Q as u64) as u32;
             }
         }
         for wp in w.iter_mut() {
@@ -812,7 +812,7 @@ pub fn sign_precomp_into(
         }
 
         let mut w1_tilde = [0u8; K * 128];
-        for (wp, out) in w.iter().zip(w1_tilde.chunks_exact_mut(128)) {
+        for (wp, out) in w.iter().zip(w1_tilde.as_chunks_mut::<128>().0.iter_mut()) {
             let mut hi = [0u32; 256];
             for (hc, &wv) in hi.iter_mut().zip(wp.iter()) {
                 *hc = high_bits(wv);
@@ -831,17 +831,17 @@ pub fn sign_precomp_into(
 
         let mut ok = true;
         let mut cp = [0u32; 256];
-        for i in 0..L {
+        for (i, yi) in y.iter_mut().enumerate() {
             for k in 0..256 {
                 let cr = c_hat[k] as u64;
                 let sr = unpack3(pc.s1_hat_packed.as_slice(), (i * 256 + k) * 3) as u64;
                 cp[k] = ((cr * sr) % Q as u64) as u32;
             }
             invntt(&mut cp);
-            for (yc, &cc) in y[i].iter_mut().zip(cp.iter()) {
+            for (yc, &cc) in yi.iter_mut().zip(cp.iter()) {
                 *yc = (*yc + cc) % Q;
             }
-            if infinity_norm(&y[i]) >= GAMMA1_MINUS_BETA {
+            if infinity_norm(yi) >= GAMMA1_MINUS_BETA {
                 ok = false;
             }
         }
@@ -851,18 +851,18 @@ pub fn sign_precomp_into(
         }
 
         // w -= cs2 inplace (w_minus_cs2); r0 = low_bits per-coeff check
-        for i in 0..K {
+        for (i, wi) in w.iter_mut().enumerate() {
             for k in 0..256 {
                 let cr = c_hat[k] as u64;
                 let sr = unpack3(pc.s2_hat_packed.as_slice(), (i * 256 + k) * 3) as u64;
                 cp[k] = ((cr * sr) % Q as u64) as u32;
             }
             invntt(&mut cp);
-            for (wc, &cc) in w[i].iter_mut().zip(cp.iter()) {
+            for (wc, &cc) in wi.iter_mut().zip(cp.iter()) {
                 *wc = (*wc + Q - cc) % Q;
             }
             let mut rmax = 0u32;
-            for &wm in w[i].iter() {
+            for &wm in wi.iter() {
                 let r0 = low_bits(wm);
                 let mag = if r0 > Q / 2 { Q - r0 } else { r0 };
                 if mag > rmax {
@@ -981,18 +981,18 @@ fn verify_core_precomp(pc: &VerifyPrecomp, mu_b: &[u8; 64], sig: &[u8; SIG_LEN])
     for zp in z.iter_mut() { ntt(zp); }
 
     let mut buf = [[0u32; 256]; K];
-    for i in 0..K {
-        for k in 0..256 {
+    for (i, bp) in buf.iter_mut().enumerate() {
+        for (k, bc) in bp.iter_mut().enumerate() {
             // u64 accumulation skips interleaved mod: 30 terms < 2^63, single mod at end
             let mut acc = 0u64;
-            for j in 0..L {
+            for (j, zj) in z.iter().enumerate() {
                 const ABASE: usize = 256 * 3;
                 let off = (i * L + j) * ABASE + k * 3;
                 let ar = unpack3(a_hat_packed.as_slice(), off);
-                let zr = z[j][k];
+                let zr = zj[k];
                 acc += ar as u64 * zr as u64;
             }
-            buf[i][k] = (acc % Q as u64) as u32;
+            *bc = (acc % Q as u64) as u32;
         }
     }
     for (i, op) in buf.iter_mut().enumerate() {
@@ -1067,7 +1067,7 @@ fn verify_core(vk: &[u8; VK_LEN], mu_b: &[u8; 64], sig: &[u8; SIG_LEN]) -> bool 
     for zp in z.iter_mut() { ntt(zp); }
 
     let mut buf = [[0u32; 256]; K];
-    for (i, row) in a_hat.chunks_exact(L).enumerate() {
+    for (i, row) in a_hat.as_chunks::<L>().0.iter().enumerate() {
         for k in 0..256 {
             // u64 accumulation skips interleaved mod: 30 terms < 2^63, single mod at end
             let acc = row
@@ -1157,17 +1157,17 @@ pub fn verify_precomp_timed(
     times[2] = mcycle_now();
 
     let mut buf = [[0u32; 256]; K];
-    for i in 0..K {
-        for k in 0..256 {
+    for (i, bp) in buf.iter_mut().enumerate() {
+        for (k, bc) in bp.iter_mut().enumerate() {
             let mut acc = 0u64;
-            for j in 0..L {
+            for (j, zj) in z.iter().enumerate() {
                 const ABASE: usize = 256 * 3;
                 let off = (i * L + j) * ABASE + k * 3;
                 let ar = unpack3(a_hat_packed.as_slice(), off);
-                let zr = z[j][k];
+                let zr = zj[k];
                 acc += ar as u64 * zr as u64;
             }
-            buf[i][k] = (acc % Q as u64) as u32;
+            *bc = (acc % Q as u64) as u32;
         }
     }
     times[3] = mcycle_now();
@@ -1236,12 +1236,12 @@ mod tests {
         for (i, yp) in y.iter().enumerate() {
             let mut tmp = *yp;
             ntt(&mut tmp);
-            for k in 0..256 {
-                pack3(&mut y_hat_packed, (i * 256 + k) * 3, tmp[k]);
+            for (k, &v) in tmp.iter().enumerate() {
+                pack3(&mut y_hat_packed, (i * 256 + k) * 3, v);
             }
         }
         let mut a_hat = [[0u32; 256]; K * L];
-        for (i, row) in a_hat.chunks_exact_mut(L).enumerate() {
+        for (i, row) in a_hat.as_chunks_mut::<L>().0.iter_mut().enumerate() {
             for (j, cell) in row.iter_mut().enumerate() {
                 *cell = rej_ntt_poly(rho, i as u8, j as u8);
             }
@@ -1250,15 +1250,15 @@ mod tests {
         let w_ref = mat_mul_vec(&a_hat, &y_hat);
 
         let mut w = [[0u32; 256]; K];
-        for i in 0..K {
-            for k in 0..256 {
+        for (i, wi) in w.iter_mut().enumerate() {
+            for (k, wc) in wi.iter_mut().enumerate() {
                 let mut acc = 0u64;
                 for j in 0..L {
                     let ar = unpack3(pc.a_hat_packed.as_slice(), ((i * L + j) * 256 + k) * 3);
                     let yr = unpack3(y_hat_packed.as_slice(), (j * 256 + k) * 3);
                     acc += ar as u64 * yr as u64;
                 }
-                w[i][k] = (acc % Q as u64) as u32;
+                *wc = (acc % Q as u64) as u32;
             }
         }
         assert_eq!(w, w_ref, "matmul mismatch");
@@ -1270,7 +1270,7 @@ mod tests {
         assert_eq!(w, w_ref2, "invntt mismatch");
 
         let mut w1_tilde = [0u8; K * 128];
-        for (wp, out) in w.iter().zip(w1_tilde.chunks_exact_mut(128)) {
+        for (wp, out) in w.iter().zip(w1_tilde.as_chunks_mut::<128>().0.iter_mut()) {
             let mut hi = [0u32; 256];
             for (hc, &wv) in hi.iter_mut().zip(wp.iter()) {
                 *hc = high_bits(wv);
@@ -1308,7 +1308,7 @@ mod tests {
             *o = poly_mul_ntt(&c_hat, &s);
         }
         let cs1_ref = invntt_vec(&cs1_hat);
-        let mut z_ref = y.clone();
+        let mut z_ref = y;
         for (zp, c1p) in z_ref.iter_mut().zip(cs1_ref.iter()) {
             for (zc, &c1c) in zp.iter_mut().zip(c1p.iter()) {
                 *zc = (*zc + c1c) % Q;
@@ -1316,14 +1316,14 @@ mod tests {
         }
 
         let mut cp = [0u32; 256];
-        for i in 0..L {
+        for (i, yi) in y.iter_mut().enumerate() {
             for k in 0..256 {
                 let cr = c_hat[k] as u64;
                 let sr = unpack3(pc.s1_hat_packed.as_slice(), (i * 256 + k) * 3) as u64;
                 cp[k] = ((cr * sr) % Q as u64) as u32;
             }
             invntt(&mut cp);
-            for (yc, &cc) in y[i].iter_mut().zip(cp.iter()) {
+            for (yc, &cc) in yi.iter_mut().zip(cp.iter()) {
                 *yc = (*yc + cc) % Q;
             }
         }
@@ -1334,7 +1334,7 @@ mod tests {
             *o = poly_mul_ntt(&c_hat, &s);
         }
         let cs2_ref = invntt_vec(&cs2_hat);
-        let mut w0_ref = w_ref2.clone();
+        let mut w0_ref = w_ref2;
         for ((op, wp), c2p) in w0_ref
             .iter_mut()
             .zip(w_ref2.iter())
@@ -1344,14 +1344,14 @@ mod tests {
                 *oc = (wv + Q - c2c) % Q;
             }
         }
-        for i in 0..K {
+        for (i, wi) in w.iter_mut().enumerate() {
             for k in 0..256 {
                 let cr = c_hat[k] as u64;
                 let sr = unpack3(pc.s2_hat_packed.as_slice(), (i * 256 + k) * 3) as u64;
                 cp[k] = ((cr * sr) % Q as u64) as u32;
             }
             invntt(&mut cp);
-            for (wc, &cc) in w[i].iter_mut().zip(cp.iter()) {
+            for (wc, &cc) in wi.iter_mut().zip(cp.iter()) {
                 *wc = (*wc + Q - cc) % Q;
             }
         }

@@ -1,5 +1,4 @@
 use kyberlink_crypto::handshake::{self, Identity};
-use kyberlink_crypto::kem_internal::EK_LEN;
 use kyberlink_crypto::mldsa_internal::{sign_precomp_new_into, SignPrecomp, SK_LEN, VK_LEN};
 use std::time::Instant;
 

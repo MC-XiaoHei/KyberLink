@@ -6,97 +6,111 @@ module sb_sbox16 (
 );
     wire [7:0] d0a, d0b, d1a, d1b, d2a, d2b, d3a, d3b;
     wire [7:0] d4a, d4b, d5a, d5b, d6a, d6b;
-    DPB #(.READ_MODE0(1'b0), .READ_MODE1(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8))
+    DPB #(
+        .READ_MODE0(1'b0), .READ_MODE1(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
+        .INIT_RAM_00(256'hc072a49cafa2d4adf04759fa7dc982ca76abd7fe2b670130c56f6bf27b777c63),
+        .INIT_RAM_01(256'h75b227ebe28012079a059618c323c7041531d871f1e5a534ccf73f362693fdb7),
+        .INIT_RAM_02(256'hcf584c4a39becb6a5bb1fc20ed00d153842fe329b3d63b52a05a6e1b1a2c8309),
+        .INIT_RAM_03(256'hd2f3ff1021dab6bcf5389d928f40a351a89f3c507f02f94585334d43fbaaefd0),
+        .INIT_RAM_04(256'hdb0b5ede14b8ee4688902a22dc4f816073195d643d7ea7c41744975fec130ccd),
+        .INIT_RAM_05(256'h08ae7a65eaf4566ca94ed58d6d37c8e779e4959162acd3c25c2406490a3a32e0),
+        .INIT_RAM_06(256'h9e1dc186b95735610ef6034866b53e708a8bbd4b1f74dde8c6b4a61c2e2578ba),
+        .INIT_RAM_07(256'h16bb54b00f2d99416842e6bf0d89a18cdf2855cee9871e9b948ed9691198f8e1)
+    )
         u0 (.DOA(d0a), .DOB(d0b), .DIA(8'd0), .DIB(8'd0), .BLKSELA(3'b000), .BLKSELB(3'b000),
             .ADA({3'd0, x[7:0], 3'b000}), .ADB({3'd0, x[15:8], 3'b000}), .WREA(1'b0), .WREB(1'b0),
             .CLKA(clk), .CLKB(clk), .CEA(1'b1), .CEB(1'b1), .OCEA(1'b1), .OCEB(1'b1),
             .RESETA(1'b0), .RESETB(1'b0));
-    defparam u0.INIT_RAM_00 = 256'hc072a49cafa2d4adf04759fa7dc982ca76abd7fe2b670130c56f6bf27b777c63;
-    defparam u0.INIT_RAM_01 = 256'h75b227ebe28012079a059618c323c7041531d871f1e5a534ccf73f362693fdb7;
-    defparam u0.INIT_RAM_02 = 256'hcf584c4a39becb6a5bb1fc20ed00d153842fe329b3d63b52a05a6e1b1a2c8309;
-    defparam u0.INIT_RAM_03 = 256'hd2f3ff1021dab6bcf5389d928f40a351a89f3c507f02f94585334d43fbaaefd0;
-    defparam u0.INIT_RAM_04 = 256'hdb0b5ede14b8ee4688902a22dc4f816073195d643d7ea7c41744975fec130ccd;
-    defparam u0.INIT_RAM_05 = 256'h08ae7a65eaf4566ca94ed58d6d37c8e779e4959162acd3c25c2406490a3a32e0;
-    defparam u0.INIT_RAM_06 = 256'h9e1dc186b95735610ef6034866b53e708a8bbd4b1f74dde8c6b4a61c2e2578ba;
-    defparam u0.INIT_RAM_07 = 256'h16bb54b00f2d99416842e6bf0d89a18cdf2855cee9871e9b948ed9691198f8e1;
-    DPB #(.READ_MODE0(1'b0), .READ_MODE1(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8))
+    DPB #(
+        .READ_MODE0(1'b0), .READ_MODE1(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
+        .INIT_RAM_00(256'hc072a49cafa2d4adf04759fa7dc982ca76abd7fe2b670130c56f6bf27b777c63),
+        .INIT_RAM_01(256'h75b227ebe28012079a059618c323c7041531d871f1e5a534ccf73f362693fdb7),
+        .INIT_RAM_02(256'hcf584c4a39becb6a5bb1fc20ed00d153842fe329b3d63b52a05a6e1b1a2c8309),
+        .INIT_RAM_03(256'hd2f3ff1021dab6bcf5389d928f40a351a89f3c507f02f94585334d43fbaaefd0),
+        .INIT_RAM_04(256'hdb0b5ede14b8ee4688902a22dc4f816073195d643d7ea7c41744975fec130ccd),
+        .INIT_RAM_05(256'h08ae7a65eaf4566ca94ed58d6d37c8e779e4959162acd3c25c2406490a3a32e0),
+        .INIT_RAM_06(256'h9e1dc186b95735610ef6034866b53e708a8bbd4b1f74dde8c6b4a61c2e2578ba),
+        .INIT_RAM_07(256'h16bb54b00f2d99416842e6bf0d89a18cdf2855cee9871e9b948ed9691198f8e1)
+    )
         u1 (.DOA(d1a), .DOB(d1b), .DIA(8'd0), .DIB(8'd0), .BLKSELA(3'b000), .BLKSELB(3'b000),
             .ADA({3'd0, x[23:16], 3'b000}), .ADB({3'd0, x[31:24], 3'b000}), .WREA(1'b0), .WREB(1'b0),
             .CLKA(clk), .CLKB(clk), .CEA(1'b1), .CEB(1'b1), .OCEA(1'b1), .OCEB(1'b1),
             .RESETA(1'b0), .RESETB(1'b0));
-    defparam u1.INIT_RAM_00 = 256'hc072a49cafa2d4adf04759fa7dc982ca76abd7fe2b670130c56f6bf27b777c63;
-    defparam u1.INIT_RAM_01 = 256'h75b227ebe28012079a059618c323c7041531d871f1e5a534ccf73f362693fdb7;
-    defparam u1.INIT_RAM_02 = 256'hcf584c4a39becb6a5bb1fc20ed00d153842fe329b3d63b52a05a6e1b1a2c8309;
-    defparam u1.INIT_RAM_03 = 256'hd2f3ff1021dab6bcf5389d928f40a351a89f3c507f02f94585334d43fbaaefd0;
-    defparam u1.INIT_RAM_04 = 256'hdb0b5ede14b8ee4688902a22dc4f816073195d643d7ea7c41744975fec130ccd;
-    defparam u1.INIT_RAM_05 = 256'h08ae7a65eaf4566ca94ed58d6d37c8e779e4959162acd3c25c2406490a3a32e0;
-    defparam u1.INIT_RAM_06 = 256'h9e1dc186b95735610ef6034866b53e708a8bbd4b1f74dde8c6b4a61c2e2578ba;
-    defparam u1.INIT_RAM_07 = 256'h16bb54b00f2d99416842e6bf0d89a18cdf2855cee9871e9b948ed9691198f8e1;
-    DPB #(.READ_MODE0(1'b0), .READ_MODE1(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8))
+    DPB #(
+        .READ_MODE0(1'b0), .READ_MODE1(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
+        .INIT_RAM_00(256'hc072a49cafa2d4adf04759fa7dc982ca76abd7fe2b670130c56f6bf27b777c63),
+        .INIT_RAM_01(256'h75b227ebe28012079a059618c323c7041531d871f1e5a534ccf73f362693fdb7),
+        .INIT_RAM_02(256'hcf584c4a39becb6a5bb1fc20ed00d153842fe329b3d63b52a05a6e1b1a2c8309),
+        .INIT_RAM_03(256'hd2f3ff1021dab6bcf5389d928f40a351a89f3c507f02f94585334d43fbaaefd0),
+        .INIT_RAM_04(256'hdb0b5ede14b8ee4688902a22dc4f816073195d643d7ea7c41744975fec130ccd),
+        .INIT_RAM_05(256'h08ae7a65eaf4566ca94ed58d6d37c8e779e4959162acd3c25c2406490a3a32e0),
+        .INIT_RAM_06(256'h9e1dc186b95735610ef6034866b53e708a8bbd4b1f74dde8c6b4a61c2e2578ba),
+        .INIT_RAM_07(256'h16bb54b00f2d99416842e6bf0d89a18cdf2855cee9871e9b948ed9691198f8e1)
+    )
         u2 (.DOA(d2a), .DOB(d2b), .DIA(8'd0), .DIB(8'd0), .BLKSELA(3'b000), .BLKSELB(3'b000),
             .ADA({3'd0, x[39:32], 3'b000}), .ADB({3'd0, x[47:40], 3'b000}), .WREA(1'b0), .WREB(1'b0),
             .CLKA(clk), .CLKB(clk), .CEA(1'b1), .CEB(1'b1), .OCEA(1'b1), .OCEB(1'b1),
             .RESETA(1'b0), .RESETB(1'b0));
-    defparam u2.INIT_RAM_00 = 256'hc072a49cafa2d4adf04759fa7dc982ca76abd7fe2b670130c56f6bf27b777c63;
-    defparam u2.INIT_RAM_01 = 256'h75b227ebe28012079a059618c323c7041531d871f1e5a534ccf73f362693fdb7;
-    defparam u2.INIT_RAM_02 = 256'hcf584c4a39becb6a5bb1fc20ed00d153842fe329b3d63b52a05a6e1b1a2c8309;
-    defparam u2.INIT_RAM_03 = 256'hd2f3ff1021dab6bcf5389d928f40a351a89f3c507f02f94585334d43fbaaefd0;
-    defparam u2.INIT_RAM_04 = 256'hdb0b5ede14b8ee4688902a22dc4f816073195d643d7ea7c41744975fec130ccd;
-    defparam u2.INIT_RAM_05 = 256'h08ae7a65eaf4566ca94ed58d6d37c8e779e4959162acd3c25c2406490a3a32e0;
-    defparam u2.INIT_RAM_06 = 256'h9e1dc186b95735610ef6034866b53e708a8bbd4b1f74dde8c6b4a61c2e2578ba;
-    defparam u2.INIT_RAM_07 = 256'h16bb54b00f2d99416842e6bf0d89a18cdf2855cee9871e9b948ed9691198f8e1;
-    DPB #(.READ_MODE0(1'b0), .READ_MODE1(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8))
+    DPB #(
+        .READ_MODE0(1'b0), .READ_MODE1(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
+        .INIT_RAM_00(256'hc072a49cafa2d4adf04759fa7dc982ca76abd7fe2b670130c56f6bf27b777c63),
+        .INIT_RAM_01(256'h75b227ebe28012079a059618c323c7041531d871f1e5a534ccf73f362693fdb7),
+        .INIT_RAM_02(256'hcf584c4a39becb6a5bb1fc20ed00d153842fe329b3d63b52a05a6e1b1a2c8309),
+        .INIT_RAM_03(256'hd2f3ff1021dab6bcf5389d928f40a351a89f3c507f02f94585334d43fbaaefd0),
+        .INIT_RAM_04(256'hdb0b5ede14b8ee4688902a22dc4f816073195d643d7ea7c41744975fec130ccd),
+        .INIT_RAM_05(256'h08ae7a65eaf4566ca94ed58d6d37c8e779e4959162acd3c25c2406490a3a32e0),
+        .INIT_RAM_06(256'h9e1dc186b95735610ef6034866b53e708a8bbd4b1f74dde8c6b4a61c2e2578ba),
+        .INIT_RAM_07(256'h16bb54b00f2d99416842e6bf0d89a18cdf2855cee9871e9b948ed9691198f8e1)
+    )
         u3 (.DOA(d3a), .DOB(d3b), .DIA(8'd0), .DIB(8'd0), .BLKSELA(3'b000), .BLKSELB(3'b000),
             .ADA({3'd0, x[55:48], 3'b000}), .ADB({3'd0, x[63:56], 3'b000}), .WREA(1'b0), .WREB(1'b0),
             .CLKA(clk), .CLKB(clk), .CEA(1'b1), .CEB(1'b1), .OCEA(1'b1), .OCEB(1'b1),
             .RESETA(1'b0), .RESETB(1'b0));
-    defparam u3.INIT_RAM_00 = 256'hc072a49cafa2d4adf04759fa7dc982ca76abd7fe2b670130c56f6bf27b777c63;
-    defparam u3.INIT_RAM_01 = 256'h75b227ebe28012079a059618c323c7041531d871f1e5a534ccf73f362693fdb7;
-    defparam u3.INIT_RAM_02 = 256'hcf584c4a39becb6a5bb1fc20ed00d153842fe329b3d63b52a05a6e1b1a2c8309;
-    defparam u3.INIT_RAM_03 = 256'hd2f3ff1021dab6bcf5389d928f40a351a89f3c507f02f94585334d43fbaaefd0;
-    defparam u3.INIT_RAM_04 = 256'hdb0b5ede14b8ee4688902a22dc4f816073195d643d7ea7c41744975fec130ccd;
-    defparam u3.INIT_RAM_05 = 256'h08ae7a65eaf4566ca94ed58d6d37c8e779e4959162acd3c25c2406490a3a32e0;
-    defparam u3.INIT_RAM_06 = 256'h9e1dc186b95735610ef6034866b53e708a8bbd4b1f74dde8c6b4a61c2e2578ba;
-    defparam u3.INIT_RAM_07 = 256'h16bb54b00f2d99416842e6bf0d89a18cdf2855cee9871e9b948ed9691198f8e1;
-    DPB #(.READ_MODE0(1'b0), .READ_MODE1(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8))
+    DPB #(
+        .READ_MODE0(1'b0), .READ_MODE1(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
+        .INIT_RAM_00(256'hc072a49cafa2d4adf04759fa7dc982ca76abd7fe2b670130c56f6bf27b777c63),
+        .INIT_RAM_01(256'h75b227ebe28012079a059618c323c7041531d871f1e5a534ccf73f362693fdb7),
+        .INIT_RAM_02(256'hcf584c4a39becb6a5bb1fc20ed00d153842fe329b3d63b52a05a6e1b1a2c8309),
+        .INIT_RAM_03(256'hd2f3ff1021dab6bcf5389d928f40a351a89f3c507f02f94585334d43fbaaefd0),
+        .INIT_RAM_04(256'hdb0b5ede14b8ee4688902a22dc4f816073195d643d7ea7c41744975fec130ccd),
+        .INIT_RAM_05(256'h08ae7a65eaf4566ca94ed58d6d37c8e779e4959162acd3c25c2406490a3a32e0),
+        .INIT_RAM_06(256'h9e1dc186b95735610ef6034866b53e708a8bbd4b1f74dde8c6b4a61c2e2578ba),
+        .INIT_RAM_07(256'h16bb54b00f2d99416842e6bf0d89a18cdf2855cee9871e9b948ed9691198f8e1)
+    )
         u4 (.DOA(d4a), .DOB(d4b), .DIA(8'd0), .DIB(8'd0), .BLKSELA(3'b000), .BLKSELB(3'b000),
             .ADA({3'd0, x[71:64], 3'b000}), .ADB({3'd0, x[79:72], 3'b000}), .WREA(1'b0), .WREB(1'b0),
             .CLKA(clk), .CLKB(clk), .CEA(1'b1), .CEB(1'b1), .OCEA(1'b1), .OCEB(1'b1),
             .RESETA(1'b0), .RESETB(1'b0));
-    defparam u4.INIT_RAM_00 = 256'hc072a49cafa2d4adf04759fa7dc982ca76abd7fe2b670130c56f6bf27b777c63;
-    defparam u4.INIT_RAM_01 = 256'h75b227ebe28012079a059618c323c7041531d871f1e5a534ccf73f362693fdb7;
-    defparam u4.INIT_RAM_02 = 256'hcf584c4a39becb6a5bb1fc20ed00d153842fe329b3d63b52a05a6e1b1a2c8309;
-    defparam u4.INIT_RAM_03 = 256'hd2f3ff1021dab6bcf5389d928f40a351a89f3c507f02f94585334d43fbaaefd0;
-    defparam u4.INIT_RAM_04 = 256'hdb0b5ede14b8ee4688902a22dc4f816073195d643d7ea7c41744975fec130ccd;
-    defparam u4.INIT_RAM_05 = 256'h08ae7a65eaf4566ca94ed58d6d37c8e779e4959162acd3c25c2406490a3a32e0;
-    defparam u4.INIT_RAM_06 = 256'h9e1dc186b95735610ef6034866b53e708a8bbd4b1f74dde8c6b4a61c2e2578ba;
-    defparam u4.INIT_RAM_07 = 256'h16bb54b00f2d99416842e6bf0d89a18cdf2855cee9871e9b948ed9691198f8e1;
-    DPB #(.READ_MODE0(1'b0), .READ_MODE1(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8))
+    DPB #(
+        .READ_MODE0(1'b0), .READ_MODE1(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
+        .INIT_RAM_00(256'hc072a49cafa2d4adf04759fa7dc982ca76abd7fe2b670130c56f6bf27b777c63),
+        .INIT_RAM_01(256'h75b227ebe28012079a059618c323c7041531d871f1e5a534ccf73f362693fdb7),
+        .INIT_RAM_02(256'hcf584c4a39becb6a5bb1fc20ed00d153842fe329b3d63b52a05a6e1b1a2c8309),
+        .INIT_RAM_03(256'hd2f3ff1021dab6bcf5389d928f40a351a89f3c507f02f94585334d43fbaaefd0),
+        .INIT_RAM_04(256'hdb0b5ede14b8ee4688902a22dc4f816073195d643d7ea7c41744975fec130ccd),
+        .INIT_RAM_05(256'h08ae7a65eaf4566ca94ed58d6d37c8e779e4959162acd3c25c2406490a3a32e0),
+        .INIT_RAM_06(256'h9e1dc186b95735610ef6034866b53e708a8bbd4b1f74dde8c6b4a61c2e2578ba),
+        .INIT_RAM_07(256'h16bb54b00f2d99416842e6bf0d89a18cdf2855cee9871e9b948ed9691198f8e1)
+    )
         u5 (.DOA(d5a), .DOB(d5b), .DIA(8'd0), .DIB(8'd0), .BLKSELA(3'b000), .BLKSELB(3'b000),
             .ADA({3'd0, x[87:80], 3'b000}), .ADB({3'd0, x[95:88], 3'b000}), .WREA(1'b0), .WREB(1'b0),
             .CLKA(clk), .CLKB(clk), .CEA(1'b1), .CEB(1'b1), .OCEA(1'b1), .OCEB(1'b1),
             .RESETA(1'b0), .RESETB(1'b0));
-    defparam u5.INIT_RAM_00 = 256'hc072a49cafa2d4adf04759fa7dc982ca76abd7fe2b670130c56f6bf27b777c63;
-    defparam u5.INIT_RAM_01 = 256'h75b227ebe28012079a059618c323c7041531d871f1e5a534ccf73f362693fdb7;
-    defparam u5.INIT_RAM_02 = 256'hcf584c4a39becb6a5bb1fc20ed00d153842fe329b3d63b52a05a6e1b1a2c8309;
-    defparam u5.INIT_RAM_03 = 256'hd2f3ff1021dab6bcf5389d928f40a351a89f3c507f02f94585334d43fbaaefd0;
-    defparam u5.INIT_RAM_04 = 256'hdb0b5ede14b8ee4688902a22dc4f816073195d643d7ea7c41744975fec130ccd;
-    defparam u5.INIT_RAM_05 = 256'h08ae7a65eaf4566ca94ed58d6d37c8e779e4959162acd3c25c2406490a3a32e0;
-    defparam u5.INIT_RAM_06 = 256'h9e1dc186b95735610ef6034866b53e708a8bbd4b1f74dde8c6b4a61c2e2578ba;
-    defparam u5.INIT_RAM_07 = 256'h16bb54b00f2d99416842e6bf0d89a18cdf2855cee9871e9b948ed9691198f8e1;
-    DPB #(.READ_MODE0(1'b0), .READ_MODE1(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8))
+    DPB #(
+        .READ_MODE0(1'b0), .READ_MODE1(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
+        .INIT_RAM_00(256'hc072a49cafa2d4adf04759fa7dc982ca76abd7fe2b670130c56f6bf27b777c63),
+        .INIT_RAM_01(256'h75b227ebe28012079a059618c323c7041531d871f1e5a534ccf73f362693fdb7),
+        .INIT_RAM_02(256'hcf584c4a39becb6a5bb1fc20ed00d153842fe329b3d63b52a05a6e1b1a2c8309),
+        .INIT_RAM_03(256'hd2f3ff1021dab6bcf5389d928f40a351a89f3c507f02f94585334d43fbaaefd0),
+        .INIT_RAM_04(256'hdb0b5ede14b8ee4688902a22dc4f816073195d643d7ea7c41744975fec130ccd),
+        .INIT_RAM_05(256'h08ae7a65eaf4566ca94ed58d6d37c8e779e4959162acd3c25c2406490a3a32e0),
+        .INIT_RAM_06(256'h9e1dc186b95735610ef6034866b53e708a8bbd4b1f74dde8c6b4a61c2e2578ba),
+        .INIT_RAM_07(256'h16bb54b00f2d99416842e6bf0d89a18cdf2855cee9871e9b948ed9691198f8e1)
+    )
         u6 (.DOA(d6a), .DOB(d6b), .DIA(8'd0), .DIB(8'd0), .BLKSELA(3'b000), .BLKSELB(3'b000),
             .ADA({3'd0, x[103:96], 3'b000}), .ADB({3'd0, x[111:104], 3'b000}), .WREA(1'b0), .WREB(1'b0),
             .CLKA(clk), .CLKB(clk), .CEA(1'b1), .CEB(1'b1), .OCEA(1'b1), .OCEB(1'b1),
             .RESETA(1'b0), .RESETB(1'b0));
-    defparam u6.INIT_RAM_00 = 256'hc072a49cafa2d4adf04759fa7dc982ca76abd7fe2b670130c56f6bf27b777c63;
-    defparam u6.INIT_RAM_01 = 256'h75b227ebe28012079a059618c323c7041531d871f1e5a534ccf73f362693fdb7;
-    defparam u6.INIT_RAM_02 = 256'hcf584c4a39becb6a5bb1fc20ed00d153842fe329b3d63b52a05a6e1b1a2c8309;
-    defparam u6.INIT_RAM_03 = 256'hd2f3ff1021dab6bcf5389d928f40a351a89f3c507f02f94585334d43fbaaefd0;
-    defparam u6.INIT_RAM_04 = 256'hdb0b5ede14b8ee4688902a22dc4f816073195d643d7ea7c41744975fec130ccd;
-    defparam u6.INIT_RAM_05 = 256'h08ae7a65eaf4566ca94ed58d6d37c8e779e4959162acd3c25c2406490a3a32e0;
-    defparam u6.INIT_RAM_06 = 256'h9e1dc186b95735610ef6034866b53e708a8bbd4b1f74dde8c6b4a61c2e2578ba;
-    defparam u6.INIT_RAM_07 = 256'h16bb54b00f2d99416842e6bf0d89a18cdf2855cee9871e9b948ed9691198f8e1;
     (* syn_ramstyle = "logic", syn_romstyle = "logic" *) reg [7:0] lut_a;
     (* syn_ramstyle = "logic", syn_romstyle = "logic" *) reg [7:0] lut_b;
     always @(*) begin

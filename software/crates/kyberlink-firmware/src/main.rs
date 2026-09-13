@@ -15,7 +15,7 @@ mod firmware {
     include!(concat!(env!("OUT_DIR"), "/spc_rom.rs"));
     include!(concat!(env!("OUT_DIR"), "/fp_rom.rs"));
 
-    const _: [u8; SPC_SIZE] = SPC_ROM;
+    const _: () = assert!(SPC_SIZE == core::mem::size_of::<kyberlink_crypto::mldsa_internal::SignPrecomp>());
 
     static mut PEER_FP: [u8; 32] = [0; 32];
     static mut CFG_VALID: bool = false;
@@ -31,8 +31,10 @@ mod firmware {
 
     #[embassy_executor::main(entry = "ch32_hal::entry")]
     async fn main(_spawner: Spawner) -> ! {
-        let mut config = ch32_hal::Config::default();
-        config.rcc = ch32_hal::rcc::Config::SYSCLK_FREQ_144MHZ_HSI;
+        let config = ch32_hal::Config {
+            rcc: ch32_hal::rcc::Config::SYSCLK_FREQ_144MHZ_HSI,
+            ..Default::default()
+        };
         let p = ch32_hal::init(config);
 
         let mut spi_config = SpiConfig::default();
@@ -42,7 +44,9 @@ mod firmware {
 
         let own_fp: [u8; 32] = kyberlink_crypto::shake::sha3_256(&VK_ROM);
         if own_fp == FP_ROM {
-            loop {}
+            loop {
+                core::hint::spin_loop();
+            }
         }
 
         static SPC: kyberlink_crypto::mldsa_internal::SignPrecomp = unsafe {

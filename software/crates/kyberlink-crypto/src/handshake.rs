@@ -119,8 +119,6 @@ fn hkdf_derive(h4: &[u8; 32], ss: &[u8; 64], spi_i: u32, spi_r: u32) -> SaParams
 pub struct InitiatorState {
     pub nonce_i: [u8; 32],
     dk_i: [u8; DK_LEN],
-    identity_vk: [u8; VK_LEN],
-    identity_sk: [u8; SK_LEN],
     vk_r: [u8; VK_LEN],
     ss_i: [u8; 32],
     h: [u8; 32],
@@ -146,8 +144,6 @@ pub fn initiator_start<I: Identity + ?Sized>(
         InitiatorState {
             nonce_i: *nonce,
             dk_i: dk,
-            identity_vk: *vk,
-            identity_sk: *id.sk(),
             vk_r: [0u8; VK_LEN],
             ss_i: [0u8; 32],
             h: h1,
@@ -252,8 +248,6 @@ pub fn initiator_recv_m4(
 pub struct ResponderState {
     pub nonce_r: [u8; 32],
     dk_r: [u8; DK_LEN],
-    identity_vk: [u8; VK_LEN],
-    identity_sk: [u8; SK_LEN],
     vk_i: [u8; VK_LEN],
     ek_i: [u8; EK_LEN],
     ss_r: [u8; 32],
@@ -306,8 +300,6 @@ pub fn responder_start<I: Identity + ?Sized>(
         ResponderState {
             nonce_r: *nonce,
             dk_r,
-            identity_vk: *vk_r,
-            identity_sk: *id.sk(),
             vk_i: *vk_ib,
             ek_i: *ek_ib,
             ss_r: [0u8; 32],
@@ -361,9 +353,9 @@ pub fn responder_recv_m3<I: Identity + ?Sized>(
     smsg4[0] = 0x03;
     smsg4[1..].copy_from_slice(&h4);
     let mut mu_b = [0u8; 64];
-    let tr = &st.identity_sk[64..128];
+    let tr = &id.sk()[64..128];
     shake::shake256_squeeze(&[tr, &[0x00], &[0u8], &smsg4], &mut mu_b);
-    let sig4 = sign_precomp_into(id.spc(), &st.identity_sk, &mu_b, &[0u8; 32]);
+    let sig4 = sign_precomp_into(id.spc(), id.sk(), &mu_b, &[0u8; 32]);
     m4[CT_LEN + 4..].copy_from_slice(&sig4);
     let mut ss = [0u8; 64];
     ss[..32].copy_from_slice(&ss_i);

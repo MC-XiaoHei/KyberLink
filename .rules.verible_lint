@@ -7,5 +7,4 @@
 -generate-label-prefix
 -explicit-function-task-parameter-type
 -explicit-function-lifetime
--pin-connect-empty
 

@@ -11,11 +11,11 @@ fn main() {
     println!("ML-KEM keygen : {:?}", t.elapsed());
 
     let t = Instant::now();
-    let (ss, ct) = encaps_internal(&ek, &seed);
+    let (_, ct) = encaps_internal(&ek, &seed);
     println!("ML-KEM encaps : {:?}", t.elapsed());
 
     let t = Instant::now();
-    let ss2 = decaps_internal(&dk, &ct);
+    let _ = decaps_internal(&dk, &ct);
     println!("ML-KEM decaps : {:?}", t.elapsed());
 
     let t = Instant::now();

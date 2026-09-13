@@ -1,3 +1,4 @@
+import os
 import subprocess
 
 from . import config
@@ -8,6 +9,7 @@ def _lint():
     from .wsl import wsl_path
 
     repo = wsl_path(config.REPO)
+    tc = os.environ.get("RUST_TOOLCHAIN", "nightly")
     script = (
         f"cd {repo} && "
         f"~/kyberlink-venv/bin/python -m ruff check run.py utils/ && "
@@ -17,8 +19,9 @@ def _lint():
         f"--target x86_64-unknown-linux-gnu --features kyberlink-crypto/std -- -D warnings && "
         f"cargo clippy -p kyberlink-core --all-targets "
         f"--target x86_64-unknown-linux-gnu --features kyberlink-core/std -- -D warnings && "
-        f"cargo clippy -p kyberlink-firmware "
-        f"--target crates/kyberlink-firmware/riscv32imfc-unknown-none-elf.json -- -D warnings"
+        f"rustup run {tc} cargo clippy -Zbuild-std=core,alloc "
+        f"-p kyberlink-firmware "
+        f"--target riscv32imc-unknown-none-elf -- -D warnings"
     )
     r = subprocess.run(["wsl", "--", "bash", "-lc", script], capture_output=True, text=True)
     return (r.stdout + r.stderr).strip()[-400:] if r.returncode else ""
