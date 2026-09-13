@@ -14,11 +14,11 @@ module ghash (
     output wire [127:0] tag
 );
 
-  localparam PHASE_IDLE = 3'd0;
-  localparam PHASE_RUN  = 3'd1;
-  localparam PHASE_PRE  = 3'd2;
-  localparam PHASE_MUL  = 3'd3;
-  localparam PHASE_RED  = 3'd4;
+  localparam PHASE_IDLE  = 3'd0;
+  localparam PHASE_RUN   = 3'd1;
+  localparam PHASE_PRE   = 3'd2;
+  localparam PHASE_MUL   = 3'd3;
+  localparam PHASE_RED   = 3'd4;
   localparam PHASE_FLUSH = 3'd5;
 
   reg [  2:0] phase;
@@ -124,7 +124,7 @@ module ghash (
                            ({193'd0, mul_b} << ({2'b00, sh1_q, 5'd0}));
 
   reg [255:0] red;
-  reg [  5:0] rcorr;
+  reg [5:0] rcorr;
   integer ri;
   always @(*) begin
     red = prod;
@@ -182,7 +182,7 @@ module ghash (
           end
         end
         PHASE_PRE: begin
-          prod <= 256'd0;
+          prod  <= 256'd0;
           aw_r  <= a_h0;
           bw0_r <= b_h0;
           bw1_r <= b_h1;
@@ -213,7 +213,7 @@ module ghash (
           end
         end
         PHASE_FLUSH: begin
-          prod <= prod ^ shifted;
+          prod  <= prod ^ shifted;
           phase <= PHASE_RED;
         end
         PHASE_RED: begin

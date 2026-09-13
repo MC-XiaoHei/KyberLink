@@ -30,7 +30,9 @@ def _lint():
 def check():
     lint_detail = _lint()
     ok = lint_detail == ""
-    print(f"{'lint':<5} {'python+verilog+rust':<16} {'ok' if ok else 'FAIL':<4} {'' if ok else lint_detail}")
+    print(
+        f"{'lint':<5} {'python+verilog+rust':<16} {'ok' if ok else 'FAIL':<4} {'' if ok else lint_detail}"
+    )
     return Result(
         "check",
         metrics={"lint": "ok" if ok else "fail"},

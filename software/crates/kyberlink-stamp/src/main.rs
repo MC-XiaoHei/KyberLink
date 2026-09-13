@@ -5,9 +5,8 @@ fn gen(seed: &[u8; 32]) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     let (vk, sk) = keygen_internal(seed);
     let mut pc = SignPrecomp::default();
     sign_precomp_new_into(&mut pc, &sk);
-    let spc = unsafe {
-        core::slice::from_raw_parts(&pc as *const SignPrecomp as *const u8, SPC_LEN)
-    };
+    let spc =
+        unsafe { core::slice::from_raw_parts(&pc as *const SignPrecomp as *const u8, SPC_LEN) };
     (vk.to_vec(), sk.to_vec(), spc.to_vec())
 }
 
@@ -52,7 +51,9 @@ fn main() {
     let out_path = out_path.unwrap_or_else(|| {
         let p = std::path::Path::new(&fw);
         let file = p.file_name().unwrap_or_default().to_string_lossy();
-        p.with_file_name(format!("{}.id.bin", file)).display().to_string()
+        p.with_file_name(format!("{}.id.bin", file))
+            .display()
+            .to_string()
     });
 
     let data = std::fs::read(&fw).expect("read firmware");
@@ -66,9 +67,17 @@ fn main() {
         let first = data
             .windows(needle.len())
             .position(|w| w == needle)
-            .unwrap_or_else(|| panic!("placeholder {} not found (image already personalized?)", name));
+            .unwrap_or_else(|| {
+                panic!(
+                    "placeholder {} not found (image already personalized?)",
+                    name
+                )
+            });
         assert!(
-            !data.windows(needle.len()).skip(first + 1).any(|w| w == needle),
+            !data
+                .windows(needle.len())
+                .skip(first + 1)
+                .any(|w| w == needle),
             "placeholder {} found multiple times (ambiguous)",
             name
         );

@@ -1,6 +1,10 @@
-use kyberlink_crypto::kem_internal::{keygen_internal as kem_keygen, encaps_internal, decaps_internal};
-use kyberlink_crypto::mldsa_internal::{keygen_internal as dsa_keygen, sign_internal, verify_internal};
-use kyberlink_crypto::{ntt, mldsa_mont};
+use kyberlink_crypto::kem_internal::{
+    decaps_internal, encaps_internal, keygen_internal as kem_keygen,
+};
+use kyberlink_crypto::mldsa_internal::{
+    keygen_internal as dsa_keygen, sign_internal, verify_internal,
+};
+use kyberlink_crypto::{mldsa_mont, ntt};
 use std::time::Instant;
 
 fn main() {
@@ -32,7 +36,9 @@ fn main() {
 
     let mut f = [0u16; 256];
     let t = Instant::now();
-    for _ in 0..1000 { ntt::ntt(&mut f); }
+    for _ in 0..1000 {
+        ntt::ntt(&mut f);
+    }
     println!("Kyber NTT x1000: {:?}", t.elapsed());
 
     let mut g = [0u32; 256];

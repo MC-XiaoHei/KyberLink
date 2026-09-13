@@ -12,7 +12,11 @@ const fn cmont_mul(a: u32, b: u32) -> u32 {
     let m = (t as u32).wrapping_mul(Q_INV_C);
     let t2 = t + (m as u64) * (Q_U32 as u64);
     let r = (t2 >> 32) as u32;
-    if r >= Q_U32 { r - Q_U32 } else { r }
+    if r >= Q_U32 {
+        r - Q_U32
+    } else {
+        r
+    }
 }
 
 const ZETAS_MONT: [u32; 256] = {
@@ -31,7 +35,11 @@ fn mont_mul(a: u32, b: u32) -> u32 {
     let m = (t as u32).wrapping_mul(Q_INV);
     let t2 = t + (m as u64) * (Q_U32 as u64);
     let r = (t2 >> 32) as u32;
-    if r >= Q_U32 { r - Q_U32 } else { r }
+    if r >= Q_U32 {
+        r - Q_U32
+    } else {
+        r
+    }
 }
 
 #[inline(always)]
@@ -45,7 +53,11 @@ fn from_mont(x: u32) -> u32 {
 }
 
 #[inline(always)]
-fn ntt_layer<const LEN: usize, const ITER: usize>(a: &mut [u32; 256], zm: &[u32; 256], m: &mut usize) {
+fn ntt_layer<const LEN: usize, const ITER: usize>(
+    a: &mut [u32; 256],
+    zm: &[u32; 256],
+    m: &mut usize,
+) {
     #[allow(clippy::needless_range_loop)]
     for i in 0..ITER {
         let start = i * 2 * LEN;
@@ -81,7 +93,11 @@ pub fn ntt(a: &mut [u32; 256]) {
 }
 
 #[inline(always)]
-fn invntt_layer<const LEN: usize, const ITER: usize>(a: &mut [u32; 256], zm: &[u32; 256], m: &mut usize) {
+fn invntt_layer<const LEN: usize, const ITER: usize>(
+    a: &mut [u32; 256],
+    zm: &[u32; 256],
+    m: &mut usize,
+) {
     #[allow(clippy::needless_range_loop)]
     for i in 0..ITER {
         let start = i * 2 * LEN;

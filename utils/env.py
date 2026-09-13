@@ -4,7 +4,15 @@ import subprocess
 from . import config
 from .core import Result
 
-ENV_KEYS = ("GOWIN_HOME", "DEVICE", "DEVICE_VERSION", "HOST_TARGET", "RUST_TOOLCHAIN", "WSL_VENV", "WSL_VERILATOR")
+ENV_KEYS = (
+    "GOWIN_HOME",
+    "DEVICE",
+    "DEVICE_VERSION",
+    "HOST_TARGET",
+    "RUST_TOOLCHAIN",
+    "WSL_VENV",
+    "WSL_VERILATOR",
+)
 
 
 def _wsl_script():

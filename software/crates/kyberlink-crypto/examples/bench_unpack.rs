@@ -39,10 +39,14 @@ fn main() {
     assert_eq!(out1, out2, "两种 unpack 结果不一致");
 
     let t = Instant::now();
-    for _ in 0..1000 { unpack20_bits(&bytes, &mut out1); }
+    for _ in 0..1000 {
+        unpack20_bits(&bytes, &mut out1);
+    }
     println!("unpack bit  x1000: {:?}", t.elapsed());
 
     let t = Instant::now();
-    for _ in 0..1000 { unpack20_fast(&bytes, &mut out2); }
+    for _ in 0..1000 {
+        unpack20_fast(&bytes, &mut out2);
+    }
     println!("unpack fast x1000: {:?}", t.elapsed());
 }

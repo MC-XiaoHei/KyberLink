@@ -404,7 +404,8 @@ mod tests {
         let fp_r = id_r.fingerprint();
 
         let (mut ia, m1) = initiator_start(&id_i, &[1u8; 32], &[2u8; 32], &[4u8; 32]);
-        let (mut rb, m2) = responder_start(&id_r, &[5u8; 32], &[6u8; 32], &[8u8; 32], &m1, &fp_i).unwrap();
+        let (mut rb, m2) =
+            responder_start(&id_r, &[5u8; 32], &[6u8; 32], &[8u8; 32], &m1, &fp_i).unwrap();
         let (m3, spi_i) = initiator_recv_m2(&mut ia, &id_i, &m2, &fp_r, None).unwrap();
         let (m4, sa_r) = responder_recv_m3(&mut rb, &id_r, &m3, spi_i, None).unwrap();
         let sa_i = initiator_recv_m4(&mut ia, &m4, spi_i, None).unwrap();

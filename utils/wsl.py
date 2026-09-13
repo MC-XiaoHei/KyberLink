@@ -47,8 +47,6 @@ def wsl_sim(mod, testcase=None):
         raise AppError(
             f"test {mod} failed {metrics['fail']}/{metrics['tests']}: {', '.join(failed)}", 1
         )
-    print(
-        f"{mod:<12} pass={metrics['pass']} fail={metrics['fail']} skip={metrics['skip']}"
-    )
+    print(f"{mod:<12} pass={metrics['pass']} fail={metrics['fail']} skip={metrics['skip']}")
     print("log: " + os.path.relpath(log, config.REPO))
     return 0

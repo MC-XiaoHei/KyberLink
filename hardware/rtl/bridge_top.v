@@ -31,7 +31,7 @@ module bridge_top (
     input  wire [ 15:0] cfg_dst_port,
     input  wire [ 47:0] cfg_src_mac,
     input  wire [ 47:0] cfg_dst_mac,
-    input  wire [31:0] seq_enc_in,
+    input  wire [ 31:0] seq_enc_in,
     output wire [ 31:0] seq_enc_out,
     output wire         seq_vld,
     output wire         tag_ok,
@@ -107,10 +107,13 @@ module bridge_top (
   wire gcm_done;
 
   gcm_arb u_arb (
-      .clk(clk), .rst_n(rst_n),
-      .enc_req(enc_req_w), .dec_req(dec_req_w),
+      .clk(clk),
+      .rst_n(rst_n),
+      .enc_req(enc_req_w),
+      .dec_req(dec_req_w),
       .engine_busy(gcm_busy),
-      .enc_grant(enc_grant_w), .dec_grant(dec_grant_w)
+      .enc_grant(enc_grant_w),
+      .dec_grant(dec_grant_w)
   );
 
   gcm_stream u_gcm (

@@ -31,19 +31,19 @@ module spi_slave (
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      sck_s0 <= 1'b0;
-      sck_s1 <= 1'b0;
+      sck_s0  <= 1'b0;
+      sck_s1  <= 1'b0;
       mosi_s0 <= 1'b0;
       mosi_s1 <= 1'b0;
-      csn_s0 <= 1'b1;
-      csn_s1 <= 1'b1;
+      csn_s0  <= 1'b1;
+      csn_s1  <= 1'b1;
     end else begin
-      sck_s0 <= sck;
-      sck_s1 <= sck_s0;
+      sck_s0  <= sck;
+      sck_s1  <= sck_s0;
       mosi_s0 <= mosi;
       mosi_s1 <= mosi_s0;
-      csn_s0 <= csn;
-      csn_s1 <= csn_s0;
+      csn_s0  <= csn;
+      csn_s1  <= csn_s0;
     end
   end
 

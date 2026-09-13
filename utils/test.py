@@ -19,9 +19,7 @@ def _cargo_test():
         f"--target {host} "
         "--features kyberlink-crypto/std,kyberlink-core/std"
     )
-    rc = subprocess.call(
-        ["cmd", "/c", script], cwd=os.path.join(config.REPO, "software")
-    )
+    rc = subprocess.call(["cmd", "/c", script], cwd=os.path.join(config.REPO, "software"))
     if rc != 0:
         raise AppError(f"cargo test failed rc={rc}", rc)
 

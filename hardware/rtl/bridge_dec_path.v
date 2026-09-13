@@ -33,11 +33,11 @@ module bridge_dec_path (
     input  wire       m_tready,
     output reg        tag_ok,
 
-    input  wire soft_rst,
-    input  wire [31:0] seq_init,
-    output reg  err_badtag,
-    output reg  err_badpad,
-    output reg  err_replay
+    input wire soft_rst,
+    input wire [31:0] seq_init,
+    output reg err_badtag,
+    output reg err_badpad,
+    output reg err_replay
 );
 
   localparam RX_IDLE = 1'b0;
@@ -124,10 +124,10 @@ module bridge_dec_path (
   reg seq_new_w_q;
   reg [5:0] seq_idx_q;
   always @(posedge clk) begin
-    seq_fwd_q <= seq_fwd_w;
-    seq_back_q <= seq_back_w;
+    seq_fwd_q   <= seq_fwd_w;
+    seq_back_q  <= seq_back_w;
     seq_new_w_q <= (seq_fwd_w != 32'd0) && (seq_fwd_w < 32'h8000_0000);
-    seq_idx_q <= seq_p[rx_sel][5:0];
+    seq_idx_q   <= seq_p[rx_sel][5:0];
   end
   wire seq_new_w = seq_new_w_q;
   wire seq_rx_ok_c = seq_new_w_q || ((seq_back_q != 32'd0) && (seq_back_q < 32'd64) && !win_r[seq_idx_q]);
@@ -505,10 +505,8 @@ module bridge_dec_path (
       end
       if (ds == DS_TAG) begin
         if (!tag_ok_q) begin
-          if (tag_q[63:0] != tag_w[63:0] || tag_q[127:64] != tag_w[127:64])
-            err_badtag <= 1'b1;
-          else
-            err_badpad <= 1'b1;
+          if (tag_q[63:0] != tag_w[63:0] || tag_q[127:64] != tag_w[127:64]) err_badtag <= 1'b1;
+          else err_badpad <= 1'b1;
         end
         if (tag_ok_q) begin
           out_len_p[ct_w_sel] <= out_len_c;

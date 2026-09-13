@@ -211,7 +211,7 @@ module ip_udp_eth_tx (
             m_tlast  <= (hb != 2'd0 || s_hsk_tvalid) && (pb == (pay_len - 16'd1));
             if (hb != 2'd0 || s_hsk_tvalid) begin
               if (pb == (pay_len - 16'd1)) begin
-                state   <= ST_IDLE;
+                state <= ST_IDLE;
               end else begin
                 pb <= pb + 16'd1;
                 if (hb == 2'd3) hb <= 2'd0;

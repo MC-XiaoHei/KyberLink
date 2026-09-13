@@ -252,10 +252,9 @@ pub fn mat_mul_vec(a: &[[u32; 256]; K * L], v: &[[u32; 256]; L]) -> [[u32; 256];
     let mut out = [[0u32; 256]; K];
     for (i, row) in a.as_chunks::<L>().0.iter().enumerate() {
         for k in 0..256 {
-            let acc = row
-                .iter()
-                .zip(v.iter())
-                .fold(0u64, |acc, (ar, vr)| (acc + ar[k] as u64 * vr[k] as u64) % Q as u64) as u32;
+            let acc = row.iter().zip(v.iter()).fold(0u64, |acc, (ar, vr)| {
+                (acc + ar[k] as u64 * vr[k] as u64) % Q as u64
+            }) as u32;
             out[i][k] = acc;
         }
     }
@@ -573,7 +572,6 @@ fn sign_core(sk: &[u8; SK_LEN], mu_b: &[u8; 64], rnd: &[u8; 32]) -> [u8; SIG_LEN
         let mut ctil = [0u8; LAMBDA];
         shake::shake256_squeeze(&[mu_b, &w1_tilde], &mut ctil);
 
-
         let c = sample_in_ball(&ctil, TAU);
         let mut c_hat = [0u32; 256];
         c_hat.copy_from_slice(&c);
@@ -823,7 +821,6 @@ pub fn sign_precomp_into(
         let mut ctil = [0u8; LAMBDA];
         shake::shake256_squeeze(&[mu_b, w1_tilde.as_slice()], &mut ctil);
 
-
         let c = sample_in_ball(&ctil, TAU);
         let mut c_hat = [0u32; 256];
         c_hat.copy_from_slice(&c);
@@ -978,7 +975,9 @@ fn verify_core_precomp(pc: &VerifyPrecomp, mu_b: &[u8; 64], sig: &[u8; SIG_LEN])
     let mut c_hat = [0u32; 256];
     c_hat.copy_from_slice(&c);
     ntt(&mut c_hat);
-    for zp in z.iter_mut() { ntt(zp); }
+    for zp in z.iter_mut() {
+        ntt(zp);
+    }
 
     let mut buf = [[0u32; 256]; K];
     for (i, bp) in buf.iter_mut().enumerate() {
@@ -999,13 +998,15 @@ fn verify_core_precomp(pc: &VerifyPrecomp, mu_b: &[u8; 64], sig: &[u8; SIG_LEN])
         for k in 0..256 {
             const TBASE: usize = 256 * 3;
             let tv = unpack3(t1_2d_hat_packed.as_slice(), i * TBASE + k * 3);
-            let av = op[k];  // = az[i][k]; in-place, az no longer needed
+            let av = op[k]; // = az[i][k]; in-place, az no longer needed
             let ct1 = (c_hat[k] as u64 * tv as u64 % Q as u64) as u32;
             let d = av + Q - ct1;
             op[k] = if d >= Q { d - Q } else { d };
         }
     }
-    for wp in buf.iter_mut() { invntt(wp); }
+    for wp in buf.iter_mut() {
+        invntt(wp);
+    }
 
     for (op, hp) in buf.iter_mut().zip(h.iter()) {
         for (oc, &hv) in op.iter_mut().zip(hp.iter()) {
@@ -1025,7 +1026,10 @@ pub fn verify_precomp(pc: &VerifyPrecomp, msg: &[u8], ctx: &[u8], sig: &[u8; SIG
         return false;
     }
     let mut mu_b = [0u8; 64];
-    shake::shake256_squeeze(&[&pc.tr_b, &[0x00], &[ctx.len() as u8], ctx, msg], &mut mu_b);
+    shake::shake256_squeeze(
+        &[&pc.tr_b, &[0x00], &[ctx.len() as u8], ctx, msg],
+        &mut mu_b,
+    );
     verify_core_precomp(pc, &mu_b, sig)
 }
 
@@ -1064,7 +1068,9 @@ fn verify_core(vk: &[u8; VK_LEN], mu_b: &[u8; 64], sig: &[u8; SIG_LEN]) -> bool 
     let mut c_hat = [0u32; 256];
     c_hat.copy_from_slice(&c);
     ntt(&mut c_hat);
-    for zp in z.iter_mut() { ntt(zp); }
+    for zp in z.iter_mut() {
+        ntt(zp);
+    }
 
     let mut buf = [[0u32; 256]; K];
     for (i, row) in a_hat.as_chunks::<L>().0.iter().enumerate() {
@@ -1086,7 +1092,9 @@ fn verify_core(vk: &[u8; VK_LEN], mu_b: &[u8; 64], sig: &[u8; SIG_LEN]) -> bool 
             op[k] = if d >= Q { d - Q } else { d };
         }
     }
-    for wp in buf.iter_mut() { invntt(wp); }
+    for wp in buf.iter_mut() {
+        invntt(wp);
+    }
 
     for (op, hp) in buf.iter_mut().zip(h.iter()) {
         for (oc, &hv) in op.iter_mut().zip(hp.iter()) {
@@ -1128,7 +1136,10 @@ pub fn verify_precomp_timed(
         return false;
     }
     let mut mu_b = [0u8; 64];
-    shake::shake256_squeeze(&[&pc.tr_b, &[0x00], &[ctx.len() as u8], ctx, msg], &mut mu_b);
+    shake::shake256_squeeze(
+        &[&pc.tr_b, &[0x00], &[ctx.len() as u8], ctx, msg],
+        &mut mu_b,
+    );
     times[0] = mcycle_now();
 
     let a_hat_packed = &pc.a_hat_packed;
@@ -1335,11 +1346,7 @@ mod tests {
         }
         let cs2_ref = invntt_vec(&cs2_hat);
         let mut w0_ref = w_ref2;
-        for ((op, wp), c2p) in w0_ref
-            .iter_mut()
-            .zip(w_ref2.iter())
-            .zip(cs2_ref.iter())
-        {
+        for ((op, wp), c2p) in w0_ref.iter_mut().zip(w_ref2.iter()).zip(cs2_ref.iter()) {
             for ((oc, &wv), &c2c) in op.iter_mut().zip(wp.iter()).zip(c2p.iter()) {
                 *oc = (wv + Q - c2c) % Q;
             }
@@ -1366,11 +1373,7 @@ mod tests {
         let ct0_ref = invntt_vec(&ct0_hat);
         let mut hh_ref = [[false; 256]; K];
         let mut wgt_ref = 0usize;
-        for ((hp, cp), wmp) in hh_ref
-            .iter_mut()
-            .zip(ct0_ref.iter())
-            .zip(w0_ref.iter())
-        {
+        for ((hp, cp), wmp) in hh_ref.iter_mut().zip(ct0_ref.iter()).zip(w0_ref.iter()) {
             for ((hc, &cv), &wm) in hp.iter_mut().zip(cp.iter()).zip(wmp.iter()) {
                 let nct0 = (Q - cv) % Q;
                 let wcc = (wm + cv) % Q;
@@ -1424,7 +1427,11 @@ mod tests {
             }
         }
         assert_eq!(rmax, rmax_ref, "r0 norm mismatch");
-        assert_eq!(rmax >= GAMMA2_MINUS_BETA, rmax_ref >= GAMMA2_MINUS_BETA, "r0 verdict mismatch");
+        assert_eq!(
+            rmax >= GAMMA2_MINUS_BETA,
+            rmax_ref >= GAMMA2_MINUS_BETA,
+            "r0 verdict mismatch"
+        );
 
         let mut ct0n_ref = 0u32;
         for cp in ct0_ref.iter() {

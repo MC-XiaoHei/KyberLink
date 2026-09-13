@@ -40,7 +40,10 @@ def sim(mod, testcase=None):
         print("waves: " + os.path.relpath(fst, config.REPO))
     runner.test(
         hdl_toplevel=cfg["top"],
-        test_module=os.environ.get("TEST_MODULE", cfg.get("test_module", UNIT_TEST.get(mod) or INTG_TEST.get(mod) or "tb_" + mod)),
+        test_module=os.environ.get(
+            "TEST_MODULE",
+            cfg.get("test_module", UNIT_TEST.get(mod) or INTG_TEST.get(mod) or "tb_" + mod),
+        ),
         build_dir=build_dir,
         testcase=testcase,
         results_xml=results_xml,

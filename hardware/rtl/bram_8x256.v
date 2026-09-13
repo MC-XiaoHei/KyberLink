@@ -1,10 +1,10 @@
 module bram_8x256 (
-    input  wire        clk,
-    input  wire [ 7:0] waddr,
-    input  wire [ 7:0] wdata,
-    input  wire        we,
-    input  wire [ 7:0] raddr,
-    output wire [ 7:0] rdata
+    input  wire       clk,
+    input  wire [7:0] waddr,
+    input  wire [7:0] wdata,
+    input  wire       we,
+    input  wire [7:0] raddr,
+    output wire [7:0] rdata
 );
 
   wire [15:0] do0, do1;

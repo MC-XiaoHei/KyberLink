@@ -1,5 +1,7 @@
-use kyberlink_crypto::mldsa_internal::{keygen_internal, sign_internal, verify_internal, verify_precomp_new, verify_precomp};
-use kyberlink_crypto::sign::{SignKeyPair, verify};
+use kyberlink_crypto::mldsa_internal::{
+    keygen_internal, sign_internal, verify_internal, verify_precomp, verify_precomp_new,
+};
+use kyberlink_crypto::sign::{verify, SignKeyPair};
 use std::time::Instant;
 
 fn main() {

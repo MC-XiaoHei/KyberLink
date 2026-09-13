@@ -1,5 +1,7 @@
 use kyberlink_crypto::kem_internal::{decaps_internal, encaps_internal, keygen_internal};
-use kyberlink_crypto::mldsa_internal::{keygen_internal as dsa_keygen, sign_internal, verify_internal};
+use kyberlink_crypto::mldsa_internal::{
+    keygen_internal as dsa_keygen, sign_internal, verify_internal,
+};
 use std::time::Instant;
 
 fn main() {
@@ -46,7 +48,7 @@ fn main() {
     let _ = decaps_internal(&dk, &ct);
     println!("self ML-KEM decaps : {:?}", t.elapsed());
 
-    use kyberlink_crypto::kem::{encapsulate_deterministic, decapsulate, KemKeyPair};
+    use kyberlink_crypto::kem::{decapsulate, encapsulate_deterministic, KemKeyPair};
     let t = Instant::now();
     let kpk = KemKeyPair::from_seed(&[7u8; 64]);
     println!("ml-kem   keygen     : {:?}", t.elapsed());

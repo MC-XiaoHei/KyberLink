@@ -15,7 +15,8 @@ mod firmware {
     include!(concat!(env!("OUT_DIR"), "/spc_rom.rs"));
     include!(concat!(env!("OUT_DIR"), "/fp_rom.rs"));
 
-    const _: () = assert!(SPC_SIZE == core::mem::size_of::<kyberlink_crypto::mldsa_internal::SignPrecomp>());
+    const _: () =
+        assert!(SPC_SIZE == core::mem::size_of::<kyberlink_crypto::mldsa_internal::SignPrecomp>());
 
     static mut PEER_FP: [u8; 32] = [0; 32];
     static mut CFG_VALID: bool = false;
@@ -52,11 +53,12 @@ mod firmware {
         static SPC: kyberlink_crypto::mldsa_internal::SignPrecomp = unsafe {
             core::ptr::read(SPC_ROM.as_ptr() as *const kyberlink_crypto::mldsa_internal::SignPrecomp)
         };
-        static IDENTITY: kyberlink_crypto::handshake::RomIdentity = kyberlink_crypto::handshake::RomIdentity {
-            vk: &VK_ROM,
-            sk: &SK_ROM,
-            spc: &SPC,
-        };
+        static IDENTITY: kyberlink_crypto::handshake::RomIdentity =
+            kyberlink_crypto::handshake::RomIdentity {
+                vk: &VK_ROM,
+                sk: &SK_ROM,
+                spc: &SPC,
+            };
         let identity: &'static dyn kyberlink_crypto::handshake::Identity = &IDENTITY;
 
         unsafe {

@@ -11,7 +11,16 @@ fn main() {
     println!("DK_LEN   = {}", DK_LEN);
     println!("SK_LEN   = {}", SK_LEN);
     println!("VK_LEN   = {}", VK_LEN);
-    println!("InitiatorState size = {} bytes", std::mem::size_of::<handshake::InitiatorState>());
-    println!("ResponderState size = {} bytes", std::mem::size_of::<handshake::ResponderState>());
-    println!("SaParams size = {} bytes", std::mem::size_of::<handshake::SaParams>());
+    println!(
+        "InitiatorState size = {} bytes",
+        std::mem::size_of::<handshake::InitiatorState>()
+    );
+    println!(
+        "ResponderState size = {} bytes",
+        std::mem::size_of::<handshake::ResponderState>()
+    );
+    println!(
+        "SaParams size = {} bytes",
+        std::mem::size_of::<handshake::SaParams>()
+    );
 }

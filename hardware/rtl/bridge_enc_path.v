@@ -43,7 +43,7 @@ module bridge_enc_path (
     output wire       m_tlast,
     input  wire       m_tready,
 
-    output reg  err_oversize
+    output reg err_oversize
 );
 
   localparam RX_IDLE = 1'b0;
@@ -74,16 +74,16 @@ module bridge_enc_path (
   reg     [ 11:0] fcnt;
   reg     [  8:0] frm_wr_addr;
   reg     [127:0] frm_wr_data;
-  reg     [ 11:0] frm_len_p                                                          [0:3];
-  reg     [ 31:0] seq_p                                                              [0:3];
-  reg     [ 15:0] total_len_p                                                        [0:3];
-  reg     [ 15:0] udp_len_p                                                          [0:3];
-  reg     [ 11:0] tx_len_p                                                           [0:3];
-  reg     [ 31:0] tx_seq_p                                                           [0:3];
-  reg     [ 15:0] tx_total_p                                                         [0:3];
-  reg     [ 15:0] tx_udp_p                                                           [0:3];
-  reg     [127:0] tx_tag_p                                                           [0:3];
-  reg     [ 15:0] tx_csum_p                                                          [0:3];
+  reg     [ 11:0] frm_len_p                                                  [0:3];
+  reg     [ 31:0] seq_p                                                      [0:3];
+  reg     [ 15:0] total_len_p                                                [0:3];
+  reg     [ 15:0] udp_len_p                                                  [0:3];
+  reg     [ 11:0] tx_len_p                                                   [0:3];
+  reg     [ 31:0] tx_seq_p                                                   [0:3];
+  reg     [ 15:0] tx_total_p                                                 [0:3];
+  reg     [ 15:0] tx_udp_p                                                   [0:3];
+  reg     [127:0] tx_tag_p                                                   [0:3];
+  reg     [ 15:0] tx_csum_p                                                  [0:3];
   reg     [ 11:0] frm_len_e;
   reg     [ 11:0] pt_len_e_r;
   reg     [  3:0] pad_n_e_r;
@@ -117,9 +117,9 @@ module bridge_enc_path (
   wire    [ 11:0] pt_len_prep = frm_len_now + 12'd3 + {8'd0, pad_now};
   reg     [ 11:0] pt_len_now_q;
   always @(posedge clk) if (s_tvalid && s_tready && !s_tlast) pt_len_now_q <= pt_len_prep;
-  wire    [  3:0] pad_n_e = (16 - ((frm_len_p[enc_slot][3:0] + 4'd2) & 4'hF)) & 4'hF;
-  wire    [ 11:0] pt_len_e = frm_len_p[enc_slot] + 12'd2 + {8'd0, pad_n_e};
-  wire    [  8:0] nct_e = {1'b0, pt_len_e[11:4]} + {8'd0, |pt_len_e[3:0]};
+  wire [ 3:0] pad_n_e = (16 - ((frm_len_p[enc_slot][3:0] + 4'd2) & 4'hF)) & 4'hF;
+  wire [11:0] pt_len_e = frm_len_p[enc_slot] + 12'd2 + {8'd0, pad_n_e};
+  wire [ 8:0] nct_e = {1'b0, pt_len_e[11:4]} + {8'd0, |pt_len_e[3:0]};
 
   function [15:0] fold16(input [31:0] s);
     begin
@@ -588,8 +588,7 @@ module bridge_enc_path (
                   s_tdata,
                   8'd0
                 };
-                4'd0:
-                frm_wr_data <= {s_tdata, 120'd0};
+                4'd0: frm_wr_data <= {s_tdata, 120'd0};
                 default: frm_wr_data <= {blk_acc[119:0], s_tdata};
               endcase
               if (blk_cnt != 4'd15) begin
@@ -607,7 +606,7 @@ module bridge_enc_path (
                 err_oversize <= 1'b1;
               end
               fcnt <= 12'd0;
-              rx_slot  <= rx_slot + 2'd1;
+              rx_slot <= rx_slot + 2'd1;
               rx_state <= RX_IDLE;
             end else begin
               fcnt <= fcnt + 12'd1;
