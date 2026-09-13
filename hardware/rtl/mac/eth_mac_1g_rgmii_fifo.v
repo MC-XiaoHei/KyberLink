@@ -238,55 +238,14 @@ module eth_mac_1g_rgmii_fifo #(
       .cfg_rx_enable(cfg_rx_enable)
   );
 
-  axis_async_fifo_adapter #(
-      .DEPTH(TX_FIFO_DEPTH),
-      .S_DATA_WIDTH(AXIS_DATA_WIDTH),
-      .S_KEEP_ENABLE(AXIS_KEEP_ENABLE),
-      .S_KEEP_WIDTH(AXIS_KEEP_WIDTH),
-      .M_DATA_WIDTH(8),
-      .M_KEEP_ENABLE(0),
-      .ID_ENABLE(0),
-      .DEST_ENABLE(0),
-      .USER_ENABLE(1),
-      .USER_WIDTH(1),
-      .RAM_PIPELINE(TX_FIFO_RAM_PIPELINE),
-      .FRAME_FIFO(TX_FRAME_FIFO),
-      .USER_BAD_FRAME_VALUE(1'b1),
-      .USER_BAD_FRAME_MASK(1'b1),
-      .DROP_OVERSIZE_FRAME(TX_DROP_OVERSIZE_FRAME),
-      .DROP_BAD_FRAME(TX_DROP_BAD_FRAME),
-      .DROP_WHEN_FULL(TX_DROP_WHEN_FULL)
-  ) tx_fifo (
-
-      .s_clk(logic_clk),
-      .s_rst(logic_rst),
-      .s_axis_tdata(tx_axis_tdata),
-      .s_axis_tkeep(tx_axis_tkeep),
-      .s_axis_tvalid(tx_axis_tvalid),
-      .s_axis_tready(tx_axis_tready),
-      .s_axis_tlast(tx_axis_tlast),
-      .s_axis_tid(0),
-      .s_axis_tdest(0),
-      .s_axis_tuser(tx_axis_tuser),
-
-      .m_clk(tx_clk),
-      .m_rst(tx_rst),
-      .m_axis_tdata(tx_fifo_axis_tdata),
-      .m_axis_tkeep(),
-      .m_axis_tvalid(tx_fifo_axis_tvalid),
-      .m_axis_tready(tx_fifo_axis_tready),
-      .m_axis_tlast(tx_fifo_axis_tlast),
-      .m_axis_tid(),
-      .m_axis_tdest(),
-      .m_axis_tuser(tx_fifo_axis_tuser),
-
-      .s_status_overflow  (tx_fifo_overflow),
-      .s_status_bad_frame (tx_fifo_bad_frame),
-      .s_status_good_frame(tx_fifo_good_frame),
-      .m_status_overflow  (),
-      .m_status_bad_frame (),
-      .m_status_good_frame()
-  );
+  assign tx_fifo_axis_tdata  = tx_axis_tdata;
+  assign tx_fifo_axis_tvalid = tx_axis_tvalid;
+  assign tx_fifo_axis_tlast  = tx_axis_tlast;
+  assign tx_fifo_axis_tuser  = tx_axis_tuser;
+  assign tx_axis_tready      = tx_fifo_axis_tready;
+  assign tx_fifo_overflow    = 1'b0;
+  assign tx_fifo_bad_frame   = 1'b0;
+  assign tx_fifo_good_frame  = 1'b0;
 
   axis_async_fifo_adapter #(
       .DEPTH(RX_FIFO_DEPTH),
