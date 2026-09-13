@@ -172,3 +172,67 @@ async def gcm_burst(dut):
     tag_exp = ct_all[-16:]
     dut._log.info(f"burst pt_len={len(pt_full)} blks={(len(pt_full)+15)//16}")
     await run_gcm(dut, pt_full, aad, ct_exp, tag_exp, decrypt=False, key=key, key_load=0, nonce=nonce)
+
+
+@cocotb.test()
+async def key_reload_only_when_changed(dut):
+    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
+    dut.rst_n.value = 0
+    dut.key.value = 0
+    dut.key_load.value = 0
+    dut.nonce.value = 0
+    dut.aad.value = 0
+    dut.aad_len.value = 0
+    dut.pt_len.value = 0
+    dut.pt_valid.value = 0
+    dut.pt_data.value = 0
+    dut.ct_ready.value = 0
+    dut.decrypt.value = 0
+    dut.start.value = 0
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+
+    pt, _ct, aad, _tag = VECTORS[0]
+    key2 = KEY ^ int.from_bytes(b"\x5a" * 32, "big")
+
+    async def one_frame(key, key_load):
+        dut.key.value = key
+        dut.key_load.value = key_load
+        dut.pt_len.value = len(pt)
+        dut.aad.value = int.from_bytes(aad, "big") << (128 - 8 * len(aad))
+        dut.aad_len.value = len(aad)
+        dut.ct_ready.value = 1
+        dut.pt_valid.value = 0
+        dut.start.value = 1
+        seen = 0
+        idx = 0
+        await FallingEdge(dut.clk)
+        dut.key_load.value = 0
+        await FallingEdge(dut.clk)
+        dut.start.value = 0
+        for _ in range(4000):
+            await FallingEdge(dut.clk)
+            if int(dut.aes_key_load.value):
+                seen = 1
+            if int(dut.pt_ready.value) and idx < len(pt):
+                blk = pt[idx:idx + 16].ljust(16, b"\x00")
+                dut.pt_valid.value = 1
+                dut.pt_data.value = int.from_bytes(blk, "big")
+                idx += 16
+            else:
+                dut.pt_valid.value = 0
+            if int(dut.tag_valid.value):
+                break
+        else:
+            raise AssertionError("gcm timeout")
+        dut.pt_valid.value = 0
+        await FallingEdge(dut.clk)
+        return seen
+
+    assert await one_frame(KEY, 0) == 1, "first frame loads key"
+    assert await one_frame(KEY, 0) == 0, "no reload on same key"
+    assert await one_frame(key2, 1) == 1, "new key loads"
+    assert await one_frame(key2, 0) == 0, "no reload after load"
+    assert await one_frame(key2, 1) == 1, "key_load forces load"
+    print("on-demand key load PASS", flush=True)

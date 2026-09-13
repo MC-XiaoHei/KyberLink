@@ -272,20 +272,6 @@ async def boot(dut, clk_b_period=8):
     return spi_a, spi_b
 
 
-def build_arp_request(sha, spa, tpa):
-    eth = b"\xff" * 6 + sha.to_bytes(6, "big") + b"\x08\x06"
-    arp = (bytes([0, 1, 8, 0, 6, 4, 0, 1]) + sha.to_bytes(6, "big")
-           + spa.to_bytes(4, "big") + b"\x00" * 6 + tpa.to_bytes(4, "big"))
-    return eth + arp
-
-
-def build_arp_reply(sha, spa, tpa):
-    eth = sha.to_bytes(6, "big") + spa.to_bytes(6, "big") + b"\x08\x06"
-    arp = (bytes([0, 1, 8, 0, 6, 4, 0, 2]) + spa.to_bytes(6, "big")
-           + spa.to_bytes(4, "big") + sha.to_bytes(6, "big") + tpa.to_bytes(4, "big"))
-    return eth + arp
-
-
 async def ctrl_send(dut, spi, data):
     sck, mosi, miso, csn = spi
     for chunk in (data[i:i + 4] for i in range(0, len(data), 4)):
@@ -355,9 +341,15 @@ async def rgmii_200_align(dut):
     esp = bytearray()
 
     async def wan_watch():
+        seen_low = False
         for _ in range(400000):
             await ClockCycles(dut.clk, 1)
-            if int(dut.a_tx_en.value):
+            if not int(dut.a_tx_en.value):
+                seen_low = True
+                continue
+            if not seen_low:
+                continue
+            if int(dut.a_tx_ready.value):
                 esp.append(int(dut.a_txd.value))
                 if int(dut.a_tx_last.value):
                     return
@@ -370,41 +362,20 @@ async def rgmii_200_align(dut):
     await fa
     await wb
     await ww
-    print(f"ALIGN200 ok={bytes(got) == plain}", flush=True)
-    print(f"ESP len={len(esp)} spi={esp[42:46].hex()} seq={esp[46:50].hex()}", flush=True)
+    assert bytes(got) == plain, f"align200 plain {len(got)}"
     from Crypto.Cipher import AES
     key = bytes.fromhex(sa["sk_ei"])
-    seq = int.from_bytes(esp[46:50], "big")
-    salt = bytes.fromhex(sa["sa_salt"])[:8]
-    nonce = salt + seq.to_bytes(4, "big")
-    aad = int.from_bytes(bytes.fromhex(sa["spi_i"]), "big").to_bytes(4, "big") + seq.to_bytes(4, "big") + b"\x00" * 8
-    body = esp[58:-16]
-    tag = esp[-16:]
-    seqb = seq.to_bytes(4, "big")
-    saltb = salt
-    import itertools
-    for kn, nb, kb, ab in itertools.product(
-            ("e",), 
-            ("s+q","q+s","s8q"), 
-            ("ei","er"), 
-            ("std",)):
-        k = bytes.fromhex(sa["sk_ei"]) if kb=="ei" else bytes.fromhex(sa["sk_er"])
-        if nb == "s+q": n2 = saltb + seqb
-        elif nb == "q+s": n2 = seqb + saltb
-        else: n2 = seqb + saltb[:8]
-        a2 = int.from_bytes(bytes.fromhex(sa["spi_i"]), "big").to_bytes(4, "big") + seqb + b"\x00" * 8
-        try:
-            cc = AES.new(k, AES.MODE_GCM, nonce=n2)
-            cc.update(a2)
-            ppt = cc.decrypt_and_verify(body, tag)
-            print(f"PYDEC HIT k={kb} n={nb} aad={ab} len={len(ppt)} tail={ppt[-8:].hex()}", flush=True)
-            print(f"        exp tail={plain[-8:].hex()}", flush=True)
-            break
-        except ValueError:
-            pass
-    else:
-        print(f"PYDEC all fail len={len(esp)} bodylen={len(body)}", flush=True)
-        print(f"  head58={bytes(esp[:58]).hex()}", flush=True)
+    nonce = bytes(esp[50:62])
+    aad = bytes(esp[42:46]) + bytes(esp[46:50])
+    body = bytes(esp[62:-16])
+    tag = bytes(esp[-16:])
+    cc = AES.new(key, AES.MODE_GCM, nonce=nonce)
+    cc.update(aad)
+    ppt = cc.decrypt_and_verify(body, tag)
+    pad_n = (16 - ((200 + 2) & 0xF)) & 0xF
+    assert ppt[:200] == plain, f"align200 oracle tail {ppt[196:208].hex()}"
+    assert ppt[200:] == bytes(pad_n) + bytes([pad_n, 4]), f"align200 pad {ppt[200:].hex()}"
+    print(f"align200 oracle ok esp={len(esp)}", flush=True)
 
 
 @cocotb.test()
@@ -584,8 +555,9 @@ async def pipe(dut, data, tag):
 @cocotb.test()
 async def full_fw_roundtrip(dut):
     if not HAVE_FFI:
-        print("FFI not available, skip full_fw_roundtrip", flush=True)
-        return
+        raise AssertionError(
+            f"FFI DLL missing {os.path.basename(DLL)}:"
+            "cargo build -p kyberlink-core --features kyberlink-core/ffi")
     spi_a, spi_b = await boot(dut)
     await cfg_gw(dut, *spi_a, MAC_A, MAC_B, IP_A, IP_B)
     await cfg_gw(dut, *spi_b, MAC_B, MAC_A, IP_B, IP_A)
@@ -746,40 +718,6 @@ async def dual_rekey(dut):
 
 
 @cocotb.test()
-async def arp_capture_roundtrip(dut):
-    spi_a, spi_b = await boot(dut)
-    await cfg_gw(dut, *spi_a, MAC_A, MAC_B, IP_A, IP_B)
-    await cfg_gw(dut, *spi_b, MAC_B, MAC_A, IP_B, IP_A)
-    await ClockCycles(dut.clk, 10)
-
-    # B 出(ctrl fifo→B wan), A 收(A wan→A arp_catch)。先等 A 的 pending
-    sha = MAC_B
-    req = build_arp_request(sha, IP_B, IP_A)
-
-    await ctrl_send(dut, spi_b, req)
-    await ClockCycles(dut.clk, 2000)
-
-    # A 侧读回捕获
-    st = await spi_read(dut, *spi_a, 0x04)
-    assert st & 0x4, f"arp pending not set: {st:08x}"
-
-    # 读 0x51 触发 arp_read 清零
-    c51 = await spi_read(dut, *spi_a, 0x51)
-    c52 = await spi_read(dut, *spi_a, 0x52)
-    c53 = await spi_read(dut, *spi_a, 0x53)
-    print(f"DIAG c51={c51:08x} c52={c52:08x} c53={c53:08x}", flush=True)
-    # 正确重拼: capture[79:48]=sha高4B(c51), [47:16]=sha低2B|spa高2B(c52), [15:0]=spa低2B(c53)
-    sha_ = ((c51 & 0xFFFFFFFF) << 16) | ((c52 >> 16) & 0xFFFF)
-    spa = ((c52 & 0xFFFF) << 16) | (c53 & 0xFFFF)
-    assert sha_ == MAC_B, f"capture sha {sha_:012x} exp {MAC_B:012x}"
-    assert spa == IP_B, f"capture spa {spa:08x} exp {IP_B:08x}"
-
-    st = await spi_read(dut, *spi_a, 0x04)
-    assert not (st & 0x4), f"arp pending not cleared: {st:08x}"
-    print("arp_capture_roundtrip PASS", flush=True)
-
-
-@cocotb.test()
 async def soft_rst_full_roundtrip(dut):
     spi_a, spi_b = await boot(dut)
     await cfg_gw(dut, *spi_a, MAC_A, MAC_B, IP_A, IP_B)
@@ -855,7 +793,7 @@ async def error_inject_full(dut):
     # 篡改 tag(最后16字节) + 改 seq 为全新值(绕过 replay) -> 触发 badtag。
     bad = bytearray(esp)
     bad[46:50] = (0x12345678).to_bytes(4, "big")  # 全新 seq, B 未见过
-    bad[-1] ^= 0xFF  # 坏 tag
+    bad[-1] ^= 0xFF
 
     async def inject(frame):
         for j, b in enumerate(frame):
@@ -894,7 +832,7 @@ async def error_inject_full(dut):
 
 @cocotb.test()
 async def async_clk_roundtrip(dut):
-    spi_a, spi_b = await boot(dut, clk_b_period=8.15)  # B 域异频(-1.8%)真异步
+    spi_a, spi_b = await boot(dut, clk_b_period=8.15)
     await cfg_gw(dut, *spi_a, MAC_A, MAC_B, IP_A, IP_B)
     await cfg_gw(dut, *spi_b, MAC_B, MAC_A, IP_B, IP_A)
     await ClockCycles(dut.clk, 10)

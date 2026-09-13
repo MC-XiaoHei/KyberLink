@@ -490,3 +490,70 @@ endmodule
 module GSR (GSRI);
 input GSRI;
 endmodule
+
+
+module ODDRC (Q0, Q1, D0, D1, TX, CLK, CLEAR);
+parameter TXCLK_POL = 1'b0;
+parameter INIT = 1'b0;
+input D0, D1, TX, CLK, CLEAR;
+output Q0, Q1;
+reg d0_reg_0, d0_reg_1, d0_reg_2;
+reg d1_reg_0, d1_reg_1, d1_reg_2;
+reg tx_reg_0, tx_reg_1, tx_reg_p, tx_reg_n;
+initial begin
+  d0_reg_0 = INIT; d0_reg_1 = INIT; d0_reg_2 = INIT;
+  d1_reg_0 = INIT; d1_reg_1 = INIT; d1_reg_2 = INIT;
+  tx_reg_0 = INIT; tx_reg_1 = INIT; tx_reg_p = INIT; tx_reg_n = INIT;
+end
+always @(posedge CLK) begin
+  d0_reg_0 <= D0;
+  d1_reg_0 <= D1;
+  d0_reg_1 <= d0_reg_0;
+  d1_reg_1 <= d1_reg_0;
+  d1_reg_2 <= d1_reg_1;
+  tx_reg_0 <= TX;
+  tx_reg_1 <= tx_reg_0;
+  tx_reg_p <= tx_reg_n;
+end
+always @(negedge CLK) begin
+  d0_reg_2 <= d0_reg_1;
+  tx_reg_n <= tx_reg_1;
+end
+always @(posedge CLEAR) begin
+  d0_reg_0 <= 1'b0; d0_reg_1 <= 1'b0; d0_reg_2 <= 1'b0;
+  d1_reg_0 <= 1'b0; d1_reg_1 <= 1'b0; d1_reg_2 <= 1'b0;
+  tx_reg_0 <= 1'b0; tx_reg_1 <= 1'b0; tx_reg_p <= 1'b0; tx_reg_n <= 1'b0;
+end
+assign Q0 = (CLK) ? d0_reg_2 : d1_reg_2;
+assign Q1 = (TXCLK_POL == 1'b0) ? tx_reg_p : tx_reg_n;
+endmodule
+
+module IDDRC (Q0, Q1, D, CLK, CLEAR);
+parameter Q0_INIT = 1'b0;
+parameter Q1_INIT = 1'b0;
+input D, CLK, CLEAR;
+output Q0, Q1;
+reg q0_ireg, q1_ireg, q0_oreg, q1_oreg, q0_reg, q1_reg;
+initial begin
+  q0_ireg = Q0_INIT; q1_ireg = Q1_INIT;
+  q0_oreg = Q0_INIT; q1_oreg = Q1_INIT;
+  q0_reg = Q0_INIT; q1_reg = Q1_INIT;
+end
+always @(posedge CLK) begin
+  q0_ireg <= D;
+  q0_oreg <= q0_ireg;
+  q0_reg <= q0_oreg;
+  q1_oreg <= q1_ireg;
+  q1_reg <= q1_oreg;
+end
+always @(negedge CLK) begin
+  q1_ireg <= D;
+end
+always @(posedge CLEAR) begin
+  q0_ireg <= 1'b0; q1_ireg <= 1'b0;
+  q0_oreg <= 1'b0; q1_oreg <= 1'b0;
+  q0_reg <= 1'b0; q1_reg <= 1'b0;
+end
+assign Q0 = q0_reg;
+assign Q1 = q1_reg;
+endmodule

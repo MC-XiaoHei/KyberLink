@@ -427,3 +427,61 @@ async def ctrl_fifo_tx(dut):
     exp = b"".join(w.to_bytes(4, "big") for w in words)
     assert bytes(out) == exp, f"ctrl bytes {bytes(out).hex()} vs {exp.hex()}"
     print("ctrl_fifo_tx PASS", flush=True)
+
+
+async def spi_read_slow(dut, addr, half=30):
+    dut.spi_csn.value = 0
+    await ClockCycles(dut.clk, 1)
+    word = (1 << 39) | (addr << 32)
+    got = 0
+    for i in range(39, -1, -1):
+        dut.spi_mosi.value = (word >> i) & 1
+        await ClockCycles(dut.clk, half)
+        dut.spi_sck.value = 1
+        await ClockCycles(dut.clk, half)
+        if i < 32:
+            got = (got << 1) | int(dut.spi_miso.value)
+        dut.spi_sck.value = 0
+    dut.spi_csn.value = 1
+    await ClockCycles(dut.clk, 2)
+    return got
+
+
+@cocotb.test()
+async def slow_sck_read_block(dut):
+    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
+    dut.rst_n.value = 0
+    dut.spi_sck.value = 0
+    dut.spi_mosi.value = 0
+    dut.spi_csn.value = 1
+    dut.hsk_rx_wr.value = 0
+    dut.hsk_rx_data.value = 0
+    dut.hsk_rx_last.value = 0
+    dut.hsk_rx_len.value = 0
+    dut.hsk_rx_ready.value = 1
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+
+    words = [0xA1B2C3D4, 0x11223344, 0x55667788, 0x99AABBCC]
+    for i, w in enumerate(words):
+        dut.hsk_rx_data.value = w
+        dut.hsk_rx_wr.value = 1
+        await ClockCycles(dut.clk, 1)
+        dut.hsk_rx_wr.value = 0
+        await ClockCycles(dut.clk, 1)
+    dut.hsk_rx_len.value = len(words) * 4
+    dut.hsk_rx_last.value = 1
+    await ClockCycles(dut.clk, 1)
+    dut.hsk_rx_last.value = 0
+    await ClockCycles(dut.clk, 3)
+
+    st = await spi_read_slow(dut, 0x04)
+    assert st & 1, f"rx pending {st:#x}"
+    ln = await spi_read_slow(dut, 0x34)
+    assert ln == len(words) * 4, f"len {ln} exp {len(words)*4}"
+
+    for i, want in enumerate(words):
+        got = await spi_read_slow(dut, 0x38)
+        assert got == want, f"word {i} {got:#010x} exp {want:#010x}"
+    print("slow sck read PASS", flush=True)

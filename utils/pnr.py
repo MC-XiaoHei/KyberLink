@@ -37,6 +37,7 @@ def build_tcl(sdc_path, cst, device, dev_ver, place_opt, route_opt):
         "set_option -place_option %d" % place_opt,
         "set_option -timing_driven %s" % os.environ.get("PNR_TIMING_DRIVEN", "1"),
         "set_option -route_option %d" % route_opt,
+        "set_option -opt_goal %s" % os.environ.get("PNR_OPT_GOAL", "auto"),
     ]
     for _opt, _env in (
         ("resource_sharing", "PNR_RESOURCE_SHARING"),
@@ -50,7 +51,7 @@ def build_tcl(sdc_path, cst, device, dev_ver, place_opt, route_opt):
         ("convert_sdp32_36_to_sdp16_18", "PNR_CONVERT_SDP"),
         ("inc_place", "PNR_INC_PLACE"),
         ("inc_pnr", "PNR_INC_PNR"),
-        ("opt_goal", "PNR_OPT_GOAL"),
+        ("map_option", "PNR_MAP_OPTION"),
     ):
         _v = os.environ.get(_env)
         if _v:

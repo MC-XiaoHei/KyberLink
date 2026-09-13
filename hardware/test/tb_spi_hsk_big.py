@@ -53,7 +53,7 @@ async def spi_tx_big(dut):
     dut.rst_n.value = 1
     await ClockCycles(dut.clk, 2)
 
-    data = bytes([0x55] * 3168)
+    data = bytes((i * 13 + 7) & 0xFF for i in range(3168))
     await spi_write(dut, 0x3C, len(data))
     for i in range(0, len(data), 4):
         chunk = data[i:i + 4]
@@ -62,11 +62,55 @@ async def spi_tx_big(dut):
     await spi_write(dut, 0x00, 1 << 1)
 
     got = bytearray()
-    for cyc in range(4000):
+    last_seen = 0
+    for cyc in range(6000):
         if int(dut.hsk_tx_valid.value):
             w = int(dut.hsk_tx_data.value)
             got += w.to_bytes(4, "big")
-        if cyc % 500 == 0 and got:
-            print(f"cyc={cyc} gotlen={len(got)} last={got[-8:].hex()}", flush=True)
+            if int(dut.hsk_tx_last.value):
+                last_seen = 1
         await ClockCycles(dut.clk, 1)
-    print(f"TXBIG gotlen={len(got)} head={got[:16].hex()} tail={got[-16:].hex()}", flush=True)
+    assert len(got) == 3168, f"txbig len {len(got)}"
+    assert got == data, f"txbig content {got[:8].hex()}"
+    assert last_seen, "txbig last"
+    print(f"TXBIG ok len={len(got)} head={got[:16].hex()} tail={got[-16:].hex()}", flush=True)
+
+
+@cocotb.test()
+async def spi_tx_fifo_overflow(dut):
+    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
+    dut.rst_n.value = 0
+    dut.spi_sck.value = 0
+    dut.spi_mosi.value = 0
+    dut.spi_csn.value = 1
+    dut.hsk_rx_wr.value = 0
+    dut.hsk_rx_data.value = 0
+    dut.hsk_rx_last.value = 0
+    dut.hsk_rx_len.value = 0
+    dut.hsk_tx_ready.value = 1
+    await ClockCycles(dut.clk, 4)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+
+    words = 600
+    declared = words * 4
+    await spi_write(dut, 0x3C, declared)
+    pat = [((w * 7) & 0xFFFFFFFF) for w in range(words)]
+    for w in pat:
+        await spi_write(dut, 0x40, w)
+
+    await spi_write(dut, 0x00, 1 << 1)
+    got = []
+    for cyc in range(8000):
+        if int(dut.hsk_tx_valid.value):
+            got.append(int(dut.hsk_tx_data.value))
+            if int(dut.hsk_tx_last.value):
+                break
+        await ClockCycles(dut.clk, 1)
+    assert len(got) > 0, "overflow no out"
+    store = [None] * 512
+    for w in range(words):
+        store[w % 512] = pat[w]
+    exp = [store[i % 512] for i in range(words)]
+assert got == exp, f"overflow got0 {got[0]:08x} exp0 {exp[0]:08x} n {len(got)}"
+    print(f"tx overflow ok {len(got)} words", flush=True)

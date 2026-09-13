@@ -31,10 +31,11 @@ def S(*p):
 
 
 GOWIN_DPB = S("gowin_dpb_sim.v")
+GOWIN_PLL = S("gowin_pll_sim.v")
 
 
 UNIT = ["aes", "aes_pipe", "aes_bw", "gcm", "spi", "eth", "bram", "bp"]
-INTG = ["bridge", "bw", "full", "node", "gmii_rx", "diag2", "spi_big"]
+INTG = ["bridge", "bw", "full", "node", "gmii_rx", "diag2", "spi_big", "top", "fifo"]
 
 SBOX_LEGACY = [
     R("bp_aes_sbox.v"),
@@ -63,7 +64,6 @@ BRIDGE = [
 ]
 
 CTRL_PLANE = [
-    R("bram_32x2048.v"),
     R("bram_32x512.v"),
     R("bram_8x256.v"),
     R("spi_slave.v"),
@@ -71,7 +71,6 @@ CTRL_PLANE = [
     R("spi_top.v"),
     R("ip_udp_eth_rx.v"),
     R("ip_udp_eth_tx.v"),
-    R("arp_catch.v"),
 ]
 
 FULL_CORE = (
@@ -174,7 +173,6 @@ CONF = {
             R("spi_slave.v"),
             R("spi_regs.v"),
             R("spi_top.v"),
-            R("bram_32x2048.v"),
             R("bram_32x512.v"),
             GOWIN_DPB,
         ],
@@ -186,7 +184,6 @@ CONF = {
             R("spi_slave.v"),
             R("spi_regs.v"),
             R("spi_top.v"),
-            R("bram_32x2048.v"),
             R("bram_32x512.v"),
             GOWIN_DPB,
         ],
@@ -196,7 +193,6 @@ CONF = {
         "src": [
             R("ip_udp_eth_rx.v"),
             R("ip_udp_eth_tx.v"),
-            R("arp_catch.v"),
             R("eth_top.v"),
             R("bram_8x256.v"),
             GOWIN_DPB,
@@ -221,6 +217,16 @@ CONF = {
         "test_module": "tb_gmii_rx",
         "src": MAC + [S("gmii_rx_top.v")],
     },
+    "top": {
+        "top": "kyberlink_top",
+        "test_module": "tb_top",
+        "src": FULL_CORE + MAC + [GOWIN_DPB, GOWIN_PLL, R("clk_pll.v"), R("kyberlink_top.v")],
+    },
+    "fifo": {
+        "top": "axis_sync_fifo",
+        "test_module": "tb_axis_fifo",
+        "src": [R("kyberlink_top.v")],
+    },
 }
 
 
@@ -231,6 +237,8 @@ UNIT_TEST = {
     "bp": "tb_sbox_legacy",
 }
 INTG_TEST = {
+    "top": "tb_top",
+    "fifo": "tb_axis_fifo",
     "bw": "tb_bridge_bw",
     "diag2": "tb_enc_maxframe",
     "spi_big": "tb_spi_hsk_big",

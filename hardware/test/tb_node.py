@@ -689,3 +689,299 @@ async def replay_window_bounds(dut):
     b5, r5 = await counters()
     assert (b5, r5) == (1, 0), f"back 36 accept (bt {b5} rp {r5})"
     print("replay_window_bounds PASS", flush=True)
+
+
+def make_esp_payload(seq, esp_len):
+    d = bytearray(30 + esp_len)
+    d[0:2] = b"\x08\x00"
+    d[2] = 0x45
+    d[11] = 0x11
+    d[14:18] = SRC_IP.to_bytes(4, "big")
+    d[18:22] = DST_IP.to_bytes(4, "big")
+    d[22:24] = SRC_PORT.to_bytes(2, "big")
+    d[24:26] = DST_PORT.to_bytes(2, "big")
+    d[26:28] = (8 + esp_len).to_bytes(2, "big")
+    d[30:34] = SPI.to_bytes(4, "big")
+    d[34:38] = seq.to_bytes(4, "big")
+    return bytes(d)
+
+
+async def drive_wan(dut, payload):
+    frame = SRC_MAC.to_bytes(6, "big") + DST_MAC.to_bytes(6, "big") + payload
+    for j, b in enumerate(frame):
+        dut.wan_rxd.value = b
+        dut.wan_rx_dv.value = 1
+        dut.wan_rx_last.value = 1 if j == len(frame) - 1 else 0
+        await ClockCycles(dut.clk, 1)
+    dut.wan_rx_dv.value = 0
+    dut.wan_rx_last.value = 0
+    await ClockCycles(dut.clk, 200)
+
+
+async def lan_roundtrip(dut, n=100):
+    frame = make_frame(n)
+    esp_out = bytearray()
+
+    async def wan_collect():
+        for _ in range(200000):
+            if int(dut.wan_tx_en.value):
+                esp_out.append(int(dut.wan_txd.value))
+                if int(dut.wan_tx_last.value):
+                    return
+            await ClockCycles(dut.clk, 1)
+
+    c = cocotb.start_soon(wan_collect())
+    for j, b in enumerate(frame):
+        dut.lan_rxd.value = b
+        dut.lan_rx_dv.value = 1
+        dut.lan_rx_last.value = 1 if j == len(frame) - 1 else 0
+        await ClockCycles(dut.clk, 1)
+    dut.lan_rx_dv.value = 0
+    dut.lan_rx_last.value = 0
+    for _ in range(400000):
+        await ClockCycles(dut.clk, 1)
+        if c.done():
+            break
+    c.kill()
+    esp = bytes(esp_out)
+    if not esp:
+        return False, b""
+
+    plain = bytearray()
+
+    async def dec_collect():
+        for _ in range(200000):
+            if int(dut.lan_tx_en.value):
+                plain.append(int(dut.lan_txd.value))
+                if int(dut.lan_tx_last.value):
+                    return
+            await ClockCycles(dut.clk, 1)
+
+    c2 = cocotb.start_soon(dec_collect())
+    await drive_wan(dut, esp[12:])
+    for _ in range(400000):
+        await ClockCycles(dut.clk, 1)
+        if c2.done():
+            break
+    c2.kill()
+    return bytes(plain) == frame, bytes(plain)
+
+
+@cocotb.test()
+async def short_frame_no_hang(dut):
+    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
+    dut.rst_n.value = 0
+    dut.spi_sck.value = 0
+    dut.spi_mosi.value = 0
+    dut.spi_csn.value = 1
+    dut.lan_rxd.value = 0
+    dut.lan_rx_dv.value = 0
+    dut.lan_rx_last.value = 0
+    dut.wan_rxd.value = 0
+    dut.wan_rx_dv.value = 0
+    dut.wan_rx_last.value = 0
+    dut.lan_tx_ready.value = 1
+    dut.wan_tx_ready.value = 1
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+    await spi_configure(dut)
+    await ClockCycles(dut.clk, 10)
+
+    ok, _ = await lan_roundtrip(dut)
+    assert ok, "baseline roundtrip"
+
+    for esp_len in (8, 20, 35):
+        await drive_wan(dut, make_esp_payload(0x1000 + esp_len, esp_len))
+        await ClockCycles(dut.clk, 500)
+
+    ok2, got = await lan_roundtrip(dut)
+    assert ok2, f"short frame hang got={len(got)}"
+    print("short frame no hang PASS", flush=True)
+
+
+@cocotb.test()
+async def in_order_replay_rejected(dut):
+    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
+    dut.rst_n.value = 0
+    dut.spi_sck.value = 0
+    dut.spi_mosi.value = 0
+    dut.spi_csn.value = 1
+    dut.lan_rxd.value = 0
+    dut.lan_rx_dv.value = 0
+    dut.lan_rx_last.value = 0
+    dut.wan_rxd.value = 0
+    dut.wan_rx_dv.value = 0
+    dut.wan_rx_last.value = 0
+    dut.lan_tx_ready.value = 1
+    dut.wan_tx_ready.value = 1
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+    await spi_configure(dut)
+    await ClockCycles(dut.clk, 10)
+
+    frame = make_frame(100)
+    esp_out = bytearray()
+
+    async def wan_collect():
+        while True:
+            if int(dut.wan_tx_en.value):
+                esp_out.append(int(dut.wan_txd.value))
+                if int(dut.wan_tx_last.value):
+                    return
+            await ClockCycles(dut.clk, 1)
+
+    c = cocotb.start_soon(wan_collect())
+    for j, b in enumerate(frame):
+        dut.lan_rxd.value = b
+        dut.lan_rx_dv.value = 1
+        dut.lan_rx_last.value = 1 if j == len(frame) - 1 else 0
+        await ClockCycles(dut.clk, 1)
+    dut.lan_rx_dv.value = 0
+    dut.lan_rx_last.value = 0
+    await c
+    esp = bytearray(esp_out)
+    data = bytes(esp[12:])
+
+    async def wait_idle():
+        for _ in range(200000):
+            if int(dut.u_bridge.u_dec.ds.value) == 0 and int(dut.u_bridge.u_dec.dec_pend.value) == 0:
+                return
+            await ClockCycles(dut.clk, 1)
+        raise AssertionError("dec never idle")
+
+    async def drive_seq(v):
+        d = bytearray(data)
+        d[34:38] = v.to_bytes(4, "big")
+        rsp = SRC_MAC.to_bytes(6, "big") + DST_MAC.to_bytes(6, "big") + bytes(d)
+        for j, b in enumerate(rsp):
+            dut.wan_rxd.value = b
+            dut.wan_rx_dv.value = 1
+            dut.wan_rx_last.value = 1 if j == len(rsp) - 1 else 0
+            await ClockCycles(dut.clk, 1)
+        dut.wan_rx_dv.value = 0
+        dut.wan_rx_last.value = 0
+        await ClockCycles(dut.clk, 100)
+
+    async def counters():
+        st = await spi_read(dut, 0x50)
+        await spi_write(dut, 0x50, 0)
+        return 1 if st & 1 else 0, 1 if st & 4 else 0
+
+    b, r = await counters()
+    assert (b, r) == (0, 0), f"init errors {b} {r}"
+
+    await drive_seq(10)
+    await wait_idle()
+    b, r = await counters()
+    assert r == 0, f"seq10 replay {r}"
+
+    await drive_seq(11)
+    await wait_idle()
+    b, r = await counters()
+    assert r == 0, f"seq11 replay {r}"
+
+    await drive_seq(10)
+    await wait_idle()
+    b, r = await counters()
+    assert r == 1, f"seq10 accepted {r}"
+    print("in-order replay rejected PASS", flush=True)
+
+
+@cocotb.test()
+async def jump_keeps_replay_window(dut):
+    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
+    dut.rst_n.value = 0
+    dut.spi_sck.value = 0
+    dut.spi_mosi.value = 0
+    dut.spi_csn.value = 1
+    dut.lan_rxd.value = 0
+    dut.lan_rx_dv.value = 0
+    dut.lan_rx_last.value = 0
+    dut.wan_rxd.value = 0
+    dut.wan_rx_dv.value = 0
+    dut.wan_rx_last.value = 0
+    dut.lan_tx_ready.value = 1
+    dut.wan_tx_ready.value = 1
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+    await spi_configure(dut)
+    await ClockCycles(dut.clk, 10)
+
+    frame = make_frame(100)
+    esp_out = bytearray()
+
+    async def wan_collect():
+        while True:
+            if int(dut.wan_tx_en.value):
+                esp_out.append(int(dut.wan_txd.value))
+                if int(dut.wan_tx_last.value):
+                    return
+            await ClockCycles(dut.clk, 1)
+
+    c = cocotb.start_soon(wan_collect())
+    for j, b in enumerate(frame):
+        dut.lan_rxd.value = b
+        dut.lan_rx_dv.value = 1
+        dut.lan_rx_last.value = 1 if j == len(frame) - 1 else 0
+        await ClockCycles(dut.clk, 1)
+    dut.lan_rx_dv.value = 0
+    dut.lan_rx_last.value = 0
+    await c
+    data = bytes(esp_out)[12:]
+
+    async def wait_idle():
+        for _ in range(200000):
+            if int(dut.u_bridge.u_dec.ds.value) == 0 and int(dut.u_bridge.u_dec.dec_pend.value) == 0:
+                return
+            await ClockCycles(dut.clk, 1)
+        raise AssertionError("dec never idle")
+
+    async def drive_seq(v):
+        d = bytearray(data)
+        d[34:38] = v.to_bytes(4, "big")
+        rsp = SRC_MAC.to_bytes(6, "big") + DST_MAC.to_bytes(6, "big") + bytes(d)
+        for j, b in enumerate(rsp):
+            dut.wan_rxd.value = b
+            dut.wan_rx_dv.value = 1
+            dut.wan_rx_last.value = 1 if j == len(rsp) - 1 else 0
+            await ClockCycles(dut.clk, 1)
+        dut.wan_rx_dv.value = 0
+        dut.wan_rx_last.value = 0
+        await ClockCycles(dut.clk, 100)
+
+    async def counters():
+        st = await spi_read(dut, 0x50)
+        await spi_write(dut, 0x50, 0)
+        return 1 if st & 1 else 0, 1 if st & 4 else 0
+
+    b, r = await counters()
+    assert (b, r) == (0, 0), f"init errors {b} {r}"
+
+    await drive_seq(10)
+    await wait_idle()
+    b, r = await counters()
+    assert r == 0, f"seq10 replay {r}"
+
+    await drive_seq(20)
+    await wait_idle()
+    b, r = await counters()
+    assert r == 0, f"seq20 fwd replay {r}"
+
+    await drive_seq(10)
+    await wait_idle()
+    b, r = await counters()
+    assert r == 1, f"seq10 after jump accepted {r}"
+
+    await drive_seq(85)
+    await wait_idle()
+    b, r = await counters()
+    assert r == 0, f"seq85 fwd replay {r}"
+
+    await drive_seq(21)
+    await wait_idle()
+    b, r = await counters()
+    assert r == 1, f"seq21 out-of-window accepted {r}"
+    print("jump keeps window PASS", flush=True)
