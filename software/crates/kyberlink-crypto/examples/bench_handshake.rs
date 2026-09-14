@@ -1,10 +1,11 @@
 use kyberlink_crypto::handshake::{self, Identity};
-use kyberlink_crypto::mldsa_internal::{sign_precomp_new_into, SignPrecomp, SK_LEN, VK_LEN};
+use kyberlink_crypto::mldsa_internal::{sign_precomp_new_into, SignPrecomp, VK_LEN};
 use std::time::Instant;
 
 struct TestIdentity {
     vk: [u8; VK_LEN],
-    sk: [u8; SK_LEN],
+    kk: [u8; handshake::KK_LEN],
+    tr: [u8; handshake::TR_LEN],
     spc: SignPrecomp,
 }
 
@@ -13,7 +14,12 @@ impl TestIdentity {
         let (vk, sk) = kyberlink_crypto::mldsa_internal::keygen_internal(&seed);
         let mut spc = SignPrecomp::default();
         sign_precomp_new_into(&mut spc, &sk);
-        TestIdentity { vk, sk, spc }
+        TestIdentity {
+            vk,
+            kk: handshake::kk_of(&sk),
+            tr: handshake::tr_of(&sk),
+            spc,
+        }
     }
 }
 
@@ -21,8 +27,11 @@ impl Identity for TestIdentity {
     fn vk(&self) -> &[u8; VK_LEN] {
         &self.vk
     }
-    fn sk(&self) -> &[u8; SK_LEN] {
-        &self.sk
+    fn kk(&self) -> &[u8; handshake::KK_LEN] {
+        &self.kk
+    }
+    fn tr(&self) -> &[u8; handshake::TR_LEN] {
+        &self.tr
     }
     fn spc(&self) -> &SignPrecomp {
         &self.spc

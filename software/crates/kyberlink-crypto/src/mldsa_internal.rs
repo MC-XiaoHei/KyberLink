@@ -773,7 +773,17 @@ pub fn sign_precomp_into(
     mu_b: &[u8; 64],
     rnd: &[u8; 32],
 ) -> [u8; SIG_LEN] {
-    let kk = &sk[32..64];
+    let mut kk = [0u8; 32];
+    kk.copy_from_slice(&sk[32..64]);
+    sign_precomp_kk_into(pc, &kk, mu_b, rnd)
+}
+
+pub fn sign_precomp_kk_into(
+    pc: &SignPrecomp,
+    kk: &[u8; 32],
+    mu_b: &[u8; 64],
+    rnd: &[u8; 32],
+) -> [u8; SIG_LEN] {
     let mut rhopp = [0u8; 64];
     shake::shake256_squeeze(&[kk, rnd, mu_b], &mut rhopp);
 

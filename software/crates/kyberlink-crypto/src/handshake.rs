@@ -2,8 +2,8 @@ pub use crate::kem_internal::{
     decaps_internal, encaps_internal, keygen_internal as kem_keygen, CT_LEN, DK_LEN, EK_LEN,
 };
 pub use crate::mldsa_internal::{
-    sign_precomp_into, verify_internal, verify_precomp, SignPrecomp, VerifyPrecomp, SIG_LEN,
-    SK_LEN, VK_LEN,
+    sign_precomp_into, sign_precomp_kk_into, verify_internal, verify_precomp, SignPrecomp,
+    VerifyPrecomp, SIG_LEN, SK_LEN, VK_LEN,
 };
 use crate::shake;
 
@@ -30,9 +30,21 @@ pub fn fingerprint(vk: &[u8]) -> [u8; 32] {
     shake::sha3_256(vk)
 }
 
+pub const KK_LEN: usize = 32;
+pub const TR_LEN: usize = 64;
+
+pub fn kk_of(sk: &[u8; SK_LEN]) -> [u8; KK_LEN] {
+    sk[32..64].try_into().unwrap()
+}
+
+pub fn tr_of(sk: &[u8; SK_LEN]) -> [u8; TR_LEN] {
+    sk[64..128].try_into().unwrap()
+}
+
 pub trait Identity {
     fn vk(&self) -> &[u8; VK_LEN];
-    fn sk(&self) -> &[u8; SK_LEN];
+    fn kk(&self) -> &[u8; KK_LEN];
+    fn tr(&self) -> &[u8; TR_LEN];
     fn spc(&self) -> &SignPrecomp;
 
     fn fingerprint(&self) -> [u8; 32] {
@@ -42,7 +54,8 @@ pub trait Identity {
 
 pub struct RomIdentity {
     pub vk: &'static [u8; VK_LEN],
-    pub sk: &'static [u8; SK_LEN],
+    pub kk: &'static [u8; KK_LEN],
+    pub tr: &'static [u8; TR_LEN],
     pub spc: &'static SignPrecomp,
 }
 
@@ -50,8 +63,11 @@ impl Identity for RomIdentity {
     fn vk(&self) -> &[u8; VK_LEN] {
         self.vk
     }
-    fn sk(&self) -> &[u8; SK_LEN] {
-        self.sk
+    fn kk(&self) -> &[u8; KK_LEN] {
+        self.kk
+    }
+    fn tr(&self) -> &[u8; TR_LEN] {
+        self.tr
     }
     fn spc(&self) -> &SignPrecomp {
         self.spc
@@ -203,9 +219,8 @@ pub fn initiator_recv_m2<I: Identity + ?Sized>(
     smsg3[0] = 0x02;
     smsg3[1..].copy_from_slice(&h3);
     let mut mu_b = [0u8; 64];
-    let tr = &id.sk()[64..128];
-    shake::shake256_squeeze(&[tr, &[0x00], &[0u8], &smsg3], &mut mu_b);
-    let sig3 = sign_precomp_into(id.spc(), id.sk(), &mu_b, &[0u8; 32]);
+    shake::shake256_squeeze(&[id.tr(), &[0x00], &[0u8], &smsg3], &mut mu_b);
+    let sig3 = sign_precomp_kk_into(id.spc(), id.kk(), &mu_b, &[0u8; 32]);
     m3[CT_LEN + 4..].copy_from_slice(&sig3);
     st.h = h3;
     Ok((m3, spi_i))
@@ -291,9 +306,8 @@ pub fn responder_start<I: Identity + ?Sized>(
     smsg[0] = 0x01;
     smsg[1..].copy_from_slice(&h2);
     let mut mu_b = [0u8; 64];
-    let tr = &id.sk()[64..128];
-    shake::shake256_squeeze(&[tr, &[0x00], &[0u8], &smsg], &mut mu_b);
-    let sig = sign_precomp_into(id.spc(), id.sk(), &mu_b, &[0u8; 32]);
+    shake::shake256_squeeze(&[id.tr(), &[0x00], &[0u8], &smsg], &mut mu_b);
+    let sig = sign_precomp_kk_into(id.spc(), id.kk(), &mu_b, &[0u8; 32]);
     m2[32 + EK_LEN + VK_LEN..].copy_from_slice(&sig);
     let _ = nonce_i;
     Ok((
@@ -353,9 +367,8 @@ pub fn responder_recv_m3<I: Identity + ?Sized>(
     smsg4[0] = 0x03;
     smsg4[1..].copy_from_slice(&h4);
     let mut mu_b = [0u8; 64];
-    let tr = &id.sk()[64..128];
-    shake::shake256_squeeze(&[tr, &[0x00], &[0u8], &smsg4], &mut mu_b);
-    let sig4 = sign_precomp_into(id.spc(), id.sk(), &mu_b, &[0u8; 32]);
+    shake::shake256_squeeze(&[id.tr(), &[0x00], &[0u8], &smsg4], &mut mu_b);
+    let sig4 = sign_precomp_kk_into(id.spc(), id.kk(), &mu_b, &[0u8; 32]);
     m4[CT_LEN + 4..].copy_from_slice(&sig4);
     let mut ss = [0u8; 64];
     ss[..32].copy_from_slice(&ss_i);
@@ -371,7 +384,8 @@ mod tests {
 
     struct TestIdentity {
         vk: [u8; VK_LEN],
-        sk: [u8; SK_LEN],
+        kk: [u8; KK_LEN],
+        tr: [u8; TR_LEN],
         spc: SignPrecomp,
     }
 
@@ -380,7 +394,12 @@ mod tests {
             let (vk, sk) = crate::mldsa_internal::keygen_internal(&seed);
             let mut spc = SignPrecomp::default();
             sign_precomp_new_into(&mut spc, &sk);
-            TestIdentity { vk, sk, spc }
+            TestIdentity {
+                vk,
+                kk: kk_of(&sk),
+                tr: tr_of(&sk),
+                spc,
+            }
         }
     }
 
@@ -388,8 +407,11 @@ mod tests {
         fn vk(&self) -> &[u8; VK_LEN] {
             &self.vk
         }
-        fn sk(&self) -> &[u8; SK_LEN] {
-            &self.sk
+        fn kk(&self) -> &[u8; KK_LEN] {
+            &self.kk
+        }
+        fn tr(&self) -> &[u8; TR_LEN] {
+            &self.tr
         }
         fn spc(&self) -> &SignPrecomp {
             &self.spc

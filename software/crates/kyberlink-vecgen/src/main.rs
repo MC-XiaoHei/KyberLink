@@ -321,7 +321,8 @@ fn gen_handshake(out_dir: &Path) {
 
     struct TestIdentity {
         vk: [u8; hs::VK_LEN],
-        sk: [u8; hs::SK_LEN],
+        kk: [u8; hs::KK_LEN],
+        tr: [u8; hs::TR_LEN],
         spc: hs::SignPrecomp,
     }
 
@@ -329,8 +330,11 @@ fn gen_handshake(out_dir: &Path) {
         fn vk(&self) -> &[u8; hs::VK_LEN] {
             &self.vk
         }
-        fn sk(&self) -> &[u8; hs::SK_LEN] {
-            &self.sk
+        fn kk(&self) -> &[u8; hs::KK_LEN] {
+            &self.kk
+        }
+        fn tr(&self) -> &[u8; hs::TR_LEN] {
+            &self.tr
         }
         fn spc(&self) -> &hs::SignPrecomp {
             &self.spc
@@ -341,7 +345,12 @@ fn gen_handshake(out_dir: &Path) {
         let (vk, sk) = kyberlink_crypto::mldsa_internal::keygen_internal(&seed);
         let mut spc = hs::SignPrecomp::default();
         kyberlink_crypto::mldsa_internal::sign_precomp_new_into(&mut spc, &sk);
-        TestIdentity { vk, sk, spc }
+        TestIdentity {
+            vk,
+            kk: hs::kk_of(&sk),
+            tr: hs::tr_of(&sk),
+            spc,
+        }
     }
 
     let id_i = mk_identity([0x11u8; 32]);

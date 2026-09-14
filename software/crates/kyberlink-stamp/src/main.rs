@@ -84,7 +84,8 @@ fn main() {
         first
     };
     let pos = find_unique(&vk_ph, "VK");
-    let pos_sk = find_unique(&sk_ph, "SK");
+    let pos_kk = find_unique(&sk_ph[32..64], "KK");
+    let pos_tr = find_unique(&sk_ph[64..128], "TR");
     let pos_spc = find_unique(&spc_ph, "SPC");
 
     let seed = os_random();
@@ -92,7 +93,8 @@ fn main() {
 
     let mut out = data.clone();
     out[pos..pos + VK_LEN].copy_from_slice(&vk);
-    out[pos_sk..pos_sk + SK_LEN].copy_from_slice(&sk);
+    out[pos_kk..pos_kk + 32].copy_from_slice(&sk[32..64]);
+    out[pos_tr..pos_tr + 64].copy_from_slice(&sk[64..128]);
     out[pos_spc..pos_spc + SPC_LEN].copy_from_slice(&spc);
     std::fs::write(&out_path, &out).expect("write stamped image");
 

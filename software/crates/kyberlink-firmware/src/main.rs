@@ -56,7 +56,8 @@ mod firmware {
         static IDENTITY: kyberlink_crypto::handshake::RomIdentity =
             kyberlink_crypto::handshake::RomIdentity {
                 vk: &VK_ROM,
-                sk: &SK_ROM,
+                kk: &KK_ROM,
+                tr: &TR_ROM,
                 spc: &SPC,
             };
         let identity: &'static dyn kyberlink_crypto::handshake::Identity = &IDENTITY;

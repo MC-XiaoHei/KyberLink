@@ -19,7 +19,8 @@ fn main() {
         core::mem::size_of::<SignPrecomp>()
     ));
     push_rom(&mut out, "SPC_ROM", spc, true);
-    push_rom(&mut out, "SK_ROM", &sk, false);
+    push_rom(&mut out, "KK_ROM", &sk[32..64], false);
+    push_rom(&mut out, "TR_ROM", &sk[64..128], false);
     push_rom(&mut out, "VK_ROM", &vk, false);
 
     let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
