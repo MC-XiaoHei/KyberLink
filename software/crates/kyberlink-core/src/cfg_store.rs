@@ -34,7 +34,11 @@ const fn crc_table() -> [u32; 256] {
         let mut c = i as u32;
         let mut k = 0;
         while k < 8 {
-            c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+            c = if c & 1 != 0 {
+                0xEDB8_8320 ^ (c >> 1)
+            } else {
+                c >> 1
+            };
             k += 1;
         }
         table[i] = c;
@@ -334,14 +338,7 @@ pub(crate) mod tests {
     fn identity_sized_frame_roundtrip() {
         let mut f = MemFlash::new(0x4_0000);
         let data = payload(crate::cfg_msg::IDENTITY_LEN);
-        write_frame(
-            &mut f,
-            IDENTITY_BASE,
-            IDENTITY_PAGES,
-            MAGIC_IDENTITY,
-            &data,
-        )
-        .unwrap();
+        write_frame(&mut f, IDENTITY_BASE, IDENTITY_PAGES, MAGIC_IDENTITY, &data).unwrap();
         let h = verify(
             &mut f,
             IDENTITY_BASE,
@@ -359,7 +356,8 @@ pub(crate) mod tests {
     fn streamed_frame_roundtrip() {
         let mut f = MemFlash::new(0x4_0000);
         let data = payload(crate::cfg_msg::IDENTITY_LEN);
-        let mut s = FrameStream::begin(&mut f, IDENTITY_BASE, IDENTITY_PAGES, MAGIC_IDENTITY).unwrap();
+        let mut s =
+            FrameStream::begin(&mut f, IDENTITY_BASE, IDENTITY_PAGES, MAGIC_IDENTITY).unwrap();
         for chunk in data.chunks(251) {
             s.write(&mut f, chunk).unwrap();
         }
@@ -407,8 +405,7 @@ pub(crate) mod tests {
         let mut f = MemFlash::new(0x4_0000);
         let data = payload(600);
         {
-            let mut s =
-                FrameStream::begin(&mut f, IDENTITY_BASE, 4, MAGIC_IDENTITY).unwrap();
+            let mut s = FrameStream::begin(&mut f, IDENTITY_BASE, 4, MAGIC_IDENTITY).unwrap();
             s.write(&mut f, &data[..300]).unwrap();
         }
         assert_eq!(

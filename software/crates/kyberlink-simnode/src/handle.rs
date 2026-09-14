@@ -37,10 +37,9 @@ pub(crate) fn create(
         identity: unsafe { &*(&*identity as *const TestIdentity) },
     });
     let qbus = Box::new(QBus::new());
-    let fsm = Fsm::new(
-        unsafe { &*(&*cfg as *const Config) },
-        unsafe { &*(&*qbus as *const QBus) },
-    );
+    let fsm = Fsm::new(unsafe { &*(&*cfg as *const Config) }, unsafe {
+        &*(&*qbus as *const QBus)
+    });
     Box::into_raw(Box::new(FsmHandle {
         fsm: Mutex::new(fsm),
         _identity: identity,

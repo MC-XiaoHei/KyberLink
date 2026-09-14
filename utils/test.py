@@ -22,10 +22,7 @@ def _cargo_test():
     rc = subprocess.call(["cmd", "/c", script], cwd=os.path.join(config.REPO, "software"))
     if rc != 0:
         raise AppError(f"cargo test failed rc={rc}", rc)
-    script = (
-        f"rustup run {tc} cargo build -p kyberlink-simnode "
-        f"--target {host}"
-    )
+    script = f"rustup run {tc} cargo build -p kyberlink-simnode --target {host}"
     rc = subprocess.call(["cmd", "/c", script], cwd=os.path.join(config.REPO, "software"))
     if rc != 0:
         raise AppError(f"cargo build simnode failed rc={rc}", rc)

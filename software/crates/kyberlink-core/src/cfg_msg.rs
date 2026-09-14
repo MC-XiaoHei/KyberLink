@@ -157,8 +157,7 @@ mod tests {
     use crate::cfg_store::{FrameStream, IDENTITY_PAGES};
 
     fn write_identity_frame(f: &mut MemFlash, payload: &[u8]) {
-        let mut s =
-            FrameStream::begin(f, IDENTITY_BASE, IDENTITY_PAGES, MAGIC_IDENTITY).unwrap();
+        let mut s = FrameStream::begin(f, IDENTITY_BASE, IDENTITY_PAGES, MAGIC_IDENTITY).unwrap();
         for chunk in payload.chunks(251) {
             s.write(f, chunk).unwrap();
         }
@@ -230,7 +229,10 @@ mod tests {
 
     #[test]
     fn binding_short_slice_rejected() {
-        assert_eq!(Binding::decode(&[0u8; BINDING_LEN - 1]), Err(CfgError::Length));
+        assert_eq!(
+            Binding::decode(&[0u8; BINDING_LEN - 1]),
+            Err(CfgError::Length)
+        );
     }
 
     #[test]
@@ -245,17 +247,11 @@ mod tests {
         assert_eq!(id.kk[0], payload[VK_OFF + VK_LEN]);
         assert_eq!(id.tr[0], payload[KK_OFF + KK_LEN]);
         assert_eq!(id.spc[0], payload[TR_OFF + TR_LEN]);
-        assert_eq!(
-            id.spc[SPC_LEN - 1],
-            payload[IDENTITY_LEN - 1]
-        );
+        assert_eq!(id.spc[SPC_LEN - 1], payload[IDENTITY_LEN - 1]);
     }
 
     #[test]
     fn identity_wrong_length_rejected() {
-        assert_eq!(
-            Identity::decode(&[0u8; 100]).err(),
-            Some(CfgError::Length)
-        );
+        assert_eq!(Identity::decode(&[0u8; 100]).err(), Some(CfgError::Length));
     }
 }
