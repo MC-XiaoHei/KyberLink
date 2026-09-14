@@ -12,14 +12,11 @@ mod firmware {
     use ch32_hal::time::Hertz;
     use embassy_executor::Spawner;
     use embassy_time::Timer;
-    use kyberlink_core::cfg_msg::{Binding, Identity as CfgIdentity, BINDING_LEN, IDENTITY_LEN};
-    use kyberlink_core::cfg_store::{
-        self, CfgError, NorFlash, BINDING_BASE, MAGIC_BINDING, MAGIC_IDENTITY, IDENTITY_BASE,
-    };
+    use kyberlink_core::cfg_msg::{self, Binding};
+    use kyberlink_core::cfg_store::{CfgError, NorFlash};
     use kyberlink_core::handshake_fsm::{write_data_plane, write_sa, Config, Fsm, FsmOutcome};
-    use kyberlink_crypto::handshake::{RomIdentity, KK_LEN, TR_LEN};
-    use kyberlink_crypto::mldsa_internal::{SignPrecomp, VK_LEN};
-    use kyberlink_crypto::shake;
+    use kyberlink_crypto::entropy::derive_kem_seeds;
+    use kyberlink_crypto::handshake::RomIdentity;
     use kyberlink_firmware::spi::SpiMaster;
 
     const FLASH_BASE: u32 = 0x0800_0000;
@@ -43,6 +40,12 @@ mod firmware {
                 .blocking_erase(off, off + len)
                 .map_err(|_| CfgError::Flash)
         }
+
+        fn map(&mut self, off: u32, len: usize) -> Option<&'static [u8]> {
+            Some(unsafe {
+                core::slice::from_raw_parts((FLASH_BASE + off) as *const u8, len)
+            })
+        }
     }
 
     static mut SPI: Option<SpiMaster> = None;
@@ -50,34 +53,7 @@ mod firmware {
     static mut FSM: core::mem::MaybeUninit<Fsm<SpiMaster>> = core::mem::MaybeUninit::uninit();
     static mut IDENTITY: core::mem::MaybeUninit<RomIdentity> = core::mem::MaybeUninit::uninit();
 
-    unsafe fn payload_slice(base: u32, len: usize) -> &'static [u8] {
-        core::slice::from_raw_parts(
-            (FLASH_BASE + base + cfg_store::HEADER_LEN as u32) as *const u8,
-            len,
-        )
-    }
-
-    fn read_binding(flash: &mut FlashPort) -> Result<Binding, CfgError> {
-        cfg_store::verify(flash, BINDING_BASE, &MAGIC_BINDING, BINDING_LEN as u16)?;
-        let mut buf = [0u8; BINDING_LEN];
-        cfg_store::read_payload(flash, BINDING_BASE, 0, &mut buf)?;
-        Binding::decode(&buf)
-    }
-
-    fn read_identity(flash: &mut FlashPort) -> Result<&'static RomIdentity, CfgError> {
-        cfg_store::verify(flash, IDENTITY_BASE, &MAGIC_IDENTITY, IDENTITY_LEN as u16)?;
-        let payload = unsafe { payload_slice(IDENTITY_BASE, IDENTITY_LEN) };
-        let parts = CfgIdentity::decode(payload)?;
-        let vk: &'static [u8; VK_LEN] = parts.vk.try_into().map_err(|_| CfgError::Length)?;
-        let kk: &'static [u8; KK_LEN] = parts.kk.try_into().map_err(|_| CfgError::Length)?;
-        let tr: &'static [u8; TR_LEN] = parts.tr.try_into().map_err(|_| CfgError::Length)?;
-        let spc: &'static SignPrecomp = unsafe { &*(parts.spc.as_ptr() as *const SignPrecomp) };
-        let store = unsafe { &mut *core::ptr::addr_of_mut!(IDENTITY) };
-        store.write(RomIdentity { vk, kk, tr, spc });
-        Ok(unsafe { store.assume_init_ref() })
-    }
-
-    fn sample_entropy(adc: &mut Adc<'_, ADC1>, chans: &mut [AnyAdcChannel<ADC1>]) -> [u8; 32] {
+    fn sample_raw_entropy(adc: &mut Adc<'_, ADC1>, chans: &mut [AnyAdcChannel<ADC1>]) -> [u8; 256] {
         let mut raw = [0u8; 256];
         let mut i = 0;
         for _ in 0..64 {
@@ -89,7 +65,7 @@ mod firmware {
                 i += 1;
             }
         }
-        shake::sha3_256(&raw)
+        raw
     }
 
     async fn provisioning_hold() -> ! {
@@ -113,10 +89,10 @@ mod firmware {
 
         let mut flash = FlashPort(Flash::new_blocking(p.FLASH));
 
-        let Ok(binding) = read_binding(&mut flash) else {
+        let Ok(binding) = Binding::load(&mut flash) else {
             provisioning_hold().await
         };
-        let Ok(identity) = read_identity(&mut flash) else {
+        let Ok(identity) = cfg_msg::load_identity(&mut flash) else {
             provisioning_hold().await
         };
 
@@ -127,23 +103,18 @@ mod firmware {
             p.PA2.degrade_adc(),
             p.PA3.degrade_adc(),
         ];
-        let entropy = sample_entropy(&mut adc, &mut chans);
-        let seed_kem_d = shake::sha3_256_parts(&[&entropy, b"kyb-kem-d"]);
-        let seed_kem_z = shake::sha3_256_parts(&[&entropy, b"kyb-kem-z"]);
-        let nonce = shake::sha3_256_parts(&[&entropy, b"kyb-nonce"]);
+        let seeds = derive_kem_seeds(&sample_raw_entropy(&mut adc, &mut chans));
 
         unsafe {
+            IDENTITY.write(identity);
             SPI = Some(SpiMaster::new(spi, cs));
             let spi_ref = SPI.as_ref().unwrap();
             write_data_plane(spi_ref, &binding);
-            CONFIG.write(Config {
-                role_initiator: binding.role_initiator,
-                peer_fp: binding.peer_fp,
-                seed_kem_d,
-                seed_kem_z,
-                nonce,
-                identity,
-            });
+            CONFIG.write(Config::from_parts(
+                &binding,
+                &seeds,
+                IDENTITY.assume_init_ref(),
+            ));
             FSM.write(Fsm::new(CONFIG.assume_init_ref(), spi_ref));
         }
 
