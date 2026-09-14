@@ -34,16 +34,10 @@ GOWIN_DPB = S("gowin_dpb_sim.v")
 GOWIN_PLL = S("gowin_pll_sim.v")
 
 
-UNIT = ["aes", "aes_pipe", "aes_bw", "gcm", "spi", "eth", "bram", "bp"]
+UNIT = ["aes_pipe", "gcm", "spi"]
 INTG = ["bridge", "bw", "full", "node", "gmii_rx", "diag2", "spi_big", "top", "fifo"]
 
-SBOX_LEGACY = [
-    R("bp_aes_sbox.v"),
-    R("sbox16.v"),
-]
-
 AES_CORE = [
-    R("aes256_core.v"),
     R("aes256_core_pipe.v"),
     R("sbox_combo_cf_lut.v"),
     R("sb_sbox16.v"),
@@ -56,7 +50,6 @@ GCM = [
 ]
 
 BRIDGE = [
-    R("bram_128x256.v"),
     R("bram_128x16.v"),
     R("bridge_enc_path.v"),
     R("bridge_dec_path.v"),
@@ -65,7 +58,6 @@ BRIDGE = [
 
 CTRL_PLANE = [
     R("bram_32x512.v"),
-    R("bram_8x256.v"),
     R("spi_slave.v"),
     R("spi_regs.v"),
     R("spi_top.v"),
@@ -74,8 +66,7 @@ CTRL_PLANE = [
 ]
 
 FULL_CORE = (
-    SBOX_LEGACY
-    + AES_CORE
+    AES_CORE
     + GCM
     + BRIDGE
     + CTRL_PLANE
@@ -107,30 +98,6 @@ MAC = [
 ]
 
 CONF = {
-    "bp": {
-        "top": "bp_aes_sbox",
-        "src": [R("bp_aes_sbox.v")],
-    },
-    "aes": {
-        "top": "aes256_core",
-        "src": SBOX_LEGACY
-        + AES_CORE
-        + [
-            R("bram_128x256.v"),
-            R("bram_128x16.v"),
-            GOWIN_DPB,
-        ],
-    },
-    "aes_bw": {
-        "top": "aes256_core",
-        "src": SBOX_LEGACY
-        + AES_CORE
-        + [
-            R("bram_128x256.v"),
-            R("bram_128x16.v"),
-            GOWIN_DPB,
-        ],
-    },
     "aes_pipe": {
         "top": "aes256_core_pipe",
         "test_module": "tb_aes_pipe",
@@ -144,27 +111,20 @@ CONF = {
     },
     "gcm": {
         "top": "gcm_stream",
-        "src": SBOX_LEGACY
-        + AES_CORE
-        + GCM
-        + [
-            R("bram_128x256.v"),
-            R("bram_128x16.v"),
-            GOWIN_DPB,
-        ],
+        "src": AES_CORE + GCM + [R("bram_128x16.v"), GOWIN_DPB],
     },
     "bridge": {
         "top": "bridge_top",
-        "src": SBOX_LEGACY + AES_CORE + GCM + BRIDGE + [GOWIN_DPB],
+        "src": AES_CORE + GCM + BRIDGE + [GOWIN_DPB],
     },
     "bw": {
         "top": "bridge_top",
-        "src": SBOX_LEGACY + AES_CORE + GCM + BRIDGE + [GOWIN_DPB],
+        "src": AES_CORE + GCM + BRIDGE + [GOWIN_DPB],
     },
     "diag2": {
         "top": "bridge_top",
         "test_module": "tb_enc_maxframe",
-        "src": SBOX_LEGACY + AES_CORE + GCM + BRIDGE + [GOWIN_DPB],
+        "src": AES_CORE + GCM + BRIDGE + [GOWIN_DPB],
     },
     "spi": {
         "top": "spi_top",
@@ -187,20 +147,6 @@ CONF = {
             R("bram_32x512.v"),
             GOWIN_DPB,
         ],
-    },
-    "eth": {
-        "top": "eth_top",
-        "src": [
-            R("ip_udp_eth_rx.v"),
-            R("ip_udp_eth_tx.v"),
-            R("eth_top.v"),
-            R("bram_8x256.v"),
-            GOWIN_DPB,
-        ],
-    },
-    "bram": {
-        "top": "bram_128x256",
-        "src": [R("bram_128x256.v"), GOWIN_DPB],
     },
     "full": {
         "top": "dual_node_sim",
@@ -231,10 +177,8 @@ CONF = {
 
 
 UNIT_TEST = {
-    "aes": "tb_aes_core",
     "gcm": "tb_gcm_stream",
     "spi": "tb_spi_ctrl",
-    "bp": "tb_sbox_legacy",
 }
 INTG_TEST = {
     "top": "tb_top",
