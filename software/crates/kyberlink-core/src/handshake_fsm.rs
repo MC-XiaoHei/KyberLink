@@ -5,12 +5,8 @@ use kyberlink_crypto::mldsa_internal::{VerifyPrecomp, VK_LEN};
 use crate::cfg_msg::Binding;
 
 pub trait SpiBus {
-    /// # Safety
-    /// `addr` must be a valid register address.
-    unsafe fn write_reg(&self, addr: u8, data: u32);
-    /// # Safety
-    /// `addr` must be a valid register address.
-    unsafe fn read_reg(&self, addr: u8) -> u32;
+    fn write_reg(&self, addr: u8, data: u32);
+    fn read_reg(&self, addr: u8) -> u32;
 }
 
 pub const REG_CTRL: u8 = 0x00;
@@ -66,16 +62,14 @@ impl Config {
 }
 
 pub fn write_data_plane<S: SpiBus>(spi: &S, b: &Binding) {
-    unsafe {
-        spi.write_reg(REG_SRC_IP, u32::from_be_bytes(b.src_ip));
-        spi.write_reg(REG_DST_IP, u32::from_be_bytes(b.dst_ip));
-        spi.write_reg(REG_SRC_PORT, b.src_port as u32);
-        spi.write_reg(REG_DST_PORT, b.dst_port as u32);
-        spi.write_reg(REG_SRC_MAC_LO, mac_lo(&b.src_mac));
-        spi.write_reg(REG_SRC_MAC_HI, mac_hi(&b.src_mac));
-        spi.write_reg(REG_DST_MAC_LO, mac_lo(&b.dst_mac));
-        spi.write_reg(REG_DST_MAC_HI, mac_hi(&b.dst_mac));
-    }
+    spi.write_reg(REG_SRC_IP, u32::from_be_bytes(b.src_ip));
+    spi.write_reg(REG_DST_IP, u32::from_be_bytes(b.dst_ip));
+    spi.write_reg(REG_SRC_PORT, b.src_port as u32);
+    spi.write_reg(REG_DST_PORT, b.dst_port as u32);
+    spi.write_reg(REG_SRC_MAC_LO, mac_lo(&b.src_mac));
+    spi.write_reg(REG_SRC_MAC_HI, mac_hi(&b.src_mac));
+    spi.write_reg(REG_DST_MAC_LO, mac_lo(&b.dst_mac));
+    spi.write_reg(REG_DST_MAC_HI, mac_hi(&b.dst_mac));
 }
 
 fn mac_lo(m: &[u8; 6]) -> u32 {
@@ -87,36 +81,34 @@ fn mac_hi(m: &[u8; 6]) -> u32 {
 }
 
 pub fn write_sa<S: SpiBus>(spi: &S, sa: &hs::SaParams, initiator: bool, seq: u32) {
-    unsafe {
-        let (enc_key, dec_key) = if initiator {
-            (&sa.sk_ei, &sa.sk_er)
-        } else {
-            (&sa.sk_er, &sa.sk_ei)
-        };
-        spi.write_reg(REG_SPI, sa.spi_i);
-        for (i, k) in enc_key.chunks(4).enumerate() {
-            let w = u32::from_be_bytes([k[0], k[1], k[2], k[3]]);
-            spi.write_reg(REG_KEY_ENC + i as u8, w);
-        }
-        for (i, k) in dec_key.chunks(4).enumerate() {
-            let w = u32::from_be_bytes([k[0], k[1], k[2], k[3]]);
-            spi.write_reg(REG_KEY_DEC + i as u8, w);
-        }
-        let s = u64::from_be_bytes([
-            sa.sa_salt[0],
-            sa.sa_salt[1],
-            sa.sa_salt[2],
-            sa.sa_salt[3],
-            sa.sa_salt[4],
-            sa.sa_salt[5],
-            sa.sa_salt[6],
-            sa.sa_salt[7],
-        ]);
-        spi.write_reg(REG_SALT_LO, (s & 0xFFFF_FFFF) as u32);
-        spi.write_reg(REG_SALT_HI, (s >> 32) as u32);
-        spi.write_reg(REG_SEQ, seq - 1);
-        spi.write_reg(REG_CTRL, CTRL_KEY_LOAD);
+    let (enc_key, dec_key) = if initiator {
+        (&sa.sk_ei, &sa.sk_er)
+    } else {
+        (&sa.sk_er, &sa.sk_ei)
+    };
+    spi.write_reg(REG_SPI, sa.spi_i);
+    for (i, k) in enc_key.chunks(4).enumerate() {
+        let w = u32::from_be_bytes([k[0], k[1], k[2], k[3]]);
+        spi.write_reg(REG_KEY_ENC + i as u8, w);
     }
+    for (i, k) in dec_key.chunks(4).enumerate() {
+        let w = u32::from_be_bytes([k[0], k[1], k[2], k[3]]);
+        spi.write_reg(REG_KEY_DEC + i as u8, w);
+    }
+    let s = u64::from_be_bytes([
+        sa.sa_salt[0],
+        sa.sa_salt[1],
+        sa.sa_salt[2],
+        sa.sa_salt[3],
+        sa.sa_salt[4],
+        sa.sa_salt[5],
+        sa.sa_salt[6],
+        sa.sa_salt[7],
+    ]);
+    spi.write_reg(REG_SALT_LO, (s & 0xFFFF_FFFF) as u32);
+    spi.write_reg(REG_SALT_HI, (s >> 32) as u32);
+    spi.write_reg(REG_SEQ, seq - 1);
+    spi.write_reg(REG_CTRL, CTRL_KEY_LOAD);
 }
 
 pub const HSK_CHUNK: usize = 1004;
@@ -125,29 +117,25 @@ pub const HSK_ACK_RETRY: u32 = 200;
 
 fn hsk_send_blk<S: SpiBus>(spi: &S, total: u32, off: usize, blk: &[u8]) {
     let words = blk.len().div_ceil(4) + 2;
-    unsafe {
-        spi.write_reg(REG_HSK_TX_LEN, (words * 4) as u32);
-        let mut w = [0u8; 4];
-        w.copy_from_slice(&total.to_be_bytes());
-        spi.write_reg(REG_HSK_TX_DATA, u32::from_be_bytes(w));
-        w.copy_from_slice(&(off as u32).to_be_bytes());
-        spi.write_reg(REG_HSK_TX_DATA, u32::from_be_bytes(w));
-        for chunk in blk.chunks(4) {
-            let mut b = [0u8; 4];
-            b[..chunk.len()].copy_from_slice(chunk);
-            spi.write_reg(REG_HSK_TX_DATA, u32::from_be_bytes(b));
-        }
-        spi.write_reg(REG_CTRL, CTRL_HSK_SEND);
+    spi.write_reg(REG_HSK_TX_LEN, (words * 4) as u32);
+    let mut w = [0u8; 4];
+    w.copy_from_slice(&total.to_be_bytes());
+    spi.write_reg(REG_HSK_TX_DATA, u32::from_be_bytes(w));
+    w.copy_from_slice(&(off as u32).to_be_bytes());
+    spi.write_reg(REG_HSK_TX_DATA, u32::from_be_bytes(w));
+    for chunk in blk.chunks(4) {
+        let mut b = [0u8; 4];
+        b[..chunk.len()].copy_from_slice(chunk);
+        spi.write_reg(REG_HSK_TX_DATA, u32::from_be_bytes(b));
     }
+    spi.write_reg(REG_CTRL, CTRL_HSK_SEND);
 }
 
 fn hsk_send_ack<S: SpiBus>(spi: &S, off: usize) {
-    unsafe {
-        spi.write_reg(REG_HSK_TX_LEN, 8);
-        spi.write_reg(REG_HSK_TX_DATA, HSK_ACK);
-        spi.write_reg(REG_HSK_TX_DATA, off as u32);
-        spi.write_reg(REG_CTRL, CTRL_HSK_SEND);
-    }
+    spi.write_reg(REG_HSK_TX_LEN, 8);
+    spi.write_reg(REG_HSK_TX_DATA, HSK_ACK);
+    spi.write_reg(REG_HSK_TX_DATA, off as u32);
+    spi.write_reg(REG_CTRL, CTRL_HSK_SEND);
 }
 
 pub struct TxJob {
@@ -185,7 +173,7 @@ pub fn hsk_tx_step<S: SpiBus>(spi: &S, j: &mut TxJob, rx: &mut RxSink, elapsed_m
     if !wait_ack(spi, j, rx, elapsed_ms) {
         return;
     }
-    if j.off >= j.len || unsafe { spi.read_reg(REG_STATUS) } & STATUS_TX_BUSY != 0 {
+    if j.off >= j.len || spi.read_reg(REG_STATUS) & STATUS_TX_BUSY != 0 {
         return;
     }
     send_chunk(spi, j);
@@ -279,10 +267,10 @@ impl RxSink {
         if let Some(b) = self.pending.take() {
             return Some(b);
         }
-        if unsafe { spi.read_reg(REG_STATUS) } & STATUS_RX_PENDING == 0 {
+        if spi.read_reg(REG_STATUS) & STATUS_RX_PENDING == 0 {
             return None;
         }
-        let len = (unsafe { spi.read_reg(REG_HSK_RX_LEN) } & 0xFFFF) as usize;
+        let len = (spi.read_reg(REG_HSK_RX_LEN) & 0xFFFF) as usize;
         if len < 8 {
             drain_words(spi, len.div_ceil(4));
             return None;
@@ -316,7 +304,7 @@ impl HskBlock {
 }
 
 fn read_word<S: SpiBus>(spi: &S) -> u32 {
-    unsafe { spi.read_reg(REG_HSK_RX_DATA) }
+    spi.read_reg(REG_HSK_RX_DATA)
 }
 
 fn drain_words<S: SpiBus>(spi: &S, words: usize) {
@@ -786,7 +774,7 @@ mod tests {
     }
 
     impl SpiBus for MockSpi {
-        unsafe fn write_reg(&self, addr: u8, data: u32) {
+        fn write_reg(&self, addr: u8, data: u32) {
             self.regs.borrow_mut()[addr as usize] = data;
             if addr == REG_HSK_TX_DATA {
                 self.tx_buf
@@ -802,7 +790,7 @@ mod tests {
             }
         }
 
-        unsafe fn read_reg(&self, addr: u8) -> u32 {
+        fn read_reg(&self, addr: u8) -> u32 {
             match addr {
                 REG_STATUS => {
                     if self.blocks.borrow().is_empty() {

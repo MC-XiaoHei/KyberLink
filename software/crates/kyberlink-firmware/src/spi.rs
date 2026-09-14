@@ -19,20 +19,20 @@ impl SpiMaster {
         }
     }
 
-    unsafe fn xfer(&self, bytes: &mut [u8]) {
+    fn xfer(&self, bytes: &mut [u8]) {
         let _ = self.spi.borrow_mut().blocking_transfer_in_place(bytes);
     }
 }
 
 impl kyberlink_core::handshake_fsm::SpiBus for SpiMaster {
-    unsafe fn write_reg(&self, addr: u8, data: u32) {
+    fn write_reg(&self, addr: u8, data: u32) {
         self.cs.borrow_mut().set_low();
         let mut buf = write_frame(addr, data);
         self.xfer(&mut buf);
         self.cs.borrow_mut().set_high();
     }
 
-    unsafe fn read_reg(&self, addr: u8) -> u32 {
+    fn read_reg(&self, addr: u8) -> u32 {
         self.cs.borrow_mut().set_low();
         let mut buf = read_frame(addr);
         self.xfer(&mut buf);
