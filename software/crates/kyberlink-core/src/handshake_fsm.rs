@@ -182,45 +182,52 @@ const PHASE_TIMEOUT_MS: u32 = 30000;
 const TX_TOTAL_TIMEOUT_MS: u32 = 8000;
 
 pub fn hsk_tx_step<S: SpiBus>(spi: &S, j: &mut TxJob, rx: &mut RxSink, elapsed_ms: u32) {
-    if let Some(want) = j.wait_off {
-        let mut progressed = false;
-        if let Some(off) = rx.take_ack() {
-            if off == want {
-                j.wait_off = None;
-                j.wait_ms = 0;
-                progressed = true;
-            }
-        } else if let Some(blk) = rx.take_block(spi) {
-            if blk.ack_off == Some(want) {
-                j.wait_off = None;
-                j.wait_ms = 0;
-                progressed = true;
-            } else if blk.data_off.is_some() {
-                rx.stash(blk);
-                progressed = true;
-            }
-        }
-        if !progressed {
-            j.wait_ms = j.wait_ms.saturating_add(elapsed_ms);
-        }
-        if j.wait_off.is_some() {
-            if j.wait_ms >= TX_ACK_TIMEOUT_MS {
-                j.wait_ms = 0;
-                j.off = want;
-                j.wait_off = None;
-            } else {
-                return;
-            }
-        } else if j.off >= j.len {
-            return;
-        }
-    }
-    if j.off >= j.len {
+    if !wait_ack(spi, j, rx, elapsed_ms) {
         return;
     }
-    if unsafe { spi.read_reg(REG_STATUS) } & STATUS_TX_BUSY != 0 {
+    if j.off >= j.len || unsafe { spi.read_reg(REG_STATUS) } & STATUS_TX_BUSY != 0 {
         return;
     }
+    send_chunk(spi, j);
+}
+
+fn wait_ack<S: SpiBus>(spi: &S, j: &mut TxJob, rx: &mut RxSink, elapsed_ms: u32) -> bool {
+    let Some(want) = j.wait_off else {
+        return true;
+    };
+    let mut progressed = false;
+    if let Some(off) = rx.take_ack() {
+        if off == want {
+            j.wait_off = None;
+            j.wait_ms = 0;
+            progressed = true;
+        }
+    } else if let Some(blk) = rx.take_block(spi) {
+        if blk.ack_off == Some(want) {
+            j.wait_off = None;
+            j.wait_ms = 0;
+            progressed = true;
+        } else if blk.data_off.is_some() {
+            rx.stash(blk);
+            progressed = true;
+        }
+    }
+    if !progressed {
+        j.wait_ms = j.wait_ms.saturating_add(elapsed_ms);
+    }
+    if j.wait_off.is_some() {
+        if j.wait_ms >= TX_ACK_TIMEOUT_MS {
+            j.wait_ms = 0;
+            j.off = want;
+            j.wait_off = None;
+            return true;
+        }
+        return false;
+    }
+    true
+}
+
+fn send_chunk<S: SpiBus>(spi: &S, j: &mut TxJob) {
     let end = core::cmp::min(j.off + HSK_CHUNK, j.len);
     hsk_send_blk(spi, j.len as u32, j.off, &j.msg[j.off..end]);
     j.wait_off = Some(j.off);
@@ -239,7 +246,6 @@ pub struct HskBlock {
 
 pub struct RxSink {
     pending: Option<HskBlock>,
-    /// 被数据块挡在 FIFO 后面的 ACK，留给发送侧的等待逻辑取用。
     ack_seen: Option<usize>,
 }
 
@@ -273,56 +279,76 @@ impl RxSink {
         if let Some(b) = self.pending.take() {
             return Some(b);
         }
-        let status = unsafe { spi.read_reg(REG_STATUS) };
-        if status & STATUS_RX_PENDING == 0 {
+        if unsafe { spi.read_reg(REG_STATUS) } & STATUS_RX_PENDING == 0 {
             return None;
         }
         let len = (unsafe { spi.read_reg(REG_HSK_RX_LEN) } & 0xFFFF) as usize;
         if len < 8 {
-            for _ in 0..len.div_ceil(4) {
-                unsafe { spi.read_reg(REG_HSK_RX_DATA) };
-            }
+            drain_words(spi, len.div_ceil(4));
             return None;
         }
         let mut hdr = [0u8; 8];
-        let mut hn = 0usize;
-        while hn < 8 {
-            let w = unsafe { spi.read_reg(REG_HSK_RX_DATA) };
-            let b = w.to_be_bytes();
-            let take = core::cmp::min(4, 8 - hn);
-            hdr[hn..hn + take].copy_from_slice(&b[..take]);
-            hn += take;
+        read_bytes(spi, &mut hdr);
+        let total = u32::from_be_bytes([hdr[0], hdr[1], hdr[2], hdr[3]]);
+        let off = u32::from_be_bytes([hdr[4], hdr[5], hdr[6], hdr[7]]) as usize;
+        let mut blk = HskBlock::new(total, off);
+        if total == HSK_ACK {
+            blk.ack_off = Some(off);
+            return Some(blk);
         }
-        let tl = u32::from_be_bytes([hdr[0], hdr[1], hdr[2], hdr[3]]);
-        let ofs = u32::from_be_bytes([hdr[4], hdr[5], hdr[6], hdr[7]]) as usize;
-        let mut blk = HskBlock {
-            total: tl,
-            off: ofs,
+        blk.data_off = Some(off);
+        blk.len = read_body(spi, len - 8, &mut blk.data);
+        Some(blk)
+    }
+}
+
+impl HskBlock {
+    fn new(total: u32, off: usize) -> HskBlock {
+        HskBlock {
+            total,
+            off,
             ack_off: None,
             data_off: None,
             len: 0,
             data: [0u8; HSK_CHUNK],
-        };
-        if tl == HSK_ACK {
-            blk.ack_off = Some(ofs);
-            return Some(blk);
         }
-        blk.data_off = Some(ofs);
-        let body = len.saturating_sub(8);
-        let mut dn = 0usize;
-        while dn < body {
-            let w = unsafe { spi.read_reg(REG_HSK_RX_DATA) };
-            let b = w.to_be_bytes();
-            let take = core::cmp::min(4, body - dn);
-            if dn < HSK_CHUNK {
-                let e = core::cmp::min(dn + take, HSK_CHUNK);
-                blk.data[dn..e].copy_from_slice(&b[..e - dn]);
-            }
-            dn += take;
-        }
-        blk.len = core::cmp::min(dn, HSK_CHUNK);
-        Some(blk)
     }
+}
+
+fn read_word<S: SpiBus>(spi: &S) -> u32 {
+    unsafe { spi.read_reg(REG_HSK_RX_DATA) }
+}
+
+fn drain_words<S: SpiBus>(spi: &S, words: usize) {
+    for _ in 0..words {
+        read_word(spi);
+    }
+}
+
+fn read_bytes<S: SpiBus>(spi: &S, out: &mut [u8]) {
+    let mut n = 0;
+    while n < out.len() {
+        let word = read_word(spi).to_be_bytes();
+        let take = core::cmp::min(4, out.len() - n);
+        out[n..n + take].copy_from_slice(&word[..take]);
+        n += take;
+    }
+}
+
+fn read_body<S: SpiBus>(spi: &S, body: usize, out: &mut [u8; HSK_CHUNK]) -> usize {
+    let mut read = 0;
+    let mut stored = 0;
+    while read < body {
+        let word = read_word(spi).to_be_bytes();
+        let take = core::cmp::min(4, body - read);
+        if stored < HSK_CHUNK {
+            let end = core::cmp::min(stored + take, HSK_CHUNK);
+            out[stored..end].copy_from_slice(&word[..end - stored]);
+            stored = end;
+        }
+        read += take;
+    }
+    stored
 }
 
 fn hsk_recv<S: SpiBus>(
@@ -334,34 +360,34 @@ fn hsk_recv<S: SpiBus>(
     let mut got = 0usize;
     let mut total = 0usize;
     loop {
-        let blk = match rx.take_block(spi) {
-            Some(b) => b,
-            None => {
-                if got == 0 || got < total {
-                    return 0;
-                }
-                return got;
-            }
+        let Some(blk) = rx.take_block(spi) else {
+            return if got > 0 && got >= total { got } else { 0 };
         };
         if let Some(off) = blk.ack_off {
             rx.note_ack(off);
             continue;
         }
-        let ofs = blk.data_off.unwrap_or(0);
-        if ofs > buf.len() || blk.len > buf.len() - ofs || blk.total as usize > buf.len() {
+        let Some(end) = place_block(&blk, buf) else {
             return 0;
-        }
-        let end = ofs + blk.len;
-        buf[ofs..end].copy_from_slice(&blk.data[..blk.len]);
-        got = core::cmp::max(got, ofs + blk.len);
+        };
+        got = core::cmp::max(got, end);
         if blk.total != 0 {
             total = blk.total as usize;
         }
-        *ack_out = Some(ofs);
+        *ack_out = Some(blk.data_off.unwrap_or(0));
         if total != 0 && got >= total {
             return total;
         }
     }
+}
+
+fn place_block(blk: &HskBlock, buf: &mut [u8]) -> Option<usize> {
+    let ofs = blk.data_off?;
+    if ofs > buf.len() || blk.len > buf.len() - ofs || blk.total as usize > buf.len() {
+        return None;
+    }
+    buf[ofs..ofs + blk.len].copy_from_slice(&blk.data[..blk.len]);
+    Some(ofs + blk.len)
 }
 
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
@@ -371,7 +397,6 @@ pub enum FsmOutcome {
     Wait,
 }
 
-// 无堆目标上每个节点只有一份 Session，变体大小差异不带来实际开销
 #[allow(clippy::large_enum_variant)]
 pub enum Session {
     Initiator(hs::InitiatorState),
@@ -392,7 +417,6 @@ pub struct Fsm<'a, S: SpiBus> {
     pub ack_pend: Option<usize>,
     pub phase_ms: u32,
     pub tx_total_ms: u32,
-    /// 握手结果，等最后一帧发完才交给宿主。
     pub pending_sa: Option<hs::SaParams>,
 }
 
@@ -444,23 +468,9 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
         if let Some(off) = self.ack_pend.take() {
             hsk_send_ack(self.spi, off);
         }
-        if let Some(j) = self.tx.as_mut() {
-            hsk_tx_step(self.spi, j, &mut self.rx, elapsed_ms);
-            self.tx_total_ms = self.tx_total_ms.saturating_add(elapsed_ms);
-            if j.done() {
-                self.tx = None;
-                self.tx_total_ms = 0;
-            } else if self.tx_total_ms >= TX_TOTAL_TIMEOUT_MS {
-                self.tx = None;
-                self.tx_total_ms = 0;
-                self.pending_sa = None;
-                self.phase = 0;
-                self.session = None;
-                self.phase_ms = 0;
-                return FsmOutcome::Wait;
-            }
-        } else {
-            self.tx_total_ms = 0;
+        if self.advance_tx(elapsed_ms) {
+            self.reset_session();
+            return FsmOutcome::Wait;
         }
         if self.tx.is_none() {
             if let Some(sa) = self.pending_sa.take() {
@@ -469,11 +479,8 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
                 return FsmOutcome::Sa(sa);
             }
         }
-        self.phase_ms = self.phase_ms.saturating_add(elapsed_ms);
-        if self.phase_ms >= PHASE_TIMEOUT_MS && self.tx.is_none() {
-            self.phase_ms = 0;
-            self.phase = 0;
-            self.session = None;
+        if self.phase_expired(elapsed_ms) {
+            self.reset_session();
             return FsmOutcome::Wait;
         }
         if self.role_initiator {
@@ -483,165 +490,198 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
         }
     }
 
+    fn advance_tx(&mut self, elapsed_ms: u32) -> bool {
+        let Some(j) = self.tx.as_mut() else {
+            self.tx_total_ms = 0;
+            return false;
+        };
+        hsk_tx_step(self.spi, j, &mut self.rx, elapsed_ms);
+        self.tx_total_ms = self.tx_total_ms.saturating_add(elapsed_ms);
+        if j.done() {
+            self.tx = None;
+            self.tx_total_ms = 0;
+            return false;
+        }
+        if self.tx_total_ms >= TX_TOTAL_TIMEOUT_MS {
+            self.tx = None;
+            self.tx_total_ms = 0;
+            return true;
+        }
+        false
+    }
+
+    fn phase_expired(&mut self, elapsed_ms: u32) -> bool {
+        self.phase_ms = self.phase_ms.saturating_add(elapsed_ms);
+        self.phase_ms >= PHASE_TIMEOUT_MS && self.tx.is_none()
+    }
+
+    fn reset_session(&mut self) {
+        self.pending_sa = None;
+        self.phase = 0;
+        self.phase_ms = 0;
+        self.session = None;
+    }
+
+    fn enter_phase(&mut self, phase: u8) {
+        self.phase = phase;
+        self.phase_ms = 0;
+    }
+
+    fn recv_msg(&mut self) -> Option<usize> {
+        let mut ack = None;
+        let n = hsk_recv(self.spi, &mut self.rx, &mut self.buf, &mut ack);
+        if ack.is_some() {
+            self.ack_pend = ack;
+        }
+        (n > 0).then_some(n)
+    }
+
+    fn capture_peer_vk(&mut self) {
+        self.pc_vk
+            .copy_from_slice(&self.buf[32 + EK_LEN..32 + EK_LEN + VK_LEN]);
+    }
+
     fn poll_initiator(&mut self) -> FsmOutcome {
         match self.phase {
-            0 => {
-                let (st, m1) = hs::initiator_start(
-                    self.cfg.identity,
-                    &self.cfg.seed_kem_d,
-                    &self.cfg.seed_kem_z,
-                    &self.cfg.nonce,
-                );
-                self.session = Some(Session::Initiator(st));
-                self.tx = Some(TxJob::new(&m1));
-                self.phase = 1;
-                self.phase_ms = 0;
-                FsmOutcome::Wait
-            }
-            1 => {
-                let mut ack = None;
-                let n = hsk_recv(self.spi, &mut self.rx, &mut self.buf, &mut ack);
-                if ack.is_some() {
-                    self.ack_pend = ack;
-                }
-                if n == 0 {
-                    return FsmOutcome::Wait;
-                }
-                let mut vk_tmp = [0u8; VK_LEN];
-                vk_tmp.copy_from_slice(&self.buf[32 + EK_LEN..32 + EK_LEN + VK_LEN]);
-                self.pc_vk = vk_tmp;
-                let vk = self.pc_vk;
-                self.ensure_pc(&vk);
-                let Session::Initiator(st) = self.session.as_mut().unwrap() else {
-                    return FsmOutcome::Wait;
-                };
-                PC_CACHE.lock(|s| {
-                    match hs::initiator_recv_m2(
-                        st,
-                        self.cfg.identity,
-                        &self.buf[..n],
-                        &self.cfg.peer_fp,
-                        s.as_ref(),
-                    ) {
-                        Ok((m3, spi_i)) => {
-                            self.spi_i = spi_i;
-                            self.tx = Some(TxJob::new(&m3));
-                            self.phase = 2;
-                            self.phase_ms = 0;
-                            FsmOutcome::Wait
-                        }
-                        Err(_) => {
-                            self.phase = 0;
-                            FsmOutcome::Wait
-                        }
-                    }
-                })
-            }
-            _ => {
-                let mut ack = None;
-                let n = hsk_recv(self.spi, &mut self.rx, &mut self.buf, &mut ack);
-                if ack.is_some() {
-                    self.ack_pend = ack;
-                }
-                if n == 0 {
-                    return FsmOutcome::Wait;
-                }
-                let vk = self.pc_vk;
-                self.ensure_pc(&vk);
-                let Session::Initiator(st) = self.session.as_mut().unwrap() else {
-                    return FsmOutcome::Wait;
-                };
-                PC_CACHE.lock(|s| {
-                    match hs::initiator_recv_m4(st, &self.buf[..n], self.spi_i, s.as_ref()) {
-                        Ok(sa) => {
-                            self.pending_sa = Some(sa);
-                            FsmOutcome::Wait
-                        }
-                        Err(_) => {
-                            self.phase = 0;
-                            FsmOutcome::Wait
-                        }
-                    }
-                })
-            }
+            0 => self.initiator_start(),
+            1 => self.initiator_recv_m2(),
+            _ => self.initiator_recv_m4(),
         }
     }
 
+    fn initiator_start(&mut self) -> FsmOutcome {
+        let (st, m1) = hs::initiator_start(
+            self.cfg.identity,
+            &self.cfg.seed_kem_d,
+            &self.cfg.seed_kem_z,
+            &self.cfg.nonce,
+        );
+        self.session = Some(Session::Initiator(st));
+        self.tx = Some(TxJob::new(&m1));
+        self.enter_phase(1);
+        FsmOutcome::Wait
+    }
+
+    fn initiator_recv_m2(&mut self) -> FsmOutcome {
+        let Some(n) = self.recv_msg() else {
+            return FsmOutcome::Wait;
+        };
+        self.capture_peer_vk();
+        let vk = self.pc_vk;
+        self.ensure_pc(&vk);
+        let Session::Initiator(st) = self.session.as_mut().unwrap() else {
+            return FsmOutcome::Wait;
+        };
+        PC_CACHE.lock(|s| {
+            match hs::initiator_recv_m2(
+                st,
+                self.cfg.identity,
+                &self.buf[..n],
+                &self.cfg.peer_fp,
+                s.as_ref(),
+            ) {
+                Ok((m3, spi_i)) => {
+                    self.spi_i = spi_i;
+                    self.tx = Some(TxJob::new(&m3));
+                    self.phase = 2;
+                    self.phase_ms = 0;
+                    FsmOutcome::Wait
+                }
+                Err(_) => {
+                    self.phase = 0;
+                    FsmOutcome::Wait
+                }
+            }
+        })
+    }
+
+    fn initiator_recv_m4(&mut self) -> FsmOutcome {
+        let Some(n) = self.recv_msg() else {
+            return FsmOutcome::Wait;
+        };
+        let vk = self.pc_vk;
+        self.ensure_pc(&vk);
+        let Session::Initiator(st) = self.session.as_mut().unwrap() else {
+            return FsmOutcome::Wait;
+        };
+        PC_CACHE.lock(|s| {
+            match hs::initiator_recv_m4(st, &self.buf[..n], self.spi_i, s.as_ref()) {
+                Ok(sa) => {
+                    self.pending_sa = Some(sa);
+                    FsmOutcome::Wait
+                }
+                Err(_) => {
+                    self.phase = 0;
+                    FsmOutcome::Wait
+                }
+            }
+        })
+    }
+
     fn poll_responder(&mut self) -> FsmOutcome {
-        match self.phase {
-            0 => {
-                let mut ack = None;
-                let n = hsk_recv(self.spi, &mut self.rx, &mut self.buf, &mut ack);
-                if ack.is_some() {
-                    self.ack_pend = ack;
-                }
-                if n == 0 {
-                    return FsmOutcome::Wait;
-                }
-                let mut vk_tmp = [0u8; VK_LEN];
-                vk_tmp.copy_from_slice(&self.buf[32 + EK_LEN..32 + EK_LEN + VK_LEN]);
-                self.pc_vk = vk_tmp;
-                let vk = self.pc_vk;
-                self.ensure_pc(&vk);
-                match hs::responder_start(
-                    self.cfg.identity,
-                    &self.cfg.seed_kem_d,
-                    &self.cfg.seed_kem_z,
-                    &self.cfg.nonce,
-                    &self.buf[..n],
-                    &self.cfg.peer_fp,
-                ) {
-                    Ok((st, m2)) => {
-                        self.session = Some(Session::Responder(st));
-                        let mut vk_tmp = [0u8; VK_LEN];
-                        vk_tmp.copy_from_slice(&self.buf[32 + EK_LEN..32 + EK_LEN + VK_LEN]);
-                        self.ensure_pc(&vk_tmp);
-                        self.tx = Some(TxJob::new(&m2));
-                        self.phase = 1;
-                        self.phase_ms = 0;
-                        FsmOutcome::Wait
-                    }
-                    Err(_) => FsmOutcome::Wait,
-                }
-            }
-            _ => {
-                let mut ack = None;
-                let n = hsk_recv(self.spi, &mut self.rx, &mut self.buf, &mut ack);
-                if ack.is_some() {
-                    self.ack_pend = ack;
-                }
-                if n == 0 {
-                    return FsmOutcome::Wait;
-                }
-                let mut sb = [0u8; 4];
-                sb.copy_from_slice(&self.buf[hs::SPI_OFF..hs::SPI_OFF + 4]);
-                self.spi_i = u32::from_be_bytes(sb);
-                let vk = self.pc_vk;
-                self.ensure_pc(&vk);
-                let Session::Responder(st) = self.session.as_mut().unwrap() else {
-                    return FsmOutcome::Wait;
-                };
-                PC_CACHE.lock(|s| {
-                    match hs::responder_recv_m3(
-                        st,
-                        self.cfg.identity,
-                        &self.buf[..n],
-                        self.spi_i,
-                        s.as_ref(),
-                    ) {
-                        Ok((m4, sa)) => {
-                            self.tx = Some(TxJob::new(&m4));
-                            self.pending_sa = Some(sa);
-                            FsmOutcome::Wait
-                        }
-                        Err(_) => {
-                            self.phase = 0;
-                            FsmOutcome::Wait
-                        }
-                    }
-                })
-            }
+        if self.phase == 0 {
+            self.responder_recv_m1()
+        } else {
+            self.responder_recv_m3()
         }
+    }
+
+    fn responder_recv_m1(&mut self) -> FsmOutcome {
+        let Some(n) = self.recv_msg() else {
+            return FsmOutcome::Wait;
+        };
+        self.capture_peer_vk();
+        let vk = self.pc_vk;
+        self.ensure_pc(&vk);
+        match hs::responder_start(
+            self.cfg.identity,
+            &self.cfg.seed_kem_d,
+            &self.cfg.seed_kem_z,
+            &self.cfg.nonce,
+            &self.buf[..n],
+            &self.cfg.peer_fp,
+        ) {
+            Ok((st, m2)) => {
+                self.session = Some(Session::Responder(st));
+                self.tx = Some(TxJob::new(&m2));
+                self.enter_phase(1);
+                FsmOutcome::Wait
+            }
+            Err(_) => FsmOutcome::Wait,
+        }
+    }
+
+    fn responder_recv_m3(&mut self) -> FsmOutcome {
+        let Some(n) = self.recv_msg() else {
+            return FsmOutcome::Wait;
+        };
+        let mut sb = [0u8; 4];
+        sb.copy_from_slice(&self.buf[hs::SPI_OFF..hs::SPI_OFF + 4]);
+        self.spi_i = u32::from_be_bytes(sb);
+        let vk = self.pc_vk;
+        self.ensure_pc(&vk);
+        let Session::Responder(st) = self.session.as_mut().unwrap() else {
+            return FsmOutcome::Wait;
+        };
+        PC_CACHE.lock(|s| {
+            match hs::responder_recv_m3(
+                st,
+                self.cfg.identity,
+                &self.buf[..n],
+                self.spi_i,
+                s.as_ref(),
+            ) {
+                Ok((m4, sa)) => {
+                    self.tx = Some(TxJob::new(&m4));
+                    self.pending_sa = Some(sa);
+                    FsmOutcome::Wait
+                }
+                Err(_) => {
+                    self.phase = 0;
+                    FsmOutcome::Wait
+                }
+            }
+        })
     }
 }
 
