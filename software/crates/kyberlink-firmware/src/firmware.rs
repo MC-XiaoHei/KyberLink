@@ -24,6 +24,7 @@ use kyberlink_crypto::entropy::{derive_kem_seeds, KemSeeds};
 use kyberlink_crypto::handshake::RomIdentity;
 use kyberlink_firmware::spi::SpiMaster;
 
+use crate::pinmap::Pins;
 use crate::usb;
 
 const FLASH_BASE: u32 = 0x0800_0000;
@@ -206,32 +207,42 @@ fn reset() -> ! {
 async fn main(_spawner: Spawner) -> ! {
     let p = ch32_hal::init(clock_config());
 
+    let mut pins = Pins {
+        spi_sck: p.PA5,
+        spi_mosi: p.PA7,
+        spi_miso: p.PA6,
+        spi_cs: p.PA4,
+        fpga_rst: p.PA8,
+        usb_dm: p.PA11,
+        usb_dp: p.PA12,
+        adc: [
+            p.PA0.degrade_adc(),
+            p.PA1.degrade_adc(),
+            p.PA2.degrade_adc(),
+            p.PA3.degrade_adc(),
+        ],
+    };
+
     let mut flash = FlashPort(Flash::new_blocking(p.FLASH));
     let (binding, identity) = match load_device(&mut flash) {
         Ok(loaded) => loaded,
-        Err(_) => provisioning(&mut flash, p.USBD, p.PA12, p.PA11).await,
+        Err(_) => provisioning(&mut flash, p.USBD, pins.usb_dp, pins.usb_dm).await,
     };
 
     watchdog_start();
 
     let mut spi_config = SpiConfig::default();
     spi_config.frequency = Hertz::khz(2250);
-    let spi = Spi::new_blocking::<0>(p.SPI1, p.PA5, p.PA7, p.PA6, spi_config);
-    let cs = Output::new(p.PA4, Level::High, Default::default());
+    let spi = Spi::new_blocking::<0>(p.SPI1, pins.spi_sck, pins.spi_mosi, pins.spi_miso, spi_config);
+    let cs = Output::new(pins.spi_cs, Level::High, Default::default());
 
     let mut adc = Adc::new(p.ADC1, Default::default());
-    let mut chans = [
-        p.PA0.degrade_adc(),
-        p.PA1.degrade_adc(),
-        p.PA2.degrade_adc(),
-        p.PA3.degrade_adc(),
-    ];
-    let seeds = sample_entropy(&mut adc, &mut chans);
+    let seeds = sample_entropy(&mut adc, &mut pins.adc);
 
     let fsm = unsafe { start_fsm(spi, cs, &binding, &seeds, identity) };
-    unsafe { FPGA_RST = Some(Output::new(p.PA8, Level::High, Default::default())) };
+    unsafe { FPGA_RST = Some(Output::new(pins.fpga_rst, Level::High, Default::default())) };
     let mut console = Console::new(Mode::Running);
     let signal = usb::ActionSignal::new();
-    let usb = usb::serve(p.USBD, p.PA12, p.PA11, &mut console, &mut flash, &signal);
+    let usb = usb::serve(p.USBD, pins.usb_dp, pins.usb_dm, &mut console, &mut flash, &signal);
     match join(usb, run_forever(fsm, binding.role_initiator, &signal)).await {}
 }
