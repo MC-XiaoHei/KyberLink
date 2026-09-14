@@ -6,7 +6,7 @@ from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles, ReadOnly
 
 try:
-    from ffi import DLL, Fsm, fingerprint
+    from simnode import DLL, Fsm, fingerprint
 
     HAVE_FFI = True
 except (ImportError, OSError):
@@ -15,7 +15,6 @@ except (ImportError, OSError):
 
 PAYLOAD = 1400
 IDLE_CLOCKS = 5000
-SPI_CLOCKS = 243
 FFI_ITERS = 2000
 MAC_A = 0xAABBCC000001
 MAC_B = 0xAABBCC000002
@@ -558,8 +557,8 @@ async def pipe(dut, data, tag):
 async def full_fw_roundtrip(dut):
     if not HAVE_FFI:
         raise AssertionError(
-            f"FFI DLL missing {os.path.basename(DLL)}:"
-            "cargo build -p kyberlink-core --features kyberlink-core/ffi")
+            f"simnode library missing {os.path.basename(DLL)}:"
+            "cargo build -p kyberlink-simnode")
     spi_a, spi_b = await boot(dut)
     await cfg_gw(dut, *spi_a, MAC_A, MAC_B, IP_A, IP_B)
     await cfg_gw(dut, *spi_b, MAC_B, MAC_A, IP_B, IP_A)
@@ -581,7 +580,6 @@ async def full_fw_roundtrip(dut):
         nspi = [0, 0]
         nblk = [0, 0]
         last = [None, None]
-        # 两侧都要一直桥接到对方收完最后确认，先完成的一侧不能再轮询
         for it in range(FFI_ITERS):
             if not done[0] and fsm_a.poll() == 1:
                 done[0] = True
@@ -590,6 +588,7 @@ async def full_fw_roundtrip(dut):
                 nspi[0] += 1
             st = await spi_read(dut, *spi_b, 0x04)
             nspi[0] += 1
+            fsm_b.set_status(st)
             if st & 1:
                 blk = await hsk_read_raw(dut, spi_b)
                 nspi[1] += 1 + (len(blk) + 3) // 4
@@ -605,6 +604,7 @@ async def full_fw_roundtrip(dut):
                 nspi[1] += 1
             st = await spi_read(dut, *spi_a, 0x04)
             nspi[1] += 1
+            fsm_a.set_status(st)
             if st & 1:
                 blk = await hsk_read_raw(dut, spi_a)
                 nspi[0] += 1 + (len(blk) + 3) // 4
@@ -615,15 +615,11 @@ async def full_fw_roundtrip(dut):
 
             if all(done):
                 break
-            for k, f in enumerate((fsm_a, fsm_b)):
-                f.tick(IDLE_CLOCKS + SPI_CLOCKS * nspi[k])
-                nspi[k] = 0
             await ClockCycles(dut.clk, IDLE_CLOCKS)
         assert all(done), (
             f"handshake not complete via FW Fsm: it={it} done={done} "
             f"blk_to_b={nblk[0]} blk_to_a={nblk[1]} last={last} nspi={nspi}")
 
-        # 握手结果由 poll 落到写序列，宿主必须回放完再进数据面
         for f, spi in ((fsm_a, spi_a), (fsm_b, spi_b)):
             while True:
                 w = f.take_writes()
@@ -763,7 +759,6 @@ async def error_inject_full(dut):
     rx = await pipe(dut, plain, "err pre")
     assert rx == plain, "pre clean"
 
-    # 构造一个坏 ESP 帧(A 出 B 收): 抓 A 的 wan 输出包, 篡改 tag, 注入 B 的 wan 输入
     esp = bytearray()
     async def wan_watch():
         for _ in range(30000):
@@ -786,15 +781,12 @@ async def error_inject_full(dut):
     esp = esp[k:]
     assert len(esp) > 58, f"esp too short {len(esp)}"
 
-    # 篡改 tag(最后16字节) - 坏 tag
     bad = bytearray(esp)
     bad[-1] ^= 0xFF
     await ClockCycles(dut.clk, 100)
 
-    # 注入 bad 帧到 B 的 wan 输入。A 出帧(esp) 无 FCS(MAC 前), ip_udp_eth_rx 不校 FCS。
-    # 篡改 tag(最后16字节) + 改 seq 为全新值(绕过 replay) -> 触发 badtag。
     bad = bytearray(esp)
-    bad[46:50] = (0x12345678).to_bytes(4, "big")  # 全新 seq, B 未见过
+    bad[46:50] = (0x12345678).to_bytes(4, "big")
     bad[-1] ^= 0xFF
 
     async def inject(frame):

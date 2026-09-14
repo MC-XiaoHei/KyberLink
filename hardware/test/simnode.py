@@ -7,43 +7,34 @@ DLL = os.path.abspath(os.path.join(
 
 if sys.platform.startswith("win"):
     DLL = os.path.join(DLL, "x86_64-pc-windows-msvc", "debug",
-                       "kyberlink_core.dll")
+                       "kyberlink_simnode.dll")
 else:
     DLL = os.path.join(DLL, "x86_64-unknown-linux-gnu", "debug",
-                       "libkyberlink_core.so")
+                       "libkyberlink_simnode.so")
+
+
+_U8P = ctypes.POINTER(ctypes.c_uint8)
+
+SIGNATURES = {
+    "kyb_fsm_new": (ctypes.c_void_p, [ctypes.c_uint32] + [_U8P] * 5),
+    "kyb_fsm_free": (None, [ctypes.c_void_p]),
+    "kyb_fsm_poll": (ctypes.c_uint32, [ctypes.c_void_p]),
+    "kyb_simnode_set_status": (None, [ctypes.c_void_p, ctypes.c_uint32]),
+    "kyb_fsm_take_writes": (
+        ctypes.c_uint32,
+        [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint64), ctypes.c_uint32],
+    ),
+    "kyb_fsm_push_rx": (None, [ctypes.c_void_p, _U8P, ctypes.c_uint32]),
+    "kyb_fsm_fingerprint": (None, [_U8P, _U8P]),
+}
 
 
 def _load():
     lib = ctypes.CDLL(DLL)
-    lib.kyb_fsm_new.restype = ctypes.c_void_p
-    lib.kyb_fsm_new.argtypes = [
-        ctypes.c_uint32,
-        ctypes.POINTER(ctypes.c_uint8),
-        ctypes.POINTER(ctypes.c_uint8),
-        ctypes.POINTER(ctypes.c_uint8),
-        ctypes.POINTER(ctypes.c_uint8),
-        ctypes.POINTER(ctypes.c_uint8),
-    ]
-    lib.kyb_fsm_free.argtypes = [ctypes.c_void_p]
-    lib.kyb_fsm_poll.restype = ctypes.c_uint32
-    lib.kyb_fsm_poll.argtypes = [ctypes.c_void_p]
-    lib.kyb_qbus_tick.restype = None
-    lib.kyb_qbus_tick.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
-    lib.kyb_fsm_take_writes.restype = ctypes.c_uint32
-    lib.kyb_fsm_take_writes.argtypes = [
-        ctypes.c_void_p,
-        ctypes.POINTER(ctypes.c_uint64),
-        ctypes.c_uint32,
-    ]
-    lib.kyb_fsm_push_rx.argtypes = [
-        ctypes.c_void_p,
-        ctypes.POINTER(ctypes.c_uint8),
-        ctypes.c_uint32,
-    ]
-    lib.kyb_fsm_fingerprint.argtypes = [
-        ctypes.POINTER(ctypes.c_uint8),
-        ctypes.POINTER(ctypes.c_uint8),
-    ]
+    for name, (restype, argtypes) in SIGNATURES.items():
+        fn = getattr(lib, name)
+        fn.restype = restype
+        fn.argtypes = argtypes
     return lib
 
 
@@ -67,8 +58,8 @@ class Fsm:
     def poll(self) -> int:
         return int(_LIB.kyb_fsm_poll(self.h))
 
-    def tick(self, n: int) -> None:
-        _LIB.kyb_qbus_tick(self.h, n)
+    def set_status(self, value: int) -> None:
+        _LIB.kyb_simnode_set_status(self.h, value)
 
     def take_writes(self):
         n = 4096
