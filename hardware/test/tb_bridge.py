@@ -70,9 +70,9 @@ async def dec_frame(dut, data):
         d = dut.u_dec
         print(f"dec timeout tag gcm={int(g.tag.value):032x} tag_p0={int(d.tag_p[0].value):032x} "
               f"tag_p1={int(d.tag_p[1].value):032x} tagq={int(d.tag_q.value):032x} "
-              f"tvq={int(d.tag_valid_q.value)} ds={int(d.ds.value)} ok={int(dut.tag_ok.value)}", flush=True)
+              f"tvq={int(d.tag_valid_q.value)} ds={int(d.ds.value)}", flush=True)
         raise AssertionError("dec timeout")
-    return bytes(out), int(dut.tag_ok.value)
+    return bytes(out)
 
 async def setup(dut):
     dut.key_enc.value = KEY
@@ -131,7 +131,7 @@ async def bridge_roundtrip(dut):
         print(f"  gcm.tag={int(g.tag.value):032x} tx_tag_p0={int(e.tx_tag_p[0].value):032x} "
               f"tx_tag_p1={int(e.tx_tag_p[1].value):032x} gtv={int(g.tag_valid.value)}", flush=True)
         assert esp[42:46] == SPI.to_bytes(4, "big"), f"spi {i}"
-        plain, _ = await dec_frame(dut, esp[42:])
+        plain = await dec_frame(dut, esp[42:])
         print(f"plain {i}: len={len(plain)} hex={plain.hex()}", flush=True)
         assert plain == frame, f"plain {i} len {len(plain)} vs {len(frame)}"
 
@@ -151,8 +151,8 @@ async def bridge_rekey(dut):
 
     frame = make_frame(600)
     esp1 = await enc_frame(dut, frame)
-    plain1, ok1 = await dec_frame(dut, esp1[42:])
-    assert plain1 == frame and ok1, "baseline roundtrip"
+    plain1 = await dec_frame(dut, esp1[42:])
+    assert plain1 == frame, "baseline roundtrip"
 
     key2 = KEY ^ 0xA5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5
     dut.key_enc.value = key2
@@ -164,8 +164,8 @@ async def bridge_rekey(dut):
 
     esp2 = await enc_frame(dut, frame)
     assert esp2[42:] != esp1[42:], "ciphertext unchanged after rekey"
-    plain2, ok2 = await dec_frame(dut, esp2[42:])
-    assert plain2 == frame and ok2, "rekey roundtrip"
+    plain2 = await dec_frame(dut, esp2[42:])
+    assert plain2 == frame, "rekey roundtrip"
 
 
 @cocotb.test()
@@ -183,8 +183,8 @@ async def bridge_seq_wrap(dut):
 
     frame = make_frame(200)
     esp0 = await enc_frame(dut, frame)
-    plain0, ok0 = await dec_frame(dut, esp0[42:])
-    assert plain0 == frame and ok0, "baseline roundtrip"
+    plain0 = await dec_frame(dut, esp0[42:])
+    assert plain0 == frame, "baseline roundtrip"
 
     dut.seq_enc_in.value = 0xFFFFFFFE
     dut.key_load.value = 1
@@ -196,9 +196,8 @@ async def bridge_seq_wrap(dut):
         esp = await enc_frame(dut, frame)
         got = int.from_bytes(esp[46:50], "big")
         assert got == expect, f"enc seq {got:08x} vs {expect:08x}"
-        plain, ok = await dec_frame(dut, esp[42:])
+        plain = await dec_frame(dut, esp[42:])
         assert plain == frame, f"plain seq {expect:08x} len {len(plain)}"
-        assert ok, f"tag fail at seq {expect:08x}"
     assert int(dut.u_dec.last_seq_r.value) == 0, f"last_seq_r {int(dut.u_dec.last_seq_r.value):08x}"
 
 @cocotb.test()

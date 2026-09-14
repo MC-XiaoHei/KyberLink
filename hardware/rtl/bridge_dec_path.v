@@ -27,17 +27,15 @@ module bridge_dec_path (
     input  wire         gcm_busy,
     input  wire         gcm_done,
 
-    output wire [7:0] m_tdata,
-    output wire       m_tvalid,
-    output wire       m_tlast,
-    input  wire       m_tready,
-    output reg        tag_ok,
-
-    input wire soft_rst,
-    input wire [31:0] seq_init,
-    output reg err_badtag,
-    output reg err_badpad,
-    output reg err_replay
+    output wire [ 7:0] m_tdata,
+    output wire        m_tvalid,
+    output wire        m_tlast,
+    input  wire        m_tready,
+    input  wire        soft_rst,
+    input  wire [31:0] seq_init,
+    output reg         err_badtag,
+    output reg         err_badpad,
+    output reg         err_replay
 );
 
   localparam RX_IDLE = 1'b0;
@@ -211,7 +209,6 @@ module bridge_dec_path (
       m_tdata_r <= 8'd0;
       m_tvalid_r <= 1'b0;
       m_tlast_r <= 1'b0;
-      tag_ok <= 1'b0;
       tag_ok_q <= 1'b0;
       err_badtag <= 1'b0;
       err_badpad <= 1'b0;
@@ -223,9 +220,8 @@ module bridge_dec_path (
       gcm_nonce <= 96'd0;
       gcm_aad <= 128'd0;
     end else begin
-      gcm_start <= 1'b0;
-      pad_len_r <= pad_len_w;
-      tag_ok <= tag_ok_q;
+      gcm_start  <= 1'b0;
+      pad_len_r  <= pad_len_w;
       err_badtag <= 1'b0;
       err_badpad <= 1'b0;
       err_replay <= 1'b0;

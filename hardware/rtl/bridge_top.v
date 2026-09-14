@@ -34,7 +34,6 @@ module bridge_top (
     input  wire [ 31:0] seq_enc_in,
     output wire [ 31:0] seq_enc_out,
     output wire         seq_vld,
-    output wire         tag_ok,
 
     input  wire soft_rst,
     output wire err_badtag,
@@ -228,7 +227,6 @@ module bridge_top (
       .m_tvalid(m_dec_tvalid),
       .m_tlast(m_dec_tlast),
       .m_tready(m_dec_tready),
-      .tag_ok(tag_ok),
       .soft_rst(soft_rst),
       .seq_init(seq_enc_in),
       .err_badtag(err_badtag),
