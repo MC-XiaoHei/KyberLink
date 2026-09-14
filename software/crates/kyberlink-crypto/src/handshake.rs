@@ -30,6 +30,31 @@ pub fn fingerprint(vk: &[u8]) -> [u8; 32] {
     shake::sha3_256(vk)
 }
 
+fn sign_stage<I: Identity + ?Sized>(id: &I, tag: u8, h: &[u8; 32]) -> [u8; SIG_LEN] {
+    let mut smsg = [0u8; 33];
+    smsg[0] = tag;
+    smsg[1..].copy_from_slice(h);
+    let mut mu_b = [0u8; 64];
+    shake::shake256_squeeze(&[id.tr(), &[0x00], &[0u8], &smsg], &mut mu_b);
+    sign_precomp_kk_into(id.spc(), id.kk(), &mu_b, &[0u8; 32])
+}
+
+fn verify_stage(
+    vk: &[u8; VK_LEN],
+    tag: u8,
+    h: &[u8; 32],
+    sig: &[u8; SIG_LEN],
+    precomp: Option<&VerifyPrecomp>,
+) -> bool {
+    let mut smsg = [0u8; 33];
+    smsg[0] = tag;
+    smsg[1..].copy_from_slice(h);
+    match precomp {
+        Some(pc) => verify_precomp(pc, &smsg, b"", sig),
+        None => verify_internal(vk, &smsg, b"", sig),
+    }
+}
+
 pub const KK_LEN: usize = 32;
 pub const TR_LEN: usize = 64;
 
@@ -191,14 +216,8 @@ pub fn initiator_recv_m2<I: Identity + ?Sized>(
     hbuf[32 + NONCE_LEN..32 + NONCE_LEN + EK_LEN].copy_from_slice(ek_rb);
     hbuf[32 + NONCE_LEN + EK_LEN..].copy_from_slice(vk_rb);
     let h2 = shake::sha3_256(&hbuf);
-    let mut smsg = [0u8; 33];
-    smsg[0] = 0x01;
-    smsg[1..].copy_from_slice(&h2);
     let vk_bytes: [u8; VK_LEN] = vk_rb.try_into().unwrap();
-    let ok = match precomp {
-        Some(pc) => verify_precomp(pc, &smsg, b"", sigb),
-        None => verify_internal(&vk_bytes, &smsg, b"", sigb),
-    };
+    let ok = verify_stage(&vk_bytes, 0x01, &h2, sigb, precomp);
     if !ok {
         return Err("m2 verify fail");
     }
@@ -215,12 +234,7 @@ pub fn initiator_recv_m2<I: Identity + ?Sized>(
     hbuf3[32..32 + CT_LEN].copy_from_slice(&ct);
     hbuf3[32 + CT_LEN..].copy_from_slice(&spi_i.to_be_bytes());
     let h3 = shake::sha3_256(&hbuf3);
-    let mut smsg3 = [0u8; 33];
-    smsg3[0] = 0x02;
-    smsg3[1..].copy_from_slice(&h3);
-    let mut mu_b = [0u8; 64];
-    shake::shake256_squeeze(&[id.tr(), &[0x00], &[0u8], &smsg3], &mut mu_b);
-    let sig3 = sign_precomp_kk_into(id.spc(), id.kk(), &mu_b, &[0u8; 32]);
+    let sig3 = sign_stage(id, 0x02, &h3);
     m3[CT_LEN + 4..].copy_from_slice(&sig3);
     st.h = h3;
     Ok((m3, spi_i))
@@ -243,13 +257,7 @@ pub fn initiator_recv_m4(
     hbuf[32..32 + CT_LEN].copy_from_slice(ctb);
     hbuf[32 + CT_LEN..].copy_from_slice(&spi_r.to_be_bytes());
     let h4 = shake::sha3_256(&hbuf);
-    let mut smsg = [0u8; 33];
-    smsg[0] = 0x03;
-    smsg[1..].copy_from_slice(&h4);
-    let ok = match precomp {
-        Some(pc) => verify_precomp(pc, &smsg, b"", sigb),
-        None => verify_internal(&st.vk_r, &smsg, b"", sigb),
-    };
+    let ok = verify_stage(&st.vk_r, 0x03, &h4, sigb, precomp);
     if !ok {
         return Err("m4 verify fail");
     }
@@ -302,12 +310,7 @@ pub fn responder_start<I: Identity + ?Sized>(
     hbuf2[32 + NONCE_LEN..32 + NONCE_LEN + EK_LEN].copy_from_slice(&ek_r);
     hbuf2[32 + NONCE_LEN + EK_LEN..].copy_from_slice(vk_r);
     let h2 = shake::sha3_256(&hbuf2);
-    let mut smsg = [0u8; 33];
-    smsg[0] = 0x01;
-    smsg[1..].copy_from_slice(&h2);
-    let mut mu_b = [0u8; 64];
-    shake::shake256_squeeze(&[id.tr(), &[0x00], &[0u8], &smsg], &mut mu_b);
-    let sig = sign_precomp_kk_into(id.spc(), id.kk(), &mu_b, &[0u8; 32]);
+    let sig = sign_stage(id, 0x01, &h2);
     m2[32 + EK_LEN + VK_LEN..].copy_from_slice(&sig);
     let _ = nonce_i;
     Ok((
@@ -340,13 +343,7 @@ pub fn responder_recv_m3<I: Identity + ?Sized>(
     hbuf[32..32 + CT_LEN].copy_from_slice(ctb);
     hbuf[32 + CT_LEN..].copy_from_slice(&spi_i.to_be_bytes());
     let h3 = shake::sha3_256(&hbuf);
-    let mut smsg = [0u8; 33];
-    smsg[0] = 0x02;
-    smsg[1..].copy_from_slice(&h3);
-    let ok = match precomp {
-        Some(pc) => verify_precomp(pc, &smsg, b"", sigb),
-        None => verify_internal(&st.vk_i, &smsg, b"", sigb),
-    };
+    let ok = verify_stage(&st.vk_i, 0x02, &h3, sigb, precomp);
     if !ok {
         return Err("m3 verify fail");
     }
@@ -363,12 +360,7 @@ pub fn responder_recv_m3<I: Identity + ?Sized>(
     hbuf4[32..32 + CT_LEN].copy_from_slice(&ct_r);
     hbuf4[32 + CT_LEN..].copy_from_slice(&spi_r.to_be_bytes());
     let h4 = shake::sha3_256(&hbuf4);
-    let mut smsg4 = [0u8; 33];
-    smsg4[0] = 0x03;
-    smsg4[1..].copy_from_slice(&h4);
-    let mut mu_b = [0u8; 64];
-    shake::shake256_squeeze(&[id.tr(), &[0x00], &[0u8], &smsg4], &mut mu_b);
-    let sig4 = sign_precomp_kk_into(id.spc(), id.kk(), &mu_b, &[0u8; 32]);
+    let sig4 = sign_stage(id, 0x03, &h4);
     m4[CT_LEN + 4..].copy_from_slice(&sig4);
     let mut ss = [0u8; 64];
     ss[..32].copy_from_slice(&ss_i);
