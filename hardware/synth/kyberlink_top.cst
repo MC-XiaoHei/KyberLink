@@ -7,59 +7,59 @@ IO_LOC "rst_n" H11;
 IO_PORT "rst_n" IO_TYPE=LVCMOS33 PULL_MODE=UP;
 
 // LAN RGMII RX (Bank 2, VCCIO2 = 1.8V)
-IO_LOC "lan_rgmii_rx_clk" IOR31A;
+IO_LOC "lan_rgmii_rx_clk" L4;
 IO_PORT "lan_rgmii_rx_clk" IO_TYPE=LVCMOS18;
-IO_LOC "lan_rgmii_rx_ctl" IOR22A;
+IO_LOC "lan_rgmii_rx_ctl" J4;
 IO_PORT "lan_rgmii_rx_ctl" IO_TYPE=LVCMOS18;
-IO_LOC "lan_rgmii_rxd[0]" IOR18A;
+IO_LOC "lan_rgmii_rxd[0]" L2;
 IO_PORT "lan_rgmii_rxd[0]" IO_TYPE=LVCMOS18;
-IO_LOC "lan_rgmii_rxd[1]" IOR18B;
+IO_LOC "lan_rgmii_rxd[1]" L1;
 IO_PORT "lan_rgmii_rxd[1]" IO_TYPE=LVCMOS18;
-IO_LOC "lan_rgmii_rxd[2]" IOR20A;
+IO_LOC "lan_rgmii_rxd[2]" K1;
 IO_PORT "lan_rgmii_rxd[2]" IO_TYPE=LVCMOS18;
-IO_LOC "lan_rgmii_rxd[3]" IOR20B;
+IO_LOC "lan_rgmii_rxd[3]" K2;
 IO_PORT "lan_rgmii_rxd[3]" IO_TYPE=LVCMOS18;
 
 // LAN RGMII TX (Bank 2, VCCIO2 = 1.8V)
-IO_LOC "lan_rgmii_tx_clk" IOR33A;
+IO_LOC "lan_rgmii_tx_clk" J1;
 IO_PORT "lan_rgmii_tx_clk" IO_TYPE=LVCMOS18;
-IO_LOC "lan_rgmii_tx_ctl" IOR33B;
+IO_LOC "lan_rgmii_tx_ctl" J2;
 IO_PORT "lan_rgmii_tx_ctl" IO_TYPE=LVCMOS18;
-IO_LOC "lan_rgmii_txd[0]" IOR22B;
+IO_LOC "lan_rgmii_txd[0]" K4;
 IO_PORT "lan_rgmii_txd[0]" IO_TYPE=LVCMOS18;
-IO_LOC "lan_rgmii_txd[1]" IOR24A;
+IO_LOC "lan_rgmii_txd[1]" G2;
 IO_PORT "lan_rgmii_txd[1]" IO_TYPE=LVCMOS18;
-IO_LOC "lan_rgmii_txd[2]" IOR24B;
+IO_LOC "lan_rgmii_txd[2]" G1;
 IO_PORT "lan_rgmii_txd[2]" IO_TYPE=LVCMOS18;
-IO_LOC "lan_rgmii_txd[3]" IOR31B;
+IO_LOC "lan_rgmii_txd[3]" L3;
 IO_PORT "lan_rgmii_txd[3]" IO_TYPE=LVCMOS18;
 
 // WAN RGMII RX (Bank 0, VCCIO0 = 1.8V)
-IO_LOC "wan_rgmii_rx_clk" IOT56A;
+IO_LOC "wan_rgmii_rx_clk" J8;
 IO_PORT "wan_rgmii_rx_clk" IO_TYPE=LVCMOS18;
-IO_LOC "wan_rgmii_rx_ctl" IOT56B;
+IO_LOC "wan_rgmii_rx_ctl" K8;
 IO_PORT "wan_rgmii_rx_ctl" IO_TYPE=LVCMOS18;
-IO_LOC "wan_rgmii_rxd[0]" IOT58A;
+IO_LOC "wan_rgmii_rxd[0]" F7;
 IO_PORT "wan_rgmii_rxd[0]" IO_TYPE=LVCMOS18;
-IO_LOC "wan_rgmii_rxd[1]" IOT58B;
+IO_LOC "wan_rgmii_rxd[1]" F6;
 IO_PORT "wan_rgmii_rxd[1]" IO_TYPE=LVCMOS18;
-IO_LOC "wan_rgmii_rxd[2]" IOT31A;
+IO_LOC "wan_rgmii_rxd[2]" L9;
 IO_PORT "wan_rgmii_rxd[2]" IO_TYPE=LVCMOS18;
-IO_LOC "wan_rgmii_rxd[3]" IOT31B;
+IO_LOC "wan_rgmii_rxd[3]" K9;
 IO_PORT "wan_rgmii_rxd[3]" IO_TYPE=LVCMOS18;
 
 // WAN RGMII TX (Bank 1, VCCIO1 = 1.8V)
-IO_LOC "wan_rgmii_tx_clk" IOT61A;
+IO_LOC "wan_rgmii_tx_clk" H5;
 IO_PORT "wan_rgmii_tx_clk" IO_TYPE=LVCMOS18;
-IO_LOC "wan_rgmii_tx_ctl" IOT72A;
+IO_LOC "wan_rgmii_tx_ctl" F5;
 IO_PORT "wan_rgmii_tx_ctl" IO_TYPE=LVCMOS18;
-IO_LOC "wan_rgmii_txd[0]" IOT66A;
+IO_LOC "wan_rgmii_txd[0]" H8;
 IO_PORT "wan_rgmii_txd[0]" IO_TYPE=LVCMOS18;
-IO_LOC "wan_rgmii_txd[1]" IOT66B;
+IO_LOC "wan_rgmii_txd[1]" H7;
 IO_PORT "wan_rgmii_txd[1]" IO_TYPE=LVCMOS18;
-IO_LOC "wan_rgmii_txd[2]" IOT68A;
+IO_LOC "wan_rgmii_txd[2]" G7;
 IO_PORT "wan_rgmii_txd[2]" IO_TYPE=LVCMOS18;
-IO_LOC "wan_rgmii_txd[3]" IOT68B;
+IO_LOC "wan_rgmii_txd[3]" G8;
 IO_PORT "wan_rgmii_txd[3]" IO_TYPE=LVCMOS18;
 
 // SPI (Bank 7, VCCIO6/7 = 3.3V)
