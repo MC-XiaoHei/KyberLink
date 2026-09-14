@@ -30,60 +30,49 @@ pub unsafe extern "C" fn kyb_fsm_new(
 #[no_mangle]
 pub unsafe extern "C" fn kyb_fsm_free(h: *mut FsmHandle) {
     if !h.is_null() {
-        unsafe {
-            drop(Box::from_raw(h));
-        }
+        drop(unsafe { Box::from_raw(h) });
     }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn kyb_simnode_set_status(h: *mut FsmHandle, value: u32) {
-    unsafe {
-        (*h).qbus.set_status(value);
-    }
+    let h = unsafe { &*h };
+    h.qbus.set_status(value);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn kyb_fsm_poll(h: *mut FsmHandle) -> u32 {
-    unsafe {
-        let h = &*h;
-        let outcome = h.fsm.lock().poll();
-        match outcome {
-            FsmOutcome::Sa(sa) => {
-                write_sa(&*h.qbus, &sa, h.cfg.role_initiator, 1);
-                1
-            }
-            FsmOutcome::Wait => 0,
+    let h = unsafe { &*h };
+    match h.fsm.lock().poll() {
+        FsmOutcome::Sa(sa) => {
+            write_sa(&*h.qbus, &sa, h.cfg.role_initiator, 1);
+            1
         }
+        FsmOutcome::Wait => 0,
     }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn kyb_fsm_take_writes(h: *mut FsmHandle, out: *mut u64, cap: u32) -> u32 {
-    unsafe {
-        let h = &*h;
-        let writes = h.qbus.take_writes_n(cap as usize);
-        let n = writes.len();
-        for (i, (addr, data)) in writes.iter().enumerate() {
-            *out.add(i) = ((*data as u64) << 32) | *addr as u64;
-        }
-        n as u32
+    let (h, slot) = unsafe { (&*h, std::slice::from_raw_parts_mut(out, cap as usize)) };
+    let sunk = h.qbus.take_writes_n(cap as usize);
+    for (i, (addr, data)) in sunk.iter().enumerate() {
+        slot[i] = ((*data as u64) << 32) | *addr as u64;
     }
+    sunk.len() as u32
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn kyb_fsm_push_rx(h: *mut FsmHandle, data: *const u8, len: u32) {
-    unsafe {
-        let h = &*h;
-        h.qbus
-            .push_rx(std::slice::from_raw_parts(data, len as usize));
-    }
+    let (h, payload) = unsafe { (&*h, std::slice::from_raw_parts(data, len as usize)) };
+    h.qbus.push_rx(payload);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn kyb_fsm_fingerprint(seed: *const u8, out: *mut u8) {
     unsafe {
-        let (vk, _) = keygen_internal(std::slice::from_raw_parts(seed, 32).try_into().unwrap());
+        let seed = std::slice::from_raw_parts(seed, 32);
+        let (vk, _) = keygen_internal(seed.try_into().unwrap());
         let fp = hs::fingerprint(&vk);
         std::ptr::copy_nonoverlapping(fp.as_ptr(), out, FP_LEN);
     }

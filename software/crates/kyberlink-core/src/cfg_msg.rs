@@ -1,3 +1,5 @@
+const _: () = assert!(core::mem::align_of::<SignPrecomp>() <= 4);
+
 use kyberlink_crypto::handshake::RomIdentity;
 use kyberlink_crypto::mldsa_internal::{SignPrecomp, VK_LEN};
 

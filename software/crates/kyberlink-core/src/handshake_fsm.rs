@@ -1,3 +1,5 @@
+use core::cell::RefCell;
+
 use kyberlink_crypto::handshake as hs;
 use kyberlink_crypto::kem_internal::EK_LEN;
 use kyberlink_crypto::mldsa_internal::{VerifyPrecomp, VK_LEN};
@@ -409,7 +411,8 @@ pub struct Fsm<'a, S: SpiBus> {
     pub pending_sa: Option<hs::SaParams>,
 }
 
-static PC_CACHE: CriticalSectionMutex<Option<VerifyPrecomp>> = CriticalSectionMutex::new(None);
+static PC_CACHE: CriticalSectionMutex<RefCell<Option<VerifyPrecomp>>> =
+    CriticalSectionMutex::new(RefCell::new(None));
 
 impl<'a, S: SpiBus> Fsm<'a, S> {
     pub fn new(cfg: &'a Config, spi: &'a S) -> Self {
@@ -433,19 +436,18 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
 
     fn ensure_pc(&mut self, vk: &[u8]) {
         let vk_hash = hs::fingerprint(vk);
-        let need = PC_CACHE.lock(|s| match s.as_ref() {
+        let need = PC_CACHE.lock(|s| match s.borrow().as_ref() {
             Some(pc) => pc.vk_hash != vk_hash,
             None => true,
         });
         if need {
             let mut vk_arr = [0u8; VK_LEN];
             vk_arr.copy_from_slice(vk);
-            unsafe {
-                PC_CACHE.lock_mut(|s| {
-                    let pc = s.get_or_insert_default();
-                    kyberlink_crypto::mldsa_internal::verify_precomp_new_into(pc, &vk_arr);
-                });
-            }
+            PC_CACHE.lock(|s| {
+                let mut binding = s.borrow_mut();
+                let pc = binding.get_or_insert_default();
+                kyberlink_crypto::mldsa_internal::verify_precomp_new_into(pc, &vk_arr);
+            });
         }
     }
 
@@ -567,7 +569,7 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
                 self.cfg.identity,
                 &self.buf[..n],
                 &self.cfg.peer_fp,
-                s.as_ref(),
+                s.borrow().as_ref(),
             ) {
                 Ok((m3, spi_i)) => {
                     self.spi_i = spi_i;
@@ -594,7 +596,7 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
             return FsmOutcome::Wait;
         };
         PC_CACHE.lock(
-            |s| match hs::initiator_recv_m4(st, &self.buf[..n], self.spi_i, s.as_ref()) {
+            |s| match hs::initiator_recv_m4(st, &self.buf[..n], self.spi_i, s.borrow().as_ref()) {
                 Ok(sa) => {
                     self.pending_sa = Some(sa);
                     FsmOutcome::Wait
@@ -658,7 +660,7 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
                 self.cfg.identity,
                 &self.buf[..n],
                 self.spi_i,
-                s.as_ref(),
+                s.borrow().as_ref(),
             ) {
                 Ok((m4, sa)) => {
                     self.tx = Some(TxJob::new(&m4));

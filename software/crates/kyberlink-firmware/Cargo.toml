@@ -16,6 +16,9 @@ embassy-time = "0.5.1"
 embassy-usb = "0.5.1"
 embassy-sync = "0.8.0"
 embassy-futures = "0.1.2"
+static_cell = "2"
+riscv = "0.12"
+portable-atomic = { version = "1", features = ["critical-section"] }
 
 [features]
 std = ["kyberlink-core/std"]

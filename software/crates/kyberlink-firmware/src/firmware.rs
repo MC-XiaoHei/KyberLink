@@ -1,5 +1,3 @@
-#![allow(static_mut_refs)]
-
 use core::sync::atomic::{AtomicU8, Ordering};
 
 use ch32_hal::adc::{Adc, AdcChannel, AnyAdcChannel, Pga, SampleTime};
@@ -23,11 +21,13 @@ use kyberlink_core::handshake_fsm::{
 use kyberlink_crypto::entropy::{derive_kem_seeds, KemSeeds};
 use kyberlink_crypto::handshake::RomIdentity;
 use kyberlink_firmware::spi::SpiMaster;
+use static_cell::StaticCell;
 
 use crate::pinmap::Pins;
 use crate::usb;
 
 const FLASH_BASE: u32 = 0x0800_0000;
+const FLASH_LEN: u32 = 0x7_8000;
 const SA_SEQ_INIT: u32 = 1;
 const ERR_POLL_TICKS: u32 = 100;
 
@@ -58,16 +58,17 @@ impl NorFlash for FlashPort<'_> {
     }
 
     fn map(&mut self, off: u32, len: usize) -> Option<&'static [u8]> {
+        debug_assert!(off as usize + len <= FLASH_LEN as usize);
         Some(unsafe { core::slice::from_raw_parts((FLASH_BASE + off) as *const u8, len) })
     }
 }
 
-static mut SPI: Option<SpiMaster> = None;
-static mut CONFIG: core::mem::MaybeUninit<Config> = core::mem::MaybeUninit::uninit();
-static mut FSM: core::mem::MaybeUninit<Fsm<SpiMaster>> = core::mem::MaybeUninit::uninit();
-static mut IDENTITY: core::mem::MaybeUninit<RomIdentity> = core::mem::MaybeUninit::uninit();
+static SPI: StaticCell<SpiMaster> = StaticCell::new();
+static CONFIG: StaticCell<Config> = StaticCell::new();
+static IDENTITY: StaticCell<RomIdentity> = StaticCell::new();
+static FSM: StaticCell<Fsm<'static, SpiMaster>> = StaticCell::new();
+static FPGA_RST: StaticCell<Output<'static>> = StaticCell::new();
 static ERR_FLAGS: AtomicU8 = AtomicU8::new(0);
-static mut FPGA_RST: Option<Output<'static>> = None;
 
 pub(crate) fn err_flags() -> u8 {
     ERR_FLAGS.load(Ordering::Relaxed)
@@ -106,9 +107,7 @@ fn sample_entropy(adc: &mut Adc<'_, ADC1>, chans: &mut [AnyAdcChannel<ADC1>]) ->
     for _ in 0..64 {
         for ch in chans.iter_mut() {
             let v = adc.convert(ch, SampleTime::CYCLES239_5, Pga::X1);
-            let c: u32;
-            unsafe { core::arch::asm!("csrr {}, mcycle", out(reg) c) };
-            raw[i] = (v as u8) ^ (c as u8);
+            raw[i] = (v as u8) ^ (riscv::register::mcycle::read() as u8);
             i += 1;
         }
     }
@@ -130,73 +129,60 @@ async fn provisioning(
 async fn reboot_watch(signal: &usb::ActionSignal) -> ! {
     loop {
         if let Action::Reboot = signal.wait().await {
-            reset();
+            system_reset();
         }
     }
 }
 
-unsafe fn start_fsm(
+fn start_fsm(
     spi: Spi<'static, SPI1, Blocking>,
     cs: Output<'static>,
     binding: &Binding,
     seeds: &KemSeeds,
     identity: RomIdentity,
 ) -> &'static mut Fsm<'static, SpiMaster> {
-    IDENTITY.write(identity);
-    SPI = Some(SpiMaster::new(spi, cs));
-    let spi_ref = SPI.as_ref().unwrap();
-    write_data_plane(spi_ref, binding);
-    CONFIG.write(Config::from_parts(
-        binding,
-        seeds,
-        IDENTITY.assume_init_ref(),
-    ));
-    FSM.write(Fsm::new(CONFIG.assume_init_ref(), spi_ref));
-    FSM.assume_init_mut()
+    let identity = IDENTITY.init(identity);
+    let bus: &'static SpiMaster = SPI.init(SpiMaster::new(spi, cs));
+    write_data_plane(bus, binding);
+    let cfg: &'static Config = CONFIG.init(Config::from_parts(binding, seeds, identity));
+    FSM.init(Fsm::new(cfg, bus))
 }
 
 async fn run_forever(
     fsm: &'static mut Fsm<'static, SpiMaster>,
+    rst: &'static mut Output<'static>,
     initiator: bool,
     signal: &usb::ActionSignal,
 ) -> ! {
     let mut ticks = 0u32;
     loop {
         if let FsmOutcome::Sa(sa) = fsm.poll() {
-            if let Some(spi) = unsafe { SPI.as_ref() } {
-                write_sa(spi, &sa, initiator, SA_SEQ_INIT);
-            }
+            write_sa(fsm.spi, &sa, initiator, SA_SEQ_INIT);
         }
         if signal.signaled() {
             match signal.wait().await {
-                Action::Rekey => unsafe {
-                    let cfg = CONFIG.assume_init_ref();
-                    if let Some(spi) = SPI.as_ref() {
-                        *fsm = Fsm::new(cfg, spi);
-                    }
-                },
-                Action::Reboot => reset(),
+                Action::Rekey => {
+                    let (cfg, spi) = (fsm.cfg, fsm.spi);
+                    *fsm = Fsm::new(cfg, spi);
+                }
+                Action::Reboot => {
+                    rst.set_low();
+                    embassy_time::block_for(embassy_time::Duration::from_millis(10));
+                    system_reset();
+                }
                 _ => {}
             }
         }
         ticks += 1;
         if ticks.is_multiple_of(ERR_POLL_TICKS) {
-            if let Some(spi) = unsafe { SPI.as_ref() } {
-                ERR_FLAGS.store(spi.read_reg(REG_ERR) as u8, Ordering::Relaxed);
-            }
+            ERR_FLAGS.store(fsm.spi.read_reg(REG_ERR) as u8, Ordering::Relaxed);
         }
         watchdog_feed();
         Timer::after_millis(1).await;
     }
 }
 
-fn reset() -> ! {
-    unsafe {
-        if let Some(rst) = FPGA_RST.as_mut() {
-            rst.set_low();
-        }
-    }
-    embassy_time::block_for(embassy_time::Duration::from_millis(10));
+fn system_reset() -> ! {
     ch32_hal::pac::PFIC.sctlr().modify(|w| w.set_sysreset(true));
     loop {
         core::hint::spin_loop();
@@ -239,10 +225,10 @@ async fn main(_spawner: Spawner) -> ! {
     let mut adc = Adc::new(p.ADC1, Default::default());
     let seeds = sample_entropy(&mut adc, &mut pins.adc);
 
-    let fsm = unsafe { start_fsm(spi, cs, &binding, &seeds, identity) };
-    unsafe { FPGA_RST = Some(Output::new(pins.fpga_rst, Level::High, Default::default())) };
+    let fsm = start_fsm(spi, cs, &binding, &seeds, identity);
+    let rst = FPGA_RST.init(Output::new(pins.fpga_rst, Level::High, Default::default()));
     let mut console = Console::new(Mode::Running);
     let signal = usb::ActionSignal::new();
     let usb = usb::serve(p.USBD, pins.usb_dp, pins.usb_dm, &mut console, &mut flash, &signal);
-    match join(usb, run_forever(fsm, binding.role_initiator, &signal)).await {}
+    match join(usb, run_forever(fsm, rst, binding.role_initiator, &signal)).await {}
 }
