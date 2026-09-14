@@ -1,9 +1,12 @@
+use kyberlink_crypto::handshake::RomIdentity;
 use kyberlink_crypto::mldsa_internal::{SignPrecomp, VK_LEN};
 
-use crate::cfg_store::CfgError;
+use crate::cfg_store::{
+    self, CfgError, NorFlash, BINDING_BASE, BINDING_PAGES, IDENTITY_BASE, MAGIC_BINDING,
+    MAGIC_IDENTITY,
+};
 
-pub const KK_LEN: usize = 32;
-pub const TR_LEN: usize = 64;
+pub use kyberlink_crypto::handshake::{KK_LEN, TR_LEN};
 pub const FP_LEN: usize = 32;
 pub const MAC_LEN: usize = 6;
 pub const IP_LEN: usize = 4;
@@ -59,6 +62,21 @@ pub struct Binding {
     pub dst_port: u16,
 }
 
+impl Default for Binding {
+    fn default() -> Self {
+        Binding {
+            role_initiator: false,
+            peer_fp: [0; FP_LEN],
+            src_mac: [0; MAC_LEN],
+            dst_mac: [0; MAC_LEN],
+            src_ip: [0; IP_LEN],
+            dst_ip: [0; IP_LEN],
+            src_port: 0,
+            dst_port: 0,
+        }
+    }
+}
+
 impl Binding {
     pub fn encode(&self, out: &mut [u8]) -> Result<(), CfgError> {
         if out.len() < BINDING_LEN {
@@ -103,6 +121,33 @@ impl Binding {
             dst_port: u16::from_be_bytes([b[B_DST_PORT], b[B_DST_PORT + 1]]),
         })
     }
+
+    pub fn load<F: NorFlash>(flash: &mut F) -> Result<Binding, CfgError> {
+        cfg_store::verify(flash, BINDING_BASE, &MAGIC_BINDING, BINDING_LEN as u16)?;
+        let mut buf = [0u8; BINDING_LEN];
+        cfg_store::read_payload(flash, BINDING_BASE, 0, &mut buf)?;
+        Binding::decode(&buf)
+    }
+
+    pub fn store<F: NorFlash>(&self, flash: &mut F) -> Result<(), CfgError> {
+        let mut buf = [0u8; BINDING_LEN];
+        self.encode(&mut buf)?;
+        cfg_store::write_frame(flash, BINDING_BASE, BINDING_PAGES, MAGIC_BINDING, &buf)
+    }
+}
+
+pub fn load_identity<F: NorFlash>(flash: &mut F) -> Result<RomIdentity, CfgError> {
+    cfg_store::verify(flash, IDENTITY_BASE, &MAGIC_IDENTITY, IDENTITY_LEN as u16)?;
+    let payload = flash
+        .map(IDENTITY_BASE + cfg_store::HEADER_LEN as u32, IDENTITY_LEN)
+        .ok_or(CfgError::Unmapped)?;
+    let parts = Identity::decode(payload)?;
+    Ok(RomIdentity {
+        vk: parts.vk.try_into().map_err(|_| CfgError::Length)?,
+        kk: parts.kk.try_into().map_err(|_| CfgError::Length)?,
+        tr: parts.tr.try_into().map_err(|_| CfgError::Length)?,
+        spc: unsafe { &*(parts.spc.as_ptr() as *const SignPrecomp) },
+    })
 }
 
 #[cfg(test)]

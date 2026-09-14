@@ -2,6 +2,8 @@
 
 pub mod cfg_msg;
 pub mod cfg_store;
+pub mod console;
+pub mod dispatch;
 pub mod handshake_fsm;
 pub mod spi_frames;
 

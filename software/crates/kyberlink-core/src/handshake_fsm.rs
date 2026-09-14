@@ -48,6 +48,23 @@ pub struct Config {
     pub identity: &'static dyn hs::Identity,
 }
 
+impl Config {
+    pub fn from_parts(
+        binding: &Binding,
+        seeds: &kyberlink_crypto::entropy::KemSeeds,
+        identity: &'static dyn hs::Identity,
+    ) -> Config {
+        Config {
+            role_initiator: binding.role_initiator,
+            peer_fp: binding.peer_fp,
+            seed_kem_d: seeds.d,
+            seed_kem_z: seeds.z,
+            nonce: seeds.nonce,
+            identity,
+        }
+    }
+}
+
 pub fn write_data_plane<S: SpiBus>(spi: &S, b: &Binding) {
     unsafe {
         spi.write_reg(REG_SRC_IP, u32::from_be_bytes(b.src_ip));
