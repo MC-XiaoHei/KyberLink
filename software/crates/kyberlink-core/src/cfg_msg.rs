@@ -153,6 +153,47 @@ pub fn load_identity<F: NorFlash>(flash: &mut F) -> Result<RomIdentity, CfgError
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cfg_store::tests::MemFlash;
+    use crate::cfg_store::{FrameStream, IDENTITY_PAGES};
+
+    fn write_identity_frame(f: &mut MemFlash, payload: &[u8]) {
+        let mut s =
+            FrameStream::begin(f, IDENTITY_BASE, IDENTITY_PAGES, MAGIC_IDENTITY).unwrap();
+        for chunk in payload.chunks(251) {
+            s.write(f, chunk).unwrap();
+        }
+        s.finish(f).unwrap();
+    }
+
+    #[test]
+    fn load_identity_borrows_flash_payload() {
+        let mut f = MemFlash::new(0x4_0000);
+        let mut payload = [0u8; IDENTITY_LEN];
+        payload[VK_OFF..KK_OFF].fill(0x11);
+        payload[KK_OFF..TR_OFF].fill(0x22);
+        payload[TR_OFF..SPC_OFF].fill(0x33);
+        payload[SPC_OFF..].fill(0x44);
+        write_identity_frame(&mut f, &payload);
+
+        let id = load_identity(&mut f).unwrap();
+        assert_eq!(id.vk[0], 0x11);
+        assert_eq!(id.vk[VK_LEN - 1], 0x11);
+        assert_eq!(id.kk[0], 0x22);
+        assert_eq!(id.kk[KK_LEN - 1], 0x22);
+        assert_eq!(id.tr[0], 0x33);
+        assert_eq!(id.tr[TR_LEN - 1], 0x33);
+        let spc = unsafe {
+            core::slice::from_raw_parts(id.spc as *const SignPrecomp as *const u8, SPC_LEN)
+        };
+        assert_eq!(spc[0], 0x44);
+        assert_eq!(spc[SPC_LEN - 1], 0x44);
+    }
+
+    #[test]
+    fn load_identity_rejects_blank_flash() {
+        let mut f = MemFlash::new(0x4_0000);
+        assert!(load_identity(&mut f).is_err());
+    }
 
     fn sample_binding() -> Binding {
         Binding {
