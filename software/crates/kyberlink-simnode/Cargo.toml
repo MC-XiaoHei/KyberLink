@@ -1,0 +1,14 @@
+[package]
+name = "kyberlink-simnode"
+description = "KyberLink firmware logic hosted as a simulation node (cdylib for cocotb)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+kyberlink-core = { path = "../kyberlink-core", features = ["std"] }
+kyberlink-crypto = { path = "../kyberlink-crypto", features = ["std"] }
+parking_lot = "0.12.1"

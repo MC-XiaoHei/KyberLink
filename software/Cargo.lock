@@ -772,7 +772,6 @@ dependencies = [
  "critical-section",
  "embassy-sync",
  "kyberlink-crypto",
- "parking_lot",
 ]
 
 [[package]]
@@ -798,6 +797,15 @@ dependencies = [
  "embassy-time",
  "kyberlink-core",
  "kyberlink-crypto",
+]
+
+[[package]]
+name = "kyberlink-simnode"
+version = "0.1.0"
+dependencies = [
+ "kyberlink-core",
+ "kyberlink-crypto",
+ "parking_lot",
 ]
 
 [[package]]

@@ -6,6 +6,3 @@ pub mod console;
 pub mod dispatch;
 pub mod handshake_fsm;
 pub mod spi_frames;
-
-#[cfg(feature = "ffi")]
-pub mod ffi;
