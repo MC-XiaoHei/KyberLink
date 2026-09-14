@@ -14,9 +14,5 @@ ch32-hal = { git = "https://github.com/ch32-rs/ch32-hal", rev = "07663312c9da6b9
 embassy-executor = { version = "0.10.0", features = ["platform-riscv32", "executor-thread"] }
 embassy-time = "0.5.1"
 
-[build-dependencies]
-kyberlink-crypto = { path = "../kyberlink-crypto" }
-kyberlink-stamp = { path = "../kyberlink-stamp" }
-
 [features]
 std = ["kyberlink-core/std"]

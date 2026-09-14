@@ -798,15 +798,6 @@ dependencies = [
  "embassy-time",
  "kyberlink-core",
  "kyberlink-crypto",
- "kyberlink-stamp",
-]
-
-[[package]]
-name = "kyberlink-stamp"
-version = "0.1.0"
-dependencies = [
- "getrandom",
- "kyberlink-crypto",
 ]
 
 [[package]]
