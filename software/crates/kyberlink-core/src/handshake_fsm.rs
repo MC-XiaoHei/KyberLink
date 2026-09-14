@@ -2,6 +2,8 @@ use kyberlink_crypto::handshake as hs;
 use kyberlink_crypto::kem_internal::EK_LEN;
 use kyberlink_crypto::mldsa_internal::{VerifyPrecomp, VK_LEN};
 
+use crate::cfg_msg::Binding;
+
 pub trait SpiBus {
     /// # Safety
     /// `addr` must be a valid register address.
@@ -16,6 +18,14 @@ pub const REG_STATUS: u8 = 0x04;
 pub const REG_SPI: u8 = 0x08;
 pub const REG_SALT_LO: u8 = 0x0C;
 pub const REG_SALT_HI: u8 = 0x10;
+pub const REG_SRC_IP: u8 = 0x14;
+pub const REG_DST_IP: u8 = 0x18;
+pub const REG_SRC_PORT: u8 = 0x1C;
+pub const REG_DST_PORT: u8 = 0x20;
+pub const REG_SRC_MAC_LO: u8 = 0x24;
+pub const REG_SRC_MAC_HI: u8 = 0x28;
+pub const REG_DST_MAC_LO: u8 = 0x2C;
+pub const REG_DST_MAC_HI: u8 = 0x30;
 pub const REG_HSK_RX_LEN: u8 = 0x34;
 pub const REG_HSK_RX_DATA: u8 = 0x38;
 pub const REG_HSK_TX_LEN: u8 = 0x3C;
@@ -36,6 +46,27 @@ pub struct Config {
     pub seed_kem_z: [u8; 32],
     pub nonce: [u8; 32],
     pub identity: &'static dyn hs::Identity,
+}
+
+pub fn write_data_plane<S: SpiBus>(spi: &S, b: &Binding) {
+    unsafe {
+        spi.write_reg(REG_SRC_IP, u32::from_be_bytes(b.src_ip));
+        spi.write_reg(REG_DST_IP, u32::from_be_bytes(b.dst_ip));
+        spi.write_reg(REG_SRC_PORT, b.src_port as u32);
+        spi.write_reg(REG_DST_PORT, b.dst_port as u32);
+        spi.write_reg(REG_SRC_MAC_LO, mac_lo(&b.src_mac));
+        spi.write_reg(REG_SRC_MAC_HI, mac_hi(&b.src_mac));
+        spi.write_reg(REG_DST_MAC_LO, mac_lo(&b.dst_mac));
+        spi.write_reg(REG_DST_MAC_HI, mac_hi(&b.dst_mac));
+    }
+}
+
+fn mac_lo(m: &[u8; 6]) -> u32 {
+    u32::from_be_bytes([m[2], m[3], m[4], m[5]])
+}
+
+fn mac_hi(m: &[u8; 6]) -> u32 {
+    u16::from_be_bytes([m[0], m[1]]) as u32
 }
 
 pub fn write_sa<S: SpiBus>(spi: &S, sa: &hs::SaParams, initiator: bool, seq: u32) {
@@ -665,6 +696,30 @@ mod tests {
             }
             self.blocks.borrow_mut().push((payload.len(), words));
         }
+    }
+
+    #[test]
+    fn write_data_plane_sets_network_registers() {
+        let m = MockSpi::new();
+        let b = crate::cfg_msg::Binding {
+            role_initiator: true,
+            peer_fp: [0xAB; 32],
+            src_mac: [0x00, 0x11, 0x22, 0x33, 0x44, 0x55],
+            dst_mac: [0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB],
+            src_ip: [192, 168, 1, 1],
+            dst_ip: [192, 168, 1, 2],
+            src_port: 4500,
+            dst_port: 4501,
+        };
+        write_data_plane(&m, &b);
+        assert_eq!(m.w(REG_SRC_IP), 0xC0A8_0101);
+        assert_eq!(m.w(REG_DST_IP), 0xC0A8_0102);
+        assert_eq!(m.w(REG_SRC_PORT), 4500);
+        assert_eq!(m.w(REG_DST_PORT), 4501);
+        assert_eq!(m.w(REG_SRC_MAC_LO), 0x2233_4455);
+        assert_eq!(m.w(REG_SRC_MAC_HI), 0x0011);
+        assert_eq!(m.w(REG_DST_MAC_LO), 0x8899_AABB);
+        assert_eq!(m.w(REG_DST_MAC_HI), 0x6677);
     }
 
     impl Default for MockSpi {
