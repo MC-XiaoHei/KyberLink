@@ -13,3 +13,25 @@ dependencies = [
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.pyright]
+include = ["run.py", "utils"]
+typeCheckingMode = "basic"
+executionEnvironments = [{ root = ".", extraPaths = ["."] }]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+cache-dir = "build/cache/ruff"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",
+    "SIM115",
+    "PLW1510",
+    "RUF059",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"sim.py" = ["F821"]
