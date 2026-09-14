@@ -76,7 +76,6 @@ HSK_ACK = 0xFFFFFFFF
 
 
 async def hsk_read_blk(dut, spi):
-    """读一块（返回 (total, ofs, payload)），无数据返回 None。"""
     sck, mosi, miso, csn = spi
     st = await spi_read(dut, sck, mosi, miso, csn, 0x04)
     if not (st & 1):
@@ -93,7 +92,6 @@ async def hsk_read_blk(dut, spi):
 
 
 async def hsk_read_raw(dut, spi):
-    """按 FPGA 记录的包长读回整包，调用方先确认 0x04 bit0 已置位。"""
     sck, mosi, miso, csn = spi
     ln = await spi_read(dut, sck, mosi, miso, csn, 0x34) & 0xFFFF
     buf = bytearray()

@@ -33,5 +33,5 @@ fn main() {
             return;
         }
     }
-    println!("MATCH: 全部 256 项一致");
+    println!("MATCH: all 256 entries agree");
 }

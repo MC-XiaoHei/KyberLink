@@ -40,7 +40,6 @@ pub fn rej_ntt_poly(rho: &[u8], r: u8, s: u8) -> [u32; 256] {
     seed[33] = r;
     let mut f = [0u32; 256];
     let mut n = 0usize;
-    // 6 blocks of 3B coeffs (1008B) covers ~0.1% rejection margin; 840B is marginal
     let mut buf = [0u8; 1008];
     shake::shake128_squeeze(&[&seed], &mut buf);
     let mut pos = 0usize;
@@ -687,7 +686,6 @@ pub fn verify_mu_internal(vk: &[u8; VK_LEN], mu_b: &[u8; 64], sig: &[u8; SIG_LEN
 }
 
 pub struct VerifyPrecomp {
-    // Packed 3B/coeff (Q < 2^23): a_hat 30*256*3, t1_2d_hat 6*256*3
     pub a_hat_packed: [u8; K * L * 256 * 3],
     pub t1_2d_hat_packed: [u8; K * 256 * 3],
     pub tr_b: [u8; 64],
@@ -931,7 +929,6 @@ pub fn verify_precomp_new_into(pc: &mut VerifyPrecomp, vk: &[u8; VK_LEN]) {
             }
         }
     }
-    // t1<<D in NTT domain: per-poly 1K temporary, compute and pack
     for (i, ip) in t1.iter().enumerate() {
         let mut tp = [0u32; 256];
         for (oc, &ic) in tp.iter_mut().zip(ip.iter()) {
@@ -990,7 +987,7 @@ fn verify_core_precomp(pc: &VerifyPrecomp, mu_b: &[u8; 64], sig: &[u8; SIG_LEN])
     let mut buf = [[0u32; 256]; K];
     for (i, bp) in buf.iter_mut().enumerate() {
         for (k, bc) in bp.iter_mut().enumerate() {
-            // u64 accumulation skips interleaved mod: 30 terms < 2^63, single mod at end
+            // 30 terms < 2^63
             let mut acc = 0u64;
             for (j, zj) in z.iter().enumerate() {
                 const ABASE: usize = 256 * 3;
@@ -1083,7 +1080,7 @@ fn verify_core(vk: &[u8; VK_LEN], mu_b: &[u8; 64], sig: &[u8; SIG_LEN]) -> bool 
     let mut buf = [[0u32; 256]; K];
     for (i, row) in a_hat.as_chunks::<L>().0.iter().enumerate() {
         for k in 0..256 {
-            // u64 accumulation skips interleaved mod: 30 terms < 2^63, single mod at end
+            // 30 terms < 2^63
             let acc = row
                 .iter()
                 .zip(z.iter())

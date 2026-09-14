@@ -17,7 +17,6 @@ fn unpack20_fast(bytes: &[u8], out: &mut [u32]) {
         let byte = bitpos / 8;
         let sh = bitpos % 8;
         let mut v: u32 = (bytes[byte] as u32) >> sh;
-        // may span 2-3 bytes
         let need = 20 - (8 - sh);
         if need > 0 {
             v |= (bytes[byte + 1] as u32) << (8 - sh);
@@ -25,7 +24,7 @@ fn unpack20_fast(bytes: &[u8], out: &mut [u32]) {
         if need > 8 {
             v |= (bytes[byte + 2] as u32) << (16 - sh);
         }
-        *o = v & 0xFFFFF; // 20-bit mask
+        *o = v & 0xFFFFF;
         bitpos += 20;
     }
 }
@@ -36,7 +35,7 @@ fn main() {
     let mut out2 = vec![0u32; 1536];
     unpack20_bits(&bytes, &mut out1);
     unpack20_fast(&bytes, &mut out2);
-    assert_eq!(out1, out2, "两种 unpack 结果不一致");
+    assert_eq!(out1, out2, "unpack mismatch");
 
     let t = Instant::now();
     for _ in 0..1000 {

@@ -51,7 +51,7 @@ module PLLA (
   parameter CLKOUT5_EN = "FALSE";
   parameter CLKOUT6_EN = "FALSE";
 
-  // 输出半周期(ps) = 输入周期(ps) * IDIV * ODIV / (2 * FBDIV * MDIV)
+  // HALF_PS = 1000000 / FCLKIN_MHZ * IDIV_SEL * ODIV0_SEL / (2 * FBDIV_SEL * MDIV_SEL)
   localparam integer HALF_PS =
       (1000000 / FCLKIN_MHZ) * IDIV_SEL * ODIV0_SEL / (2 * FBDIV_SEL * MDIV_SEL);
 
