@@ -66,6 +66,7 @@ static mut CONFIG: core::mem::MaybeUninit<Config> = core::mem::MaybeUninit::unin
 static mut FSM: core::mem::MaybeUninit<Fsm<SpiMaster>> = core::mem::MaybeUninit::uninit();
 static mut IDENTITY: core::mem::MaybeUninit<RomIdentity> = core::mem::MaybeUninit::uninit();
 static ERR_FLAGS: AtomicU8 = AtomicU8::new(0);
+static mut FPGA_RST: Option<Output<'static>> = None;
 
 pub(crate) fn err_flags() -> u8 {
     ERR_FLAGS.load(Ordering::Relaxed)
@@ -189,6 +190,12 @@ async fn run_forever(
 }
 
 fn reset() -> ! {
+    unsafe {
+        if let Some(rst) = FPGA_RST.as_mut() {
+            rst.set_low();
+        }
+    }
+    embassy_time::block_for(embassy_time::Duration::from_millis(10));
     ch32_hal::pac::PFIC.sctlr().modify(|w| w.set_sysreset(true));
     loop {
         core::hint::spin_loop();
@@ -222,6 +229,7 @@ async fn main(_spawner: Spawner) -> ! {
     let seeds = sample_entropy(&mut adc, &mut chans);
 
     let fsm = unsafe { start_fsm(spi, cs, &binding, &seeds, identity) };
+    unsafe { FPGA_RST = Some(Output::new(p.PA8, Level::High, Default::default())) };
     let mut console = Console::new(Mode::Running);
     let signal = usb::ActionSignal::new();
     let usb = usb::serve(p.USBD, p.PA12, p.PA11, &mut console, &mut flash, &signal);
