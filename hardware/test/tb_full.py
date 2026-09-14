@@ -3,12 +3,14 @@ import os
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles, ReadOnly, Timer
+from cocotb.triggers import ClockCycles, ReadOnly
 
 try:
-    from ffi import Fsm, fingerprint
+    from ffi import DLL, Fsm, fingerprint
+
     HAVE_FFI = True
-except ImportError:
+except (ImportError, OSError):
+    DLL = ""
     HAVE_FFI = False
 
 PAYLOAD = 1400
@@ -644,7 +646,7 @@ async def full_fw_roundtrip(dut):
         ca = cocotb.start_soon(collect(dut, dut.a_lan_txd, dut.a_lan_tx_en, dut.a_lan_tx_last, 1, "FW B->A"))
         await fb
         rx_a = await ca
-        assert rx_a[0] == plain, f"FW B->A mismatch"
+        assert rx_a[0] == plain, "FW B->A mismatch"
         print("FW roundtrip B->A PASS", flush=True)
     finally:
         fsm_a.close()

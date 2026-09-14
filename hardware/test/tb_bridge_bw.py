@@ -2,23 +2,25 @@ import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles
 from cocotb.utils import get_sim_time
-
-from tb_bridge import make_frame, setup, DST_MAC, SPI
+from tb_bridge import DST_MAC, SPI, make_frame, setup
 
 PAYLOAD = 1400
 PAD_N = (16 - ((PAYLOAD + 2) & 0xF)) & 0xF
 PT_LEN = PAYLOAD + 2 + PAD_N
 ESP_LEN = 42 + 20 + PT_LEN + 16
 
-
-@cocotb.test()
-async def enc_bw(dut):
+async def start(dut):
     cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
     dut.rst_n.value = 0
     await setup(dut)
     await ClockCycles(dut.clk, 5)
     dut.rst_n.value = 1
     await ClockCycles(dut.clk, 2)
+
+
+@cocotb.test()
+async def enc_bw(dut):
+    await start(dut)
     n = 50
     frame = make_frame(PAYLOAD)
     dut.s_enc_tdata.value = 0
@@ -127,12 +129,7 @@ async def enc_bw(dut):
 
 @cocotb.test()
 async def dec_bw(dut):
-    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
-    dut.rst_n.value = 0
-    await setup(dut)
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
+    await start(dut)
     n = 50
     frame = make_frame(PAYLOAD)
     dut.s_enc_tdata.value = 0
@@ -243,12 +240,7 @@ async def dec_bw(dut):
 
 @cocotb.test()
 async def dec_back2back(dut):
-    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
-    dut.rst_n.value = 0
-    await setup(dut)
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
+    await start(dut)
     n = 3
     frame = make_frame(PAYLOAD)
     dut.s_enc_tdata.value = 0
@@ -347,12 +339,7 @@ async def dec_back2back(dut):
 
 @cocotb.test()
 async def dec_badpad(dut):
-    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
-    dut.rst_n.value = 0
-    await setup(dut)
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
+    await start(dut)
     n = 1
     frame = make_frame(PAYLOAD)
     dut.s_enc_tdata.value = 0
@@ -464,12 +451,7 @@ async def dec_badpad(dut):
 async def dec_cont_bp(dut):
     import random
     random.seed(29)
-    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
-    dut.rst_n.value = 0
-    await setup(dut)
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
+    await start(dut)
     n = 3
     frame = make_frame(PAYLOAD)
     dut.s_enc_tdata.value = 0
@@ -584,12 +566,7 @@ async def dec_cont_bp(dut):
 async def bw_random_50(dut):
     import random
     random.seed(41)
-    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
-    dut.rst_n.value = 0
-    await setup(dut)
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
+    await start(dut)
     n = 50
     frame = make_frame(PAYLOAD)
     dut.s_enc_tdata.value = 0
@@ -712,12 +689,7 @@ async def bw_random_50(dut):
 async def min_frame_bp(dut):
     import random
     random.seed(53)
-    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
-    dut.rst_n.value = 0
-    await setup(dut)
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
+    await start(dut)
     n = 3
     pay = 10
     pad_n = (16 - ((pay + 2) & 0xF)) & 0xF
@@ -842,12 +814,7 @@ async def min_frame_bp(dut):
 async def pad_max_bp(dut):
     import random
     random.seed(77)
-    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
-    dut.rst_n.value = 0
-    await setup(dut)
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
+    await start(dut)
     n = 3
     pay = 15
     pad_n = (16 - ((pay + 2) & 0xF)) & 0xF
@@ -972,12 +939,7 @@ async def pad_max_bp(dut):
 async def backpressure(dut):
     import random
     random.seed(13)
-    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
-    dut.rst_n.value = 0
-    await setup(dut)
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
+    await start(dut)
     n = 3
     frame = make_frame(PAYLOAD)
     dut.s_enc_tdata.value = 0

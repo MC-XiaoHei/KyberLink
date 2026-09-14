@@ -1,6 +1,6 @@
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import FallingEdge, RisingEdge, ReadOnly, Timer
+from cocotb.triggers import FallingEdge, ReadOnly, RisingEdge, Timer
 
 DEPTH = 16
 
@@ -102,7 +102,7 @@ async def tlast_preserved_through_fifo(dut):
         st = await step(dut, m_tready=1)
         assert st[1], f"idx {len(got)}"
         got.append((st[2], st[3]))
-    for i, (d, l) in enumerate(got):
+    for i, (d, tlast) in enumerate(got):
         assert d == seq[i], f"idx {i} {d:#x}"
-        assert l == (1 if i == len(seq) - 1 else 0), f"idx {i} tlast {l}"
+        assert tlast == (1 if i == len(seq) - 1 else 0), f"idx {i} tlast {tlast}"
     print("tlast PASS", flush=True)

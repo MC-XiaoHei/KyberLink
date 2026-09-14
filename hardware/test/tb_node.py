@@ -1,8 +1,7 @@
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles
-
-from tb_bridge import make_frame, KEY, SPI, IV, SRC_IP, DST_IP, SRC_PORT, DST_PORT, SRC_MAC, DST_MAC
+from tb_bridge import DST_IP, DST_MAC, DST_PORT, IV, KEY, SPI, SRC_IP, SRC_MAC, SRC_PORT, make_frame
 
 
 async def spi_write(dut, addr, data):
@@ -63,9 +62,7 @@ async def spi_configure(dut):
 async def drain_garp(dut):
     await ClockCycles(dut.clk, 10)
 
-
-@cocotb.test()
-async def end_to_end(dut):
+async def start(dut):
     cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
     dut.rst_n.value = 0
     dut.spi_sck.value = 0
@@ -84,9 +81,17 @@ async def end_to_end(dut):
     await ClockCycles(dut.clk, 2)
     await spi_configure(dut)
     await ClockCycles(dut.clk, 10)
+
+
+async def start_drained(dut):
+    await start(dut)
     await drain_garp(dut)
 
-    n = 4
+
+@cocotb.test()
+async def end_to_end(dut):
+    await start_drained(dut)
+
     frame = make_frame(100)
     esp_out = bytearray()
 
@@ -162,25 +167,7 @@ async def end_to_end(dut):
 
 @cocotb.test()
 async def err_counters(dut):
-    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
-    dut.rst_n.value = 0
-    dut.spi_sck.value = 0
-    dut.spi_mosi.value = 0
-    dut.spi_csn.value = 1
-    dut.lan_rxd.value = 0
-    dut.lan_rx_dv.value = 0
-    dut.lan_rx_last.value = 0
-    dut.wan_rxd.value = 0
-    dut.wan_rx_dv.value = 0
-    dut.wan_rx_last.value = 0
-    dut.lan_tx_ready.value = 1
-    dut.wan_tx_ready.value = 1
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
-    await spi_configure(dut)
-    await ClockCycles(dut.clk, 10)
-    await drain_garp(dut)
+    await start_drained(dut)
 
     frame = make_frame(100)
     esp_out = bytearray()
@@ -255,7 +242,6 @@ async def err_counters(dut):
                 if int(dut.lan_tx_last.value):
                     return
             await ClockCycles(dut.clk, 1)
-        d = dut.u_bridge.u_dec
         raise AssertionError("dec no output")
 
     esp2 = bytearray()
@@ -326,25 +312,7 @@ async def err_counters(dut):
 
 @cocotb.test()
 async def oversize_drop(dut):
-    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
-    dut.rst_n.value = 0
-    dut.spi_sck.value = 0
-    dut.spi_mosi.value = 0
-    dut.spi_csn.value = 1
-    dut.lan_rxd.value = 0
-    dut.lan_rx_dv.value = 0
-    dut.lan_rx_last.value = 0
-    dut.wan_rxd.value = 0
-    dut.wan_rx_dv.value = 0
-    dut.wan_rx_last.value = 0
-    dut.lan_tx_ready.value = 1
-    dut.wan_tx_ready.value = 1
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
-    await spi_configure(dut)
-    await ClockCycles(dut.clk, 10)
-    await drain_garp(dut)
+    await start_drained(dut)
 
     cnt = 0
 
@@ -371,25 +339,7 @@ async def oversize_drop(dut):
 
 @cocotb.test()
 async def bad_frame_silent(dut):
-    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
-    dut.rst_n.value = 0
-    dut.spi_sck.value = 0
-    dut.spi_mosi.value = 0
-    dut.spi_csn.value = 1
-    dut.lan_rxd.value = 0
-    dut.lan_rx_dv.value = 0
-    dut.lan_rx_last.value = 0
-    dut.wan_rxd.value = 0
-    dut.wan_rx_dv.value = 0
-    dut.wan_rx_last.value = 0
-    dut.lan_tx_ready.value = 1
-    dut.wan_tx_ready.value = 1
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
-    await spi_configure(dut)
-    await ClockCycles(dut.clk, 10)
-    await drain_garp(dut)
+    await start_drained(dut)
 
     bad_mac = (SRC_MAC ^ 0x02).to_bytes(6, "big")
     hsk = b"\x11" * 8
@@ -426,25 +376,7 @@ async def bad_frame_silent(dut):
 
 @cocotb.test()
 async def hsk_roundtrip(dut):
-    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
-    dut.rst_n.value = 0
-    dut.spi_sck.value = 0
-    dut.spi_mosi.value = 0
-    dut.spi_csn.value = 1
-    dut.lan_rxd.value = 0
-    dut.lan_rx_dv.value = 0
-    dut.lan_rx_last.value = 0
-    dut.wan_rxd.value = 0
-    dut.wan_rx_dv.value = 0
-    dut.wan_rx_last.value = 0
-    dut.lan_tx_ready.value = 1
-    dut.wan_tx_ready.value = 1
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
-    await spi_configure(dut)
-    await ClockCycles(dut.clk, 10)
-    await drain_garp(dut)
+    await start_drained(dut)
 
     hsk = bytes(range(1, 33))
     eth = SRC_MAC.to_bytes(6, "big") + DST_MAC.to_bytes(6, "big") + b"\x08\x00"
@@ -495,25 +427,7 @@ async def hsk_roundtrip(dut):
 
 @cocotb.test()
 async def soft_rst_mid_flight(dut):
-    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
-    dut.rst_n.value = 0
-    dut.spi_sck.value = 0
-    dut.spi_mosi.value = 0
-    dut.spi_csn.value = 1
-    dut.lan_rxd.value = 0
-    dut.lan_rx_dv.value = 0
-    dut.lan_rx_last.value = 0
-    dut.wan_rxd.value = 0
-    dut.wan_rx_dv.value = 0
-    dut.wan_rx_last.value = 0
-    dut.lan_tx_ready.value = 1
-    dut.wan_tx_ready.value = 1
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
-    await spi_configure(dut)
-    await ClockCycles(dut.clk, 10)
-    await drain_garp(dut)
+    await start_drained(dut)
 
     frame = make_frame(64)
     esp_out = bytearray()
@@ -594,25 +508,7 @@ async def soft_rst_mid_flight(dut):
 
 @cocotb.test()
 async def replay_window_bounds(dut):
-    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
-    dut.rst_n.value = 0
-    dut.spi_sck.value = 0
-    dut.spi_mosi.value = 0
-    dut.spi_csn.value = 1
-    dut.lan_rxd.value = 0
-    dut.lan_rx_dv.value = 0
-    dut.lan_rx_last.value = 0
-    dut.wan_rxd.value = 0
-    dut.wan_rx_dv.value = 0
-    dut.wan_rx_last.value = 0
-    dut.lan_tx_ready.value = 1
-    dut.wan_tx_ready.value = 1
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
-    await spi_configure(dut)
-    await ClockCycles(dut.clk, 10)
-    await drain_garp(dut)
+    await start_drained(dut)
 
     frame = make_frame(100)
     esp_out = bytearray()
@@ -769,24 +665,7 @@ async def lan_roundtrip(dut, n=100):
 
 @cocotb.test()
 async def short_frame_no_hang(dut):
-    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
-    dut.rst_n.value = 0
-    dut.spi_sck.value = 0
-    dut.spi_mosi.value = 0
-    dut.spi_csn.value = 1
-    dut.lan_rxd.value = 0
-    dut.lan_rx_dv.value = 0
-    dut.lan_rx_last.value = 0
-    dut.wan_rxd.value = 0
-    dut.wan_rx_dv.value = 0
-    dut.wan_rx_last.value = 0
-    dut.lan_tx_ready.value = 1
-    dut.wan_tx_ready.value = 1
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
-    await spi_configure(dut)
-    await ClockCycles(dut.clk, 10)
+    await start(dut)
 
     ok, _ = await lan_roundtrip(dut)
     assert ok, "baseline roundtrip"
@@ -802,24 +681,7 @@ async def short_frame_no_hang(dut):
 
 @cocotb.test()
 async def in_order_replay_rejected(dut):
-    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
-    dut.rst_n.value = 0
-    dut.spi_sck.value = 0
-    dut.spi_mosi.value = 0
-    dut.spi_csn.value = 1
-    dut.lan_rxd.value = 0
-    dut.lan_rx_dv.value = 0
-    dut.lan_rx_last.value = 0
-    dut.wan_rxd.value = 0
-    dut.wan_rx_dv.value = 0
-    dut.wan_rx_last.value = 0
-    dut.lan_tx_ready.value = 1
-    dut.wan_tx_ready.value = 1
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
-    await spi_configure(dut)
-    await ClockCycles(dut.clk, 10)
+    await start(dut)
 
     frame = make_frame(100)
     esp_out = bytearray()
@@ -891,24 +753,7 @@ async def in_order_replay_rejected(dut):
 
 @cocotb.test()
 async def jump_keeps_replay_window(dut):
-    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
-    dut.rst_n.value = 0
-    dut.spi_sck.value = 0
-    dut.spi_mosi.value = 0
-    dut.spi_csn.value = 1
-    dut.lan_rxd.value = 0
-    dut.lan_rx_dv.value = 0
-    dut.lan_rx_last.value = 0
-    dut.wan_rxd.value = 0
-    dut.wan_rx_dv.value = 0
-    dut.wan_rx_last.value = 0
-    dut.lan_tx_ready.value = 1
-    dut.wan_tx_ready.value = 1
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
-    await spi_configure(dut)
-    await ClockCycles(dut.clk, 10)
+    await start(dut)
 
     frame = make_frame(100)
     esp_out = bytearray()

@@ -3,7 +3,7 @@ import os
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles, FallingEdge
+from cocotb.triggers import ClockCycles
 
 _VD = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "vectors", "generated", "aes.json"), encoding="utf-8"))
 VECTORS = [(int(v["key"], 16), int(v["block"], 16), int(v["ciphertext"], 16)) for v in _VD["kat"]]

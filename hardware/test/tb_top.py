@@ -1,8 +1,7 @@
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles, RisingEdge, Timer
-
-from tb_bridge import KEY, SPI, IV, SRC_IP, DST_IP, SRC_PORT, DST_PORT, SRC_MAC, DST_MAC
+from tb_bridge import DST_IP, DST_MAC, DST_PORT, IV, KEY, SPI, SRC_IP, SRC_MAC, SRC_PORT
 
 CLK_NS = 20.0
 

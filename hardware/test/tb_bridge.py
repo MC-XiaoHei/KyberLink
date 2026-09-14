@@ -33,7 +33,6 @@ async def enc_frame(dut, data):
             dut.s_enc_tvalid.value = 0
             dut.s_enc_tlast.value = 0
         dut.m_enc_tready.value = 1
-        ae = dut.u_gcm
         if int(dut.m_enc_tvalid.value):
             out.append(int(dut.m_enc_tdata.value))
             if int(dut.m_enc_tlast.value):
@@ -110,7 +109,7 @@ async def bridge_roundtrip(dut):
     await ClockCycles(dut.clk, 1)
     dut.key_load.value = 0
     await ClockCycles(dut.clk, 2)
-    seen = set()
+
     async def pt_snoop():
         n_blk = 0
         while True:
@@ -121,7 +120,7 @@ async def bridge_roundtrip(dut):
                     print(f"ENC ct blk {n_blk}: {int(g.ct_data.value):032x} "
                           f"ph={int(g.phase.value)} ad={int(g.aes_done.value)}", flush=True)
                 n_blk += 1
-    ps = cocotb.start_soon(pt_snoop())
+    cocotb.start_soon(pt_snoop())
     for i, n in enumerate((64, 1400, 1402, 64)):
         frame = make_frame(n)
         esp = await enc_frame(dut, frame)
