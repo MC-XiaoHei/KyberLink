@@ -1,5 +1,3 @@
-/// 40-bit frame (MSB first): bit39=R/W, bit38..32=7-bit addr, bit31..0=data.
-/// Matches hardware spi_slave and test byte order.
 pub fn write_frame(addr: u8, data: u32) -> [u8; 5] {
     [
         addr & 0x7F,
@@ -10,7 +8,6 @@ pub fn write_frame(addr: u8, data: u32) -> [u8; 5] {
     ]
 }
 
-/// Read frame: bit39=1 + 7-bit addr, then 4 bytes from slave readback slot.
 pub fn read_frame(addr: u8) -> [u8; 5] {
     [0x80 | (addr & 0x7F), 0, 0, 0, 0]
 }

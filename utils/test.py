@@ -17,18 +17,18 @@ def _cargo_test():
     script = (
         f"rustup run {tc} cargo test --workspace "
         f"--target {host} "
-        "--features kyberlink-crypto/std,kyberlink-core/std,kyberlink-core/ffi"
+        "--features kyberlink-crypto/std,kyberlink-core/std"
     )
     rc = subprocess.call(["cmd", "/c", script], cwd=os.path.join(config.REPO, "software"))
     if rc != 0:
         raise AppError(f"cargo test failed rc={rc}", rc)
     script = (
-        f"rustup run {tc} cargo build -p kyberlink-core "
-        f"--target {host} --features kyberlink-core/ffi"
+        f"rustup run {tc} cargo build -p kyberlink-simnode "
+        f"--target {host}"
     )
     rc = subprocess.call(["cmd", "/c", script], cwd=os.path.join(config.REPO, "software"))
     if rc != 0:
-        raise AppError(f"cargo build ffi failed rc={rc}", rc)
+        raise AppError(f"cargo build simnode failed rc={rc}", rc)
 
 
 def _cross_verify():

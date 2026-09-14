@@ -78,7 +78,6 @@ module aes256_core_pipe (
   wire [31:0] we3 = st_prev2[31:0] ^ we2;
 
   reg [127:0] state[0:2];
-  // 读索引 b1_d 恒为上一拍写入的槽位，三槽数组退化成这一级流水
   reg [127:0] sbox_c_d;
   reg [3:0] rd[0:2];
   reg [1:0] blk_sel;
@@ -89,7 +88,6 @@ module aes256_core_pipe (
 
   wire [1:0] b1 = (blk_sel == 2'd0) ? 2'd2 : blk_sel - 2'd1;
   wire [1:0] b2 = (blk_sel == 2'd2) ? 2'd0 : (blk_sel == 2'd1) ? 2'd2 : 2'd1;
-  // 选择信号提前一拍译码，避免该 LUT 落在读通路上
   reg [1:0] b1_d;
 
   wire [127:0] sbox_c;
