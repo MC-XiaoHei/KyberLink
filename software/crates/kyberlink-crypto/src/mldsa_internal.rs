@@ -857,7 +857,6 @@ pub fn sign_precomp_kk_into(
             continue;
         }
 
-        // w -= cs2 inplace (w_minus_cs2); r0 = low_bits per-coeff check
         for (i, wi) in w.iter_mut().enumerate() {
             for k in 0..256 {
                 let cr = c_hat[k] as u64;
@@ -880,7 +879,6 @@ pub fn sign_precomp_kk_into(
                 ok = false;
             }
         }
-        // ct0 + hint (reads w_minus_cs2)
         let mut hh = [[false; 256]; K];
         let mut wgt = 0usize;
         for i in 0..K {
@@ -1008,7 +1006,7 @@ fn verify_core_precomp(pc: &VerifyPrecomp, mu_b: &[u8; 64], sig: &[u8; SIG_LEN])
         for k in 0..256 {
             const TBASE: usize = 256 * 3;
             let tv = unpack3(t1_2d_hat_packed.as_slice(), i * TBASE + k * 3);
-            let av = op[k]; // = az[i][k]; in-place, az no longer needed
+            let av = op[k];
             let ct1 = (c_hat[k] as u64 * tv as u64 % Q as u64) as u32;
             let d = av + Q - ct1;
             op[k] = if d >= Q { d - Q } else { d };
@@ -1119,119 +1117,12 @@ fn verify_core(vk: &[u8; VK_LEN], mu_b: &[u8; 64], sig: &[u8; SIG_LEN]) -> bool 
     ctil == *c_tilde
 }
 
-#[inline(always)]
-fn mcycle_now() -> u64 {
-    #[cfg(target_arch = "riscv32")]
-    unsafe {
-        let lo: u32;
-        core::arch::asm!("csrr {lo}, mcycle", lo = out(reg) lo, options(nomem, nostack));
-        lo as u64
-    }
-    #[cfg(not(target_arch = "riscv32"))]
-    {
-        0
-    }
-}
-
-pub const VERIFY_SECTIONS: usize = 8;
-
-pub fn verify_precomp_timed(
-    pc: &VerifyPrecomp,
-    msg: &[u8],
-    ctx: &[u8],
-    sig: &[u8; SIG_LEN],
-    times: &mut [u64; VERIFY_SECTIONS],
-) -> bool {
-    if ctx.len() > 255 {
-        return false;
-    }
-    let mut mu_b = [0u8; 64];
-    shake::shake256_squeeze(
-        &[&pc.tr_b, &[0x00], &[ctx.len() as u8], ctx, msg],
-        &mut mu_b,
-    );
-    times[0] = mcycle_now();
-
-    let a_hat_packed = &pc.a_hat_packed;
-    let t1_2d_hat_packed = &pc.t1_2d_hat_packed;
-
-    let c_tilde = &sig[..LAMBDA];
-    let mut z = decode_z::<L>(&sig[LAMBDA..LAMBDA + L * 640]);
-    let h = match unpack_h(&sig[LAMBDA + L * 640..]) {
-        Some(h) => h,
-        None => return false,
-    };
-    for zp in z.iter() {
-        if infinity_norm(zp) >= GAMMA1_MINUS_BETA {
-            return false;
-        }
-    }
-    times[1] = mcycle_now();
-
-    let c = sample_in_ball(c_tilde, TAU);
-    let mut c_hat = [0u32; 256];
-    c_hat.copy_from_slice(&c);
-    ntt(&mut c_hat);
-    for zp in z.iter_mut() {
-        ntt(zp);
-    }
-    times[2] = mcycle_now();
-
-    let mut buf = [[0u32; 256]; K];
-    for (i, bp) in buf.iter_mut().enumerate() {
-        for (k, bc) in bp.iter_mut().enumerate() {
-            let mut acc = 0u64;
-            for (j, zj) in z.iter().enumerate() {
-                const ABASE: usize = 256 * 3;
-                let off = (i * L + j) * ABASE + k * 3;
-                let ar = unpack3(a_hat_packed.as_slice(), off);
-                let zr = zj[k];
-                acc += ar as u64 * zr as u64;
-            }
-            *bc = (acc % Q as u64) as u32;
-        }
-    }
-    times[3] = mcycle_now();
-
-    for (i, op) in buf.iter_mut().enumerate() {
-        for k in 0..256 {
-            const TBASE: usize = 256 * 3;
-            let tv = unpack3(t1_2d_hat_packed.as_slice(), i * TBASE + k * 3);
-            let av = op[k];
-            let ct1 = (c_hat[k] as u64 * tv as u64 % Q as u64) as u32;
-            let d = av + Q - ct1;
-            op[k] = if d >= Q { d - Q } else { d };
-        }
-    }
-    times[4] = mcycle_now();
-
-    for wp in buf.iter_mut() {
-        invntt(wp);
-    }
-    times[5] = mcycle_now();
-
-    for (op, hp) in buf.iter_mut().zip(h.iter()) {
-        for (oc, &hv) in op.iter_mut().zip(hp.iter()) {
-            *oc = use_hint(hv, *oc);
-        }
-    }
-    let mut w1_tilde = [0u8; K * 128];
-    encode_w1(&buf, &mut w1_tilde);
-    times[6] = mcycle_now();
-
-    let mut ctil = [0u8; LAMBDA];
-    shake::shake256_squeeze(&[mu_b.as_slice(), w1_tilde.as_slice()], &mut ctil);
-    times[7] = mcycle_now();
-
-    ctil == *c_tilde
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn sign_precomp_stage_debug() {
+    fn sign_precomp_stages_match_reference() {
         use crate::shake;
         let seed = [9u8; 32];
         let (_vk, sk) = keygen_internal(&seed);

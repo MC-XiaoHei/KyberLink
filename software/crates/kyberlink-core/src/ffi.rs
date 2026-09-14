@@ -23,11 +23,8 @@ pub const DRAIN_CYCLES_PER_WORD: u32 = 4;
 
 #[derive(Default)]
 struct QBusInner {
-    /// 待测试台转写到真实 FPGA 的寄存器写序列。
     outbox: Vec<u64>,
-    /// RX 数据 FIFO，深度与 RTL 一致。
     rx: Vec<u32>,
-    /// 每个已收包的(字节长度, 剩余字数)，队首对应 FIFO 队首。
     lens: Vec<(usize, usize)>,
     tx: Vec<u32>,
     tx_len: u16,
@@ -49,7 +46,6 @@ impl QBus {
         }
     }
 
-    /// 模拟 FPGA 收包：装不下就整包丢弃，不产生半个包。
     fn push_rx(&self, payload: &[u8]) {
         let words = payload.len().div_ceil(4);
         let mut w = Vec::with_capacity(words);
@@ -67,7 +63,6 @@ impl QBus {
         s.lens.push((payload.len(), words));
     }
 
-    /// 推进 n 个 FPGA 时钟，TX 侧按 DRAIN_CYCLES_PER_WORD 出队。
     fn tick(&self, n: u32) {
         let mut s = self.inner.lock();
         s.tx_phase += n;

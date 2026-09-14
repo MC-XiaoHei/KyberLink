@@ -87,28 +87,20 @@ fn gen_shake(n: u64, out_dir: &Path) {
     write_vectors(out_dir, "shakelong", &vlong);
 }
 
+fn hex_arr<const N: usize>(s: &str) -> [u8; N] {
+    hex::decode(s).unwrap().try_into().unwrap()
+}
+
 fn gen_aes(n: u64, out_dir: &Path) {
     use aes::cipher::generic_array::GenericArray;
     use aes::cipher::{BlockEncrypt, KeyInit};
     let kat_keys: [[u8; 32]; 2] = [
-        hex::decode("603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4")
-            .unwrap()
-            .try_into()
-            .unwrap(),
-        hex::decode("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
-            .unwrap()
-            .try_into()
-            .unwrap(),
+        hex_arr("603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4"),
+        hex_arr("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
     ];
     let kat_blocks: [[u8; 16]; 2] = [
-        hex::decode("6bc1bee22e409f96e93d7e117393172a")
-            .unwrap()
-            .try_into()
-            .unwrap(),
-        hex::decode("00112233445566778899aabbccddeeff")
-            .unwrap()
-            .try_into()
-            .unwrap(),
+        hex_arr("6bc1bee22e409f96e93d7e117393172a"),
+        hex_arr("00112233445566778899aabbccddeeff"),
     ];
     let mut kat = Vec::new();
     for (key, block) in kat_keys.iter().zip(kat_blocks.iter()) {
