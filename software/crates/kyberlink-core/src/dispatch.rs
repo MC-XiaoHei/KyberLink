@@ -1,4 +1,5 @@
 use core::fmt::Write;
+use core::str::SplitAsciiWhitespace;
 
 use kyberlink_crypto::handshake as hs;
 use kyberlink_crypto::mldsa_internal::VK_LEN;
@@ -128,8 +129,21 @@ fn ip_write(out: &mut LineBuf, ip: &[u8; 4]) {
     let _ = write!(out, "{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3]);
 }
 
-fn err(out: &mut LineBuf, reason: &str) {
+fn err(out: &mut LineBuf, reason: &str) -> Action {
     let _ = writeln!(out, "ERR {reason}");
+    Action::None
+}
+
+fn ok(out: &mut LineBuf) -> Action {
+    let _ = writeln!(out, "OK");
+    Action::None
+}
+
+fn flash_result(out: &mut LineBuf, result: Result<(), CfgError>) -> Action {
+    match result {
+        Ok(()) => ok(out),
+        Err(_) => err(out, "flash"),
+    }
 }
 
 fn update_binding<F: NorFlash>(
@@ -153,136 +167,150 @@ fn read_self_fp<F: NorFlash>(flash: &mut F) -> Result<[u8; 32], CfgError> {
     Ok(hs::fingerprint(&vk))
 }
 
-fn ok(out: &mut LineBuf, r: Result<(), CfgError>) {
-    match r {
-        Ok(()) => {
-            let _ = writeln!(out, "OK");
+fn cmd_ping(ctx: &Ctx, out: &mut LineBuf) -> Action {
+    let _ = writeln!(out, "PONG kyberlink {} {}", FW_VERSION, ctx.mode.as_str());
+    Action::None
+}
+
+fn cmd_fpm<F: NorFlash>(flash: &mut F, out: &mut LineBuf) -> Action {
+    match read_self_fp(flash) {
+        Ok(fp) => {
+            let _ = write!(out, "FPM ");
+            hex_write(out, &fp);
+            let _ = writeln!(out);
+            Action::None
         }
-        Err(_) => err(out, "flash"),
+        Err(_) => err(out, "no identity"),
     }
 }
 
-pub fn exec<F: NorFlash>(line: &str, ctx: &Ctx, flash: &mut F, out: &mut LineBuf) -> Action {
-    let mut parts = line.split_ascii_whitespace();
-    let Some(cmd) = parts.next() else {
-        err(out, "empty");
-        return Action::None;
+fn cmd_show<F: NorFlash>(flash: &mut F, out: &mut LineBuf) -> Action {
+    match Binding::load(flash) {
+        Ok(b) => {
+            write_binding(out, &b);
+            Action::None
+        }
+        Err(_) => err(out, "no binding"),
+    }
+}
+
+fn write_binding(out: &mut LineBuf, b: &Binding) {
+    let _ = write!(
+        out,
+        "ROLE {} PEER ",
+        if b.role_initiator { "I" } else { "R" }
+    );
+    hex_write(out, &b.peer_fp);
+    let _ = write!(out, " SRC ");
+    hex_write(out, &b.src_mac);
+    let _ = write!(out, " ");
+    ip_write(out, &b.src_ip);
+    let _ = write!(out, " DST ");
+    hex_write(out, &b.dst_mac);
+    let _ = write!(out, " ");
+    ip_write(out, &b.dst_ip);
+    let _ = writeln!(out, " PORTS {}/{}", b.src_port, b.dst_port);
+}
+
+fn cmd_stat(ctx: &Ctx, out: &mut LineBuf) -> Action {
+    let _ = writeln!(out, "STAT phase={}", ctx.phase);
+    Action::None
+}
+
+fn cmd_fp<F: NorFlash>(arg: Option<&str>, flash: &mut F, out: &mut LineBuf) -> Action {
+    match arg.and_then(|s| hex_arr::<32>(s).ok()) {
+        Some(fp) => flash_result(out, update_binding(flash, |b| b.peer_fp = fp)),
+        None => err(out, "bad fingerprint"),
+    }
+}
+
+fn cmd_role<F: NorFlash>(arg: Option<&str>, flash: &mut F, out: &mut LineBuf) -> Action {
+    match role_of(arg) {
+        Some(role) => flash_result(out, update_binding(flash, |b| b.role_initiator = role)),
+        None => err(out, "role I|R"),
+    }
+}
+
+fn role_of(arg: Option<&str>) -> Option<bool> {
+    match arg {
+        Some("I") => Some(true),
+        Some("R") => Some(false),
+        _ => None,
+    }
+}
+
+struct Net {
+    src_mac: [u8; 6],
+    src_ip: [u8; 4],
+    src_port: u16,
+    dst_mac: [u8; 6],
+    dst_ip: [u8; 4],
+    dst_port: u16,
+}
+
+impl Net {
+    fn parse(args: &mut SplitAsciiWhitespace<'_>) -> Option<Net> {
+        Some(Net {
+            src_mac: hex_arr::<6>(args.next()?).ok()?,
+            src_ip: ip_parse(args.next()?).ok()?,
+            src_port: args.next()?.parse().ok()?,
+            dst_mac: hex_arr::<6>(args.next()?).ok()?,
+            dst_ip: ip_parse(args.next()?).ok()?,
+            dst_port: args.next()?.parse().ok()?,
+        })
+    }
+
+    fn apply(&self, b: &mut Binding) {
+        b.src_mac = self.src_mac;
+        b.src_ip = self.src_ip;
+        b.src_port = self.src_port;
+        b.dst_mac = self.dst_mac;
+        b.dst_ip = self.dst_ip;
+        b.dst_port = self.dst_port;
+    }
+}
+
+fn cmd_net<F: NorFlash>(
+    args: &mut SplitAsciiWhitespace<'_>,
+    flash: &mut F,
+    out: &mut LineBuf,
+) -> Action {
+    let Some(net) = Net::parse(args) else {
+        return err(out, "NET <smac> <sip> <sport> <dmac> <dip> <dport>");
     };
+    flash_result(out, update_binding(flash, |b| net.apply(b)))
+}
+
+fn cmd_factory<F: NorFlash>(arg: Option<&str>, flash: &mut F, out: &mut LineBuf) -> Action {
+    if arg != Some("CONFIRM") {
+        return err(out, "confirm required");
+    }
+    flash_result(out, cfg_store::clear_all(flash))
+}
+
+pub fn exec<F: NorFlash>(line: &str, ctx: &Ctx, flash: &mut F, out: &mut LineBuf) -> Action {
+    let mut args = line.split_ascii_whitespace();
+    let Some(cmd) = args.next() else {
+        return err(out, "empty");
+    };
+    let configure = ctx.mode == Mode::Configure;
     match cmd {
-        "PING" => {
-            let _ = writeln!(out, "PONG kyberlink {} {}", FW_VERSION, ctx.mode.as_str());
-        }
-
-        "FPM" => match read_self_fp(flash) {
-            Ok(fp) => {
-                let _ = write!(out, "FPM ");
-                hex_write(out, &fp);
-                let _ = writeln!(out);
-            }
-            Err(_) => err(out, "no identity"),
-        },
-
-        "SHOW" => match Binding::load(flash) {
-            Ok(b) => {
-                let _ = write!(
-                    out,
-                    "ROLE {} PEER ",
-                    if b.role_initiator { "I" } else { "R" }
-                );
-                hex_write(out, &b.peer_fp);
-                let _ = write!(out, " SRC ");
-                hex_write(out, &b.src_mac);
-                let _ = write!(out, " ");
-                ip_write(out, &b.src_ip);
-                let _ = write!(out, " DST ");
-                hex_write(out, &b.dst_mac);
-                let _ = write!(out, " ");
-                ip_write(out, &b.dst_ip);
-                let _ = writeln!(out, " PORTS {}/{}", b.src_port, b.dst_port);
-            }
-            Err(_) => err(out, "no binding"),
-        },
-
-        "STAT" => {
-            let _ = writeln!(out, "STAT phase={}", ctx.phase);
-        }
-
-        "HALT" if ctx.mode == Mode::Running => return Action::Halt,
-        "RESUME" if ctx.mode == Mode::Configure => return Action::Resume,
-        "REKEY" if ctx.mode == Mode::Running => return Action::Rekey,
-        "REBOOT" => return Action::Reboot,
-
-        "SPK" if ctx.mode == Mode::Configure => return Action::Spill,
-
-        "FP" if ctx.mode == Mode::Configure => match parts.next().and_then(|s| hex_arr::<32>(s).ok())
-        {
-            Some(fp) => ok(out, update_binding(flash, |b| b.peer_fp = fp)),
-            None => err(out, "bad fingerprint"),
-        },
-
-        "ROLE" if ctx.mode == Mode::Configure => {
-            let role = match parts.next() {
-                Some("I") => Some(true),
-                Some("R") => Some(false),
-                _ => None,
-            };
-            match role {
-                Some(role) => ok(out, update_binding(flash, |b| b.role_initiator = role)),
-                None => err(out, "role I|R"),
-            }
-        }
-
-        "NET" if ctx.mode == Mode::Configure => {
-            let fields = [
-                parts.next(),
-                parts.next(),
-                parts.next(),
-                parts.next(),
-                parts.next(),
-                parts.next(),
-            ];
-            let [Some(smac), Some(sip), Some(sport), Some(dmac), Some(dip), Some(dport)] = fields
-            else {
-                err(out, "NET <smac> <sip> <sport> <dmac> <dip> <dport>");
-                return Action::None;
-            };
-            let (Ok(smac), Ok(sip), Ok(sport), Ok(dmac), Ok(dip), Ok(dport)) = (
-                hex_arr::<6>(smac),
-                ip_parse(sip),
-                sport.parse::<u16>().map_err(|_| CfgError::Value),
-                hex_arr::<6>(dmac),
-                ip_parse(dip),
-                dport.parse::<u16>().map_err(|_| CfgError::Value),
-            ) else {
-                err(out, "bad net field");
-                return Action::None;
-            };
-            ok(
-                out,
-                update_binding(flash, |b| {
-                    b.src_mac = smac;
-                    b.src_ip = sip;
-                    b.src_port = sport;
-                    b.dst_mac = dmac;
-                    b.dst_ip = dip;
-                    b.dst_port = dport;
-                }),
-            );
-        }
-
-        "FACTORY" => {
-            if parts.next() != Some("CONFIRM") {
-                err(out, "confirm required");
-                return Action::None;
-            }
-            ok(out, cfg_store::clear_all(flash));
-        }
-
+        "PING" => cmd_ping(ctx, out),
+        "FPM" => cmd_fpm(flash, out),
+        "SHOW" => cmd_show(flash, out),
+        "STAT" => cmd_stat(ctx, out),
+        "HALT" if !configure => Action::Halt,
+        "RESUME" if configure => Action::Resume,
+        "REKEY" if !configure => Action::Rekey,
+        "REBOOT" => Action::Reboot,
+        "SPK" if configure => Action::Spill,
+        "FP" if configure => cmd_fp(args.next(), flash, out),
+        "ROLE" if configure => cmd_role(args.next(), flash, out),
+        "NET" if configure => cmd_net(&mut args, flash, out),
+        "FACTORY" => cmd_factory(args.next(), flash, out),
         "SPK" | "FP" | "ROLE" | "NET" | "HALT" | "RESUME" | "REKEY" => err(out, "busy"),
-
         _ => err(out, "unknown"),
     }
-    Action::None
 }
 
 #[cfg(test)]

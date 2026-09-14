@@ -77,48 +77,77 @@ impl Console {
     }
 
     fn handle<F: NorFlash>(&mut self, line: &str, flash: &mut F) -> Action {
-        if let Some(mut s) = self.spill.take() {
-            let mut buf = [0u8; LINE_MAX / 2];
-            return match dispatch::hex_decode(line, &mut buf) {
-                Ok(n) if n > 0 => match s.write(flash, &buf[..n]) {
-                    Err(_) => self.note("ERR flash"),
-                    Ok(()) if s.total() == cfg_msg::IDENTITY_LEN => match s.finish(flash) {
-                        Ok(()) => self.note("OK"),
-                        Err(_) => self.note("ERR flash"),
-                    },
-                    Ok(()) => {
-                        self.spill = Some(s);
-                        Action::None
-                    }
-                },
-                _ => self.note("ERR bad hex"),
-            };
+        match self.spill.take() {
+            Some(stream) => self.feed_spill(stream, line, flash),
+            None => self.run_command(line, flash),
         }
-        let action = dispatch::exec(
-            line,
-            &Ctx {
-                mode: self.mode,
-                phase: self.phase,
-            },
-            flash,
-            &mut self.out,
-        );
+    }
+
+    fn feed_spill<F: NorFlash>(
+        &mut self,
+        stream: FrameStream,
+        line: &str,
+        flash: &mut F,
+    ) -> Action {
+        let mut chunk = [0u8; LINE_MAX / 2];
+        match dispatch::hex_decode(line, &mut chunk) {
+            Ok(n) if n > 0 => self.append_spill(stream, &chunk[..n], flash),
+            _ => self.note("ERR bad hex"),
+        }
+    }
+
+    fn append_spill<F: NorFlash>(
+        &mut self,
+        mut stream: FrameStream,
+        chunk: &[u8],
+        flash: &mut F,
+    ) -> Action {
+        match stream.write(flash, chunk) {
+            Err(_) => self.note("ERR flash"),
+            Ok(()) if stream.total() == cfg_msg::IDENTITY_LEN => self.finish_spill(stream, flash),
+            Ok(()) => {
+                self.spill = Some(stream);
+                Action::None
+            }
+        }
+    }
+
+    fn finish_spill<F: NorFlash>(&mut self, stream: FrameStream, flash: &mut F) -> Action {
+        match stream.finish(flash) {
+            Ok(()) => self.note("OK"),
+            Err(_) => self.note("ERR flash"),
+        }
+    }
+
+    fn run_command<F: NorFlash>(&mut self, line: &str, flash: &mut F) -> Action {
+        let ctx = Ctx {
+            mode: self.mode,
+            phase: self.phase,
+        };
+        let action = dispatch::exec(line, &ctx, flash, &mut self.out);
+        self.track_mode(action);
+        match action {
+            Action::Spill => self.begin_spill(flash),
+            other => other,
+        }
+    }
+
+    fn track_mode(&mut self, action: Action) {
         match action {
             Action::Halt => self.mode = Mode::Configure,
             Action::Resume => self.mode = Mode::Running,
             _ => {}
         }
-        if action == Action::Spill {
-            return match FrameStream::begin(flash, IDENTITY_BASE, IDENTITY_PAGES, MAGIC_IDENTITY)
-            {
-                Ok(s) => {
-                    self.spill = Some(s);
-                    self.note("READY")
-                }
-                Err(_) => self.note("ERR flash"),
-            };
+    }
+
+    fn begin_spill<F: NorFlash>(&mut self, flash: &mut F) -> Action {
+        match FrameStream::begin(flash, IDENTITY_BASE, IDENTITY_PAGES, MAGIC_IDENTITY) {
+            Ok(stream) => {
+                self.spill = Some(stream);
+                self.note("READY")
+            }
+            Err(_) => self.note("ERR flash"),
         }
-        action
     }
 
     fn note(&mut self, msg: &str) -> Action {
