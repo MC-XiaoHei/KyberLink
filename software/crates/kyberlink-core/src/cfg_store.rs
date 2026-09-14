@@ -17,12 +17,14 @@ pub enum CfgError {
     Length,
     Crc,
     Value,
+    Unmapped,
 }
 
 pub trait NorFlash {
     fn read(&mut self, off: u32, buf: &mut [u8]) -> Result<(), CfgError>;
     fn write_page(&mut self, off: u32, page: &[u8]) -> Result<(), CfgError>;
     fn erase(&mut self, off: u32, len: u32) -> Result<(), CfgError>;
+    fn map(&mut self, off: u32, len: usize) -> Option<&'static [u8]>;
 }
 
 const fn crc_table() -> [u32; 256] {
@@ -104,64 +106,95 @@ pub fn decode_header(
     })
 }
 
-pub struct RegionWriter<'f, F: NorFlash> {
-    flash: &'f mut F,
+pub const HEAD_PAYLOAD: usize = PAGE as usize - HEADER_LEN;
+
+pub struct FrameStream {
     base: u32,
+    magic: [u8; 8],
     pages: u32,
-    buf: [u8; PAGE as usize],
-    fill: usize,
+    head: [u8; PAGE as usize],
+    head_fill: usize,
+    page: [u8; PAGE as usize],
+    page_fill: usize,
     written: u32,
+    crc: Crc32,
+    total: usize,
 }
 
-impl<'f, F: NorFlash> RegionWriter<'f, F> {
-    pub fn begin(flash: &'f mut F, base: u32, pages: u32) -> Result<Self, CfgError> {
+impl FrameStream {
+    pub fn begin<F: NorFlash>(
+        flash: &mut F,
+        base: u32,
+        pages: u32,
+        magic: [u8; 8],
+    ) -> Result<Self, CfgError> {
         for i in 0..pages {
             flash.erase(base + i * PAGE, PAGE)?;
         }
-        Ok(RegionWriter {
-            flash,
+        Ok(FrameStream {
             base,
+            magic,
             pages,
-            buf: [0xFF; PAGE as usize],
-            fill: 0,
+            head: [0xFF; PAGE as usize],
+            head_fill: 0,
+            page: [0xFF; PAGE as usize],
+            page_fill: 0,
             written: 0,
+            crc: Crc32::new(),
+            total: 0,
         })
     }
 
-    pub fn write(&mut self, data: &[u8]) -> Result<(), CfgError> {
-        let pos = self.written as usize * PAGE as usize + self.fill;
-        if pos + data.len() > self.pages as usize * PAGE as usize {
+    pub fn total(&self) -> usize {
+        self.total
+    }
+
+    pub fn write<F: NorFlash>(&mut self, flash: &mut F, data: &[u8]) -> Result<(), CfgError> {
+        let cap = self.pages as usize * PAGE as usize - HEADER_LEN;
+        if self.total + data.len() > cap {
             return Err(CfgError::Length);
         }
+        self.total += data.len();
+        self.crc.update(data);
         let mut rest = data;
-        while !rest.is_empty() {
-            let n = (PAGE as usize - self.fill).min(rest.len());
-            self.buf[self.fill..self.fill + n].copy_from_slice(&rest[..n]);
-            self.fill += n;
+        if self.head_fill < HEAD_PAYLOAD {
+            let n = (HEAD_PAYLOAD - self.head_fill).min(rest.len());
+            self.head[HEADER_LEN + self.head_fill..HEADER_LEN + self.head_fill + n]
+                .copy_from_slice(&rest[..n]);
+            self.head_fill += n;
             rest = &rest[n..];
-            if self.fill == PAGE as usize {
-                self.flush_page()?;
+        }
+        while !rest.is_empty() {
+            let n = (PAGE as usize - self.page_fill).min(rest.len());
+            self.page[self.page_fill..self.page_fill + n].copy_from_slice(&rest[..n]);
+            self.page_fill += n;
+            rest = &rest[n..];
+            if self.page_fill == PAGE as usize {
+                self.flush_page(flash)?;
             }
         }
         Ok(())
     }
 
-    fn flush_page(&mut self) -> Result<(), CfgError> {
-        if self.written >= self.pages {
+    fn flush_page<F: NorFlash>(&mut self, flash: &mut F) -> Result<(), CfgError> {
+        if 1 + self.written >= self.pages {
             return Err(CfgError::Length);
         }
-        self.flash
-            .write_page(self.base + self.written * PAGE, &self.buf)?;
+        flash.write_page(self.base + (1 + self.written) * PAGE, &self.page)?;
         self.written += 1;
-        self.buf = [0xFF; PAGE as usize];
-        self.fill = 0;
+        self.page = [0xFF; PAGE as usize];
+        self.page_fill = 0;
         Ok(())
     }
 
-    pub fn finish(mut self) -> Result<(), CfgError> {
-        if self.fill > 0 {
-            self.flush_page()?;
+    pub fn finish<F: NorFlash>(mut self, flash: &mut F) -> Result<(), CfgError> {
+        if self.page_fill > 0 {
+            self.flush_page(flash)?;
         }
+        let len: u16 = self.total.try_into().map_err(|_| CfgError::Length)?;
+        let hdr: &mut [u8; HEADER_LEN] = (&mut self.head[..HEADER_LEN]).try_into().unwrap();
+        encode_header(&self.magic, len, self.crc.finish(), hdr);
+        flash.write_page(self.base, &self.head)?;
         Ok(())
     }
 }
@@ -170,18 +203,12 @@ pub fn write_frame<F: NorFlash>(
     flash: &mut F,
     base: u32,
     pages: u32,
-    magic: &[u8; 8],
+    magic: [u8; 8],
     payload: &[u8],
 ) -> Result<(), CfgError> {
-    let len: u16 = payload.len().try_into().map_err(|_| CfgError::Length)?;
-    let mut crc = Crc32::new();
-    crc.update(payload);
-    let mut hdr = [0u8; HEADER_LEN];
-    encode_header(magic, len, crc.finish(), &mut hdr);
-    let mut w = RegionWriter::begin(flash, base, pages)?;
-    w.write(&hdr)?;
-    w.write(payload)?;
-    w.finish()
+    let mut s = FrameStream::begin(flash, base, pages, magic)?;
+    s.write(flash, payload)?;
+    s.finish(flash)
 }
 
 pub fn verify<F: NorFlash>(
@@ -210,6 +237,18 @@ pub fn verify<F: NorFlash>(
     Ok(h)
 }
 
+pub fn clear_all<F: NorFlash>(flash: &mut F) -> Result<(), CfgError> {
+    for (base, pages) in [
+        (IDENTITY_BASE, IDENTITY_PAGES),
+        (BINDING_BASE, BINDING_PAGES),
+    ] {
+        for i in 0..pages {
+            flash.erase(base + i * PAGE, PAGE)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn read_payload<F: NorFlash>(
     flash: &mut F,
     base: u32,
@@ -220,7 +259,7 @@ pub fn read_payload<F: NorFlash>(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     pub struct MemFlash {
@@ -258,6 +297,14 @@ mod tests {
             self.mem[off..off + len as usize].fill(0xFF);
             Ok(())
         }
+
+        fn map(&mut self, off: u32, len: usize) -> Option<&'static [u8]> {
+            let off = off as usize;
+            if off.checked_add(len)? > self.mem.len() {
+                return None;
+            }
+            Some(unsafe { core::slice::from_raw_parts(self.mem.as_ptr().add(off), len) })
+        }
     }
 
     fn payload(n: usize) -> Vec<u8> {
@@ -275,7 +322,7 @@ mod tests {
     fn frame_roundtrip() {
         let mut f = MemFlash::new(0x4_0000);
         let data = payload(600);
-        write_frame(&mut f, IDENTITY_BASE, 4, &MAGIC_IDENTITY, &data).unwrap();
+        write_frame(&mut f, IDENTITY_BASE, 4, MAGIC_IDENTITY, &data).unwrap();
         let h = verify(&mut f, IDENTITY_BASE, &MAGIC_IDENTITY, 4096).unwrap();
         assert_eq!(h.len as usize, data.len());
         let mut out = vec![0u8; data.len()];
@@ -286,13 +333,48 @@ mod tests {
     #[test]
     fn identity_sized_frame_roundtrip() {
         let mut f = MemFlash::new(0x4_0000);
-        let data = payload(38112);
-        write_frame(&mut f, IDENTITY_BASE, IDENTITY_PAGES, &MAGIC_IDENTITY, &data).unwrap();
-        let h = verify(&mut f, IDENTITY_BASE, &MAGIC_IDENTITY, 38112).unwrap();
-        assert_eq!(h.len, 38112);
+        let data = payload(crate::cfg_msg::IDENTITY_LEN);
+        write_frame(
+            &mut f,
+            IDENTITY_BASE,
+            IDENTITY_PAGES,
+            MAGIC_IDENTITY,
+            &data,
+        )
+        .unwrap();
+        let h = verify(
+            &mut f,
+            IDENTITY_BASE,
+            &MAGIC_IDENTITY,
+            crate::cfg_msg::IDENTITY_LEN as u16,
+        )
+        .unwrap();
+        assert_eq!(h.len as usize, crate::cfg_msg::IDENTITY_LEN);
         let mut tail = [0u8; 64];
         read_payload(&mut f, IDENTITY_BASE, 36096, &mut tail).unwrap();
         assert_eq!(&tail, &data[36096..36160]);
+    }
+
+    #[test]
+    fn streamed_frame_roundtrip() {
+        let mut f = MemFlash::new(0x4_0000);
+        let data = payload(crate::cfg_msg::IDENTITY_LEN);
+        let mut s = FrameStream::begin(&mut f, IDENTITY_BASE, IDENTITY_PAGES, MAGIC_IDENTITY).unwrap();
+        for chunk in data.chunks(251) {
+            s.write(&mut f, chunk).unwrap();
+        }
+        s.finish(&mut f).unwrap();
+        let h = verify(
+            &mut f,
+            IDENTITY_BASE,
+            &MAGIC_IDENTITY,
+            crate::cfg_msg::IDENTITY_LEN as u16,
+        )
+        .unwrap();
+        assert_eq!(h.len as usize, crate::cfg_msg::IDENTITY_LEN);
+        let mut out = vec![0u8; crate::cfg_msg::IDENTITY_LEN];
+        read_payload(&mut f, IDENTITY_BASE, 0, &mut out).unwrap();
+        assert_eq!(out, data);
     }
 
     #[test]
@@ -300,8 +382,8 @@ mod tests {
         let mut f = MemFlash::new(0x4_0000);
         let a = payload(600);
         let b = payload(700);
-        write_frame(&mut f, IDENTITY_BASE, 4, &MAGIC_IDENTITY, &a).unwrap();
-        write_frame(&mut f, IDENTITY_BASE, 4, &MAGIC_IDENTITY, &b).unwrap();
+        write_frame(&mut f, IDENTITY_BASE, 4, MAGIC_IDENTITY, &a).unwrap();
+        write_frame(&mut f, IDENTITY_BASE, 4, MAGIC_IDENTITY, &b).unwrap();
         let mut out = vec![0u8; b.len()];
         read_payload(&mut f, IDENTITY_BASE, 0, &mut out).unwrap();
         assert_eq!(out, b);
@@ -311,7 +393,7 @@ mod tests {
     fn crc_mismatch_rejected() {
         let mut f = MemFlash::new(0x4_0000);
         let data = payload(600);
-        write_frame(&mut f, IDENTITY_BASE, 4, &MAGIC_IDENTITY, &data).unwrap();
+        write_frame(&mut f, IDENTITY_BASE, 4, MAGIC_IDENTITY, &data).unwrap();
         let bit = (IDENTITY_BASE + HEADER_LEN as u32 + 300) as usize;
         f.mem[bit] ^= 0x01;
         assert_eq!(
@@ -324,18 +406,14 @@ mod tests {
     fn power_loss_mid_write_rejected() {
         let mut f = MemFlash::new(0x4_0000);
         let data = payload(600);
-        let mut crc = Crc32::new();
-        crc.update(&data);
-        let mut hdr = [0u8; HEADER_LEN];
-        encode_header(&MAGIC_IDENTITY, data.len() as u16, crc.finish(), &mut hdr);
         {
-            let mut w = RegionWriter::begin(&mut f, IDENTITY_BASE, 4).unwrap();
-            w.write(&hdr).unwrap();
-            w.write(&data[..300]).unwrap();
+            let mut s =
+                FrameStream::begin(&mut f, IDENTITY_BASE, 4, MAGIC_IDENTITY).unwrap();
+            s.write(&mut f, &data[..300]).unwrap();
         }
         assert_eq!(
             verify(&mut f, IDENTITY_BASE, &MAGIC_IDENTITY, 4096),
-            Err(CfgError::Crc)
+            Err(CfgError::Magic)
         );
     }
 
@@ -351,7 +429,7 @@ mod tests {
     #[test]
     fn cross_magic_rejected() {
         let mut f = MemFlash::new(0x4_0000);
-        write_frame(&mut f, IDENTITY_BASE, 4, &MAGIC_IDENTITY, &payload(64)).unwrap();
+        write_frame(&mut f, IDENTITY_BASE, 4, MAGIC_IDENTITY, &payload(64)).unwrap();
         assert_eq!(
             verify(&mut f, IDENTITY_BASE, &MAGIC_BINDING, 4096),
             Err(CfgError::Magic)
@@ -361,7 +439,7 @@ mod tests {
     #[test]
     fn oversized_len_rejected() {
         let mut f = MemFlash::new(0x4_0000);
-        write_frame(&mut f, IDENTITY_BASE, 4, &MAGIC_IDENTITY, &payload(600)).unwrap();
+        write_frame(&mut f, IDENTITY_BASE, 4, MAGIC_IDENTITY, &payload(600)).unwrap();
         assert_eq!(
             verify(&mut f, IDENTITY_BASE, &MAGIC_IDENTITY, 256),
             Err(CfgError::Length)
@@ -371,8 +449,8 @@ mod tests {
     #[test]
     fn page_spill_rejected() {
         let mut f = MemFlash::new(0x4_0000);
-        let mut w = RegionWriter::begin(&mut f, IDENTITY_BASE, 1).unwrap();
-        match w.write(&payload(300)) {
+        let mut s = FrameStream::begin(&mut f, IDENTITY_BASE, 1, MAGIC_IDENTITY).unwrap();
+        match s.write(&mut f, &payload(300)) {
             Err(CfgError::Length) => {}
             other => panic!("expected Length error, got {other:?}"),
         }
