@@ -27,6 +27,7 @@ pub const REG_HSK_RX_DATA: u8 = 0x38;
 pub const REG_HSK_TX_LEN: u8 = 0x3C;
 pub const REG_HSK_TX_DATA: u8 = 0x40;
 pub const REG_KEY_ENC: u8 = 0x44;
+pub const REG_ERR: u8 = 0x50;
 pub const REG_KEY_DEC: u8 = 0x64;
 pub const REG_SEQ: u8 = 0x74;
 
@@ -592,8 +593,8 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
         let Session::Initiator(st) = self.session.as_mut().unwrap() else {
             return FsmOutcome::Wait;
         };
-        PC_CACHE.lock(|s| {
-            match hs::initiator_recv_m4(st, &self.buf[..n], self.spi_i, s.as_ref()) {
+        PC_CACHE.lock(
+            |s| match hs::initiator_recv_m4(st, &self.buf[..n], self.spi_i, s.as_ref()) {
                 Ok(sa) => {
                     self.pending_sa = Some(sa);
                     FsmOutcome::Wait
@@ -602,8 +603,8 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
                     self.phase = 0;
                     FsmOutcome::Wait
                 }
-            }
-        })
+            },
+        )
     }
 
     fn poll_responder(&mut self) -> FsmOutcome {

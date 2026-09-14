@@ -1,5 +1,7 @@
 #![allow(static_mut_refs)]
 
+use core::sync::atomic::{AtomicU8, Ordering};
+
 use ch32_hal::adc::{Adc, AdcChannel, AnyAdcChannel, Pga, SampleTime};
 use ch32_hal::flash::{Blocking as FlashBlocking, Flash};
 use ch32_hal::gpio::{Level, Output};
@@ -8,16 +10,24 @@ use ch32_hal::peripherals::{ADC1, SPI1};
 use ch32_hal::spi::{Config as SpiConfig, Spi};
 use ch32_hal::time::Hertz;
 use embassy_executor::Spawner;
+use embassy_futures::join::join;
 use embassy_time::Timer;
 use kyberlink_core::cfg_msg::{self, Binding};
 use kyberlink_core::cfg_store::{CfgError, NorFlash};
-use kyberlink_core::handshake_fsm::{write_data_plane, write_sa, Config, Fsm, FsmOutcome};
+use kyberlink_core::console::Console;
+use kyberlink_core::dispatch::{Action, Mode};
+use kyberlink_core::handshake_fsm::{
+    write_data_plane, write_sa, Config, Fsm, FsmOutcome, SpiBus, REG_ERR,
+};
 use kyberlink_crypto::entropy::{derive_kem_seeds, KemSeeds};
 use kyberlink_crypto::handshake::RomIdentity;
 use kyberlink_firmware::spi::SpiMaster;
 
+use crate::usb;
+
 const FLASH_BASE: u32 = 0x0800_0000;
 const SA_SEQ_INIT: u32 = 1;
+const ERR_POLL_TICKS: u32 = 100;
 
 struct FlashPort<'d>(Flash<'d, FlashBlocking>);
 
@@ -47,6 +57,11 @@ static mut SPI: Option<SpiMaster> = None;
 static mut CONFIG: core::mem::MaybeUninit<Config> = core::mem::MaybeUninit::uninit();
 static mut FSM: core::mem::MaybeUninit<Fsm<SpiMaster>> = core::mem::MaybeUninit::uninit();
 static mut IDENTITY: core::mem::MaybeUninit<RomIdentity> = core::mem::MaybeUninit::uninit();
+static ERR_FLAGS: AtomicU8 = AtomicU8::new(0);
+
+pub(crate) fn err_flags() -> u8 {
+    ERR_FLAGS.load(Ordering::Relaxed)
+}
 
 fn clock_config() -> ch32_hal::Config {
     ch32_hal::Config {
@@ -102,14 +117,44 @@ unsafe fn start_fsm(
     FSM.assume_init_mut()
 }
 
-async fn run_forever(fsm: &'static mut Fsm<'static, SpiMaster>, initiator: bool) -> ! {
+async fn run_forever(
+    fsm: &'static mut Fsm<'static, SpiMaster>,
+    initiator: bool,
+    signal: &usb::ActionSignal,
+) -> ! {
+    let mut ticks = 0u32;
     loop {
         if let FsmOutcome::Sa(sa) = fsm.poll() {
             if let Some(spi) = unsafe { SPI.as_ref() } {
                 write_sa(spi, &sa, initiator, SA_SEQ_INIT);
             }
         }
+        if signal.signaled() {
+            match signal.wait().await {
+                Action::Rekey => unsafe {
+                    let cfg = CONFIG.assume_init_ref();
+                    if let Some(spi) = SPI.as_ref() {
+                        *fsm = Fsm::new(cfg, spi);
+                    }
+                },
+                Action::Reboot => reset(),
+                _ => {}
+            }
+        }
+        ticks += 1;
+        if ticks.is_multiple_of(ERR_POLL_TICKS) {
+            if let Some(spi) = unsafe { SPI.as_ref() } {
+                ERR_FLAGS.store(spi.read_reg(REG_ERR) as u8, Ordering::Relaxed);
+            }
+        }
         Timer::after_millis(1).await;
+    }
+}
+
+fn reset() -> ! {
+    ch32_hal::pac::PFIC.sctlr().modify(|w| w.set_sysreset(true));
+    loop {
+        core::hint::spin_loop();
     }
 }
 
@@ -138,5 +183,8 @@ async fn main(_spawner: Spawner) -> ! {
     let seeds = sample_entropy(&mut adc, &mut chans);
 
     let fsm = unsafe { start_fsm(spi, cs, &binding, &seeds, identity) };
-    run_forever(fsm, binding.role_initiator).await
+    let mut console = Console::new(Mode::Running);
+    let signal = usb::ActionSignal::new();
+    let usb = usb::serve(p.USBD, p.PA12, p.PA11, &mut console, &mut flash, &signal);
+    match join(usb, run_forever(fsm, binding.role_initiator, &signal)).await {}
 }

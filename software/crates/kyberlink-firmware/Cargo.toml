@@ -13,6 +13,9 @@ kyberlink-crypto = { path = "../kyberlink-crypto" }
 ch32-hal = { git = "https://github.com/ch32-rs/ch32-hal", rev = "07663312c9da6b9962e8699a917c623bc833972e", features = ["ch32v208gbu6", "embassy", "rt", "memory-x"] }
 embassy-executor = { version = "0.10.0", features = ["platform-riscv32", "executor-thread"] }
 embassy-time = "0.5.1"
+embassy-usb = "0.5.1"
+embassy-sync = "0.8.0"
+embassy-futures = "0.1.2"
 
 [features]
 std = ["kyberlink-core/std"]

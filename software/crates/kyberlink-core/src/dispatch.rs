@@ -39,6 +39,7 @@ pub enum Action {
 pub struct Ctx {
     pub mode: Mode,
     pub phase: u8,
+    pub err: u8,
 }
 
 pub struct LineBuf {
@@ -213,7 +214,7 @@ fn write_binding(out: &mut LineBuf, b: &Binding) {
 }
 
 fn cmd_stat(ctx: &Ctx, out: &mut LineBuf) -> Action {
-    let _ = writeln!(out, "STAT phase={}", ctx.phase);
+    let _ = writeln!(out, "STAT phase={} err={:02x}", ctx.phase, ctx.err);
     Action::None
 }
 
@@ -321,7 +322,16 @@ mod tests {
 
     fn run(line: &str, mode: Mode, flash: &mut MemFlash) -> (String, Action) {
         let mut out = LineBuf::new();
-        let action = exec(line, &Ctx { mode, phase: 0 }, flash, &mut out);
+        let action = exec(
+            line,
+            &Ctx {
+                mode,
+                phase: 0,
+                err: 0,
+            },
+            flash,
+            &mut out,
+        );
         (out.as_str().to_string(), action)
     }
 
@@ -344,8 +354,7 @@ mod tests {
     fn write_identity(f: &mut MemFlash, vk_byte: u8) {
         let mut payload = vec![0u8; crate::cfg_msg::IDENTITY_LEN];
         payload[..VK_LEN].fill(vk_byte);
-        let mut s =
-            FrameStream::begin(f, IDENTITY_BASE, IDENTITY_PAGES, MAGIC_IDENTITY).unwrap();
+        let mut s = FrameStream::begin(f, IDENTITY_BASE, IDENTITY_PAGES, MAGIC_IDENTITY).unwrap();
         for chunk in payload.chunks(251) {
             s.write(f, chunk).unwrap();
         }
