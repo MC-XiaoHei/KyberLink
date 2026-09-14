@@ -6,9 +6,10 @@ use ch32_hal::adc::{Adc, AdcChannel, AnyAdcChannel, Pga, SampleTime};
 use ch32_hal::flash::{Blocking as FlashBlocking, Flash};
 use ch32_hal::gpio::{Level, Output};
 use ch32_hal::mode::Blocking;
-use ch32_hal::peripherals::{ADC1, SPI1};
+use ch32_hal::peripherals::{ADC1, PA11, PA12, SPI1, USBD};
 use ch32_hal::spi::{Config as SpiConfig, Spi};
 use ch32_hal::time::Hertz;
+use ch32_hal::Peri;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_time::Timer;
@@ -28,6 +29,13 @@ use crate::usb;
 const FLASH_BASE: u32 = 0x0800_0000;
 const SA_SEQ_INIT: u32 = 1;
 const ERR_POLL_TICKS: u32 = 100;
+
+const IWDG_BASE: u32 = 0x4000_3000;
+const IWDG_UNLOCK: u32 = 0x5555;
+const IWDG_START: u32 = 0xcccc;
+const IWDG_FEED: u32 = 0xaaaa;
+const IWDG_DIV64: u32 = 4;
+const IWDG_PERIOD: u32 = 4095;
 
 struct FlashPort<'d>(Flash<'d, FlashBlocking>);
 
@@ -63,6 +71,20 @@ pub(crate) fn err_flags() -> u8 {
     ERR_FLAGS.load(Ordering::Relaxed)
 }
 
+fn watchdog_start() {
+    unsafe {
+        let ctlr = IWDG_BASE as *mut u32;
+        ctlr.write_volatile(IWDG_UNLOCK);
+        ((IWDG_BASE + 4) as *mut u32).write_volatile(IWDG_DIV64);
+        ((IWDG_BASE + 8) as *mut u32).write_volatile(IWDG_PERIOD);
+        ctlr.write_volatile(IWDG_START);
+    }
+}
+
+fn watchdog_feed() {
+    unsafe { (IWDG_BASE as *mut u32).write_volatile(IWDG_FEED) };
+}
+
 fn clock_config() -> ch32_hal::Config {
     ch32_hal::Config {
         rcc: ch32_hal::rcc::Config::SYSCLK_FREQ_144MHZ_HSI,
@@ -91,9 +113,23 @@ fn sample_entropy(adc: &mut Adc<'_, ADC1>, chans: &mut [AnyAdcChannel<ADC1>]) ->
     derive_kem_seeds(&raw)
 }
 
-async fn provisioning_hold() -> ! {
+async fn provisioning(
+    flash: &mut FlashPort<'_>,
+    usbd: Peri<'static, USBD>,
+    dp: Peri<'static, PA12>,
+    dm: Peri<'static, PA11>,
+) -> ! {
+    let mut console = Console::new(Mode::Configure);
+    let signal = usb::ActionSignal::new();
+    let usb = usb::serve(usbd, dp, dm, &mut console, flash, &signal);
+    match join(usb, reboot_watch(&signal)).await {}
+}
+
+async fn reboot_watch(signal: &usb::ActionSignal) -> ! {
     loop {
-        Timer::after_millis(1000).await;
+        if let Action::Reboot = signal.wait().await {
+            reset();
+        }
     }
 }
 
@@ -147,6 +183,7 @@ async fn run_forever(
                 ERR_FLAGS.store(spi.read_reg(REG_ERR) as u8, Ordering::Relaxed);
             }
         }
+        watchdog_feed();
         Timer::after_millis(1).await;
     }
 }
@@ -162,16 +199,18 @@ fn reset() -> ! {
 async fn main(_spawner: Spawner) -> ! {
     let p = ch32_hal::init(clock_config());
 
+    let mut flash = FlashPort(Flash::new_blocking(p.FLASH));
+    let (binding, identity) = match load_device(&mut flash) {
+        Ok(loaded) => loaded,
+        Err(_) => provisioning(&mut flash, p.USBD, p.PA12, p.PA11).await,
+    };
+
+    watchdog_start();
+
     let mut spi_config = SpiConfig::default();
     spi_config.frequency = Hertz::khz(2250);
     let spi = Spi::new_blocking::<0>(p.SPI1, p.PA5, p.PA7, p.PA6, spi_config);
     let cs = Output::new(p.PA4, Level::High, Default::default());
-    let mut flash = FlashPort(Flash::new_blocking(p.FLASH));
-
-    let (binding, identity) = match load_device(&mut flash) {
-        Ok(loaded) => loaded,
-        Err(_) => provisioning_hold().await,
-    };
 
     let mut adc = Adc::new(p.ADC1, Default::default());
     let mut chans = [
