@@ -16,17 +16,28 @@ def gen_sdc(out_dir):
 
 
 def build_tcl(sdc_path, cst, device, dev_ver, place_opt, route_opt):
-    top_src = os.environ.get("PNR_TOP_SRC")
+    files = _source_files()
+    lines = _option_lines(sdc_path, device, dev_ver, place_opt, route_opt)
+    lines += _file_lines(files, sdc_path, cst)
+    lines.append("run all")
+    return "\n".join(lines) + "\n", files
+
+
+def _source_files():
     files = []
     for ext in ("*.v", "*.vhd"):
         files += glob.glob(os.path.join(config.RTL, "**", ext), recursive=True)
     files = [f.replace("\\", "/") for f in files]
+    top_src = os.environ.get("PNR_TOP_SRC")
     if top_src:
-        file_top = os.path.join(config.RTL, "kyberlink_top.v").replace("\\", "/")
-        if file_top in files:
-            files.remove(file_top)
+        top = os.path.join(config.RTL, "kyberlink_top.v").replace("\\", "/")
+        if top in files:
+            files.remove(top)
         files.append(os.path.abspath(top_src).replace("\\", "/"))
-    files = sorted(files)
+    return sorted(files)
+
+
+def _option_lines(sdc_path, device, dev_ver, place_opt, route_opt):
     lines = [
         "set_device %s -name %s -device_version %s"
         % (device, os.environ.get("DEVICE_NAME", "GW5A-25"), dev_ver),
@@ -39,23 +50,7 @@ def build_tcl(sdc_path, cst, device, dev_ver, place_opt, route_opt):
         "set_option -route_option %d" % route_opt,
         "set_option -opt_goal %s" % os.environ.get("PNR_OPT_GOAL", "auto"),
     ]
-    for _opt, _env in (
-        ("resource_sharing", "PNR_RESOURCE_SHARING"),
-        ("maxfan", "PNR_MAXFAN"),
-        ("route_maxfan", "PNR_ROUTE_MAXFAN"),
-        ("replicate_resources", "PNR_REPLICATE"),
-        ("clock_route_order", "PNR_CLOCK_ROUTE_ORDER"),
-        ("fix_gated_and_generated_clocks", "PNR_FIX_GATED_CLK"),
-        ("global_freq", "PNR_GLOBAL_FREQ"),
-        ("bsram_simple_ce", "PNR_BSRAM_SIMPLE_CE"),
-        ("convert_sdp32_36_to_sdp16_18", "PNR_CONVERT_SDP"),
-        ("inc_place", "PNR_INC_PLACE"),
-        ("inc_pnr", "PNR_INC_PNR"),
-        ("map_option", "PNR_MAP_OPTION"),
-    ):
-        _v = os.environ.get(_env)
-        if _v:
-            lines.append("set_option -%s %s" % (_opt, _v))
+    lines += _env_option_lines()
     if os.environ.get("PNR_RETIMING"):
         lines.append("set_option -retiming 1")
     lines += [
@@ -65,13 +60,42 @@ def build_tcl(sdc_path, cst, device, dev_ver, place_opt, route_opt):
         "set_option -use_ready_as_gpio 1",
         "set_option -use_done_as_gpio 1",
     ]
+    return lines
+
+
+ENV_OPTIONS = (
+    ("resource_sharing", "PNR_RESOURCE_SHARING"),
+    ("maxfan", "PNR_MAXFAN"),
+    ("route_maxfan", "PNR_ROUTE_MAXFAN"),
+    ("replicate_resources", "PNR_REPLICATE"),
+    ("clock_route_order", "PNR_CLOCK_ROUTE_ORDER"),
+    ("fix_gated_and_generated_clocks", "PNR_FIX_GATED_CLK"),
+    ("global_freq", "PNR_GLOBAL_FREQ"),
+    ("bsram_simple_ce", "PNR_BSRAM_SIMPLE_CE"),
+    ("convert_sdp32_36_to_sdp16_18", "PNR_CONVERT_SDP"),
+    ("inc_place", "PNR_INC_PLACE"),
+    ("inc_pnr", "PNR_INC_PNR"),
+    ("map_option", "PNR_MAP_OPTION"),
+)
+
+
+def _env_option_lines():
+    lines = []
+    for opt, env in ENV_OPTIONS:
+        value = os.environ.get(env)
+        if value:
+            lines.append("set_option -%s %s" % (opt, value))
+    return lines
+
+
+def _file_lines(files, sdc_path, cst):
+    lines = []
     for i in range(0, len(files), 8):
         lines.append("add_file " + " ".join(files[i : i + 8]))
     lines.append("add_file " + sdc_path.replace("\\", "/"))
     if os.path.exists(cst):
         lines.append("add_file " + cst.replace("\\", "/"))
-    lines.append("run all")
-    return "\n".join(lines) + "\n", files
+    return lines
 
 
 def parse_timing(path):
@@ -137,24 +161,32 @@ def _archive_artifacts(work_dir):
     rd = config.run_dir()
     if not rd:
         return
-    gws = os.path.join(work_dir, "impl", "gwsynthesis")
-    if os.path.isdir(gws):
-        for nm in sorted(os.listdir(gws)):
-            p = os.path.join(gws, nm)
-            if os.path.isfile(p) and nm.endswith((".html", ".xml", ".log", ".vg")):
-                shutil.copy2(p, os.path.join(rd, "syn_" + nm))
-    pnr_dir = os.path.join(work_dir, "impl", "pnr")
-    if os.path.isdir(pnr_dir):
-        for nm in sorted(os.listdir(pnr_dir)):
-            p = os.path.join(pnr_dir, nm)
-            if not os.path.isfile(p):
-                continue
-            if nm == "project.rpt.html":
-                shutil.copy2(p, os.path.join(rd, "pnr.rpt.html"))
-            elif nm == "project.timing_paths":
-                shutil.copy2(p, os.path.join(rd, "pnr.timing_paths"))
-            elif nm.endswith((".html", ".xml", ".log", ".txt")):
-                shutil.copy2(p, os.path.join(rd, "pnr_" + nm))
+    _archive(work_dir, "impl/gwsynthesis", rd, "syn_", (".html", ".xml", ".log", ".vg"), {})
+    _archive(
+        work_dir,
+        "impl/pnr",
+        rd,
+        "pnr_",
+        (".html", ".xml", ".log", ".txt"),
+        {
+            "project.rpt.html": "pnr.rpt.html",
+            "project.timing_paths": "pnr.timing_paths",
+        },
+    )
+
+
+def _archive(work_dir, sub, rd, prefix, suffixes, renames):
+    src_dir = os.path.join(work_dir, *sub.split("/"))
+    if not os.path.isdir(src_dir):
+        return
+    for name in sorted(os.listdir(src_dir)):
+        path = os.path.join(src_dir, name)
+        if not os.path.isfile(path):
+            continue
+        if name in renames:
+            shutil.copy2(path, os.path.join(rd, renames[name]))
+        elif name.endswith(suffixes):
+            shutil.copy2(path, os.path.join(rd, prefix + name))
 
 
 def pnr_run(target, place_opt, route_opt, device, dev_ver, work_dir, log_path, cst=None):
@@ -194,6 +226,13 @@ def pnr_run(target, place_opt, route_opt, device, dev_ver, work_dir, log_path, c
     return run
 
 
+def _log_path(work_dir):
+    if os.environ.get("PNR_WORK_DIR"):
+        return os.path.join(work_dir, "pnr.log")
+    rd = config.run_dir()
+    return os.path.join(rd or work_dir, "pnr.log")
+
+
 def pnr():
     device = os.environ.get("DEVICE", "GW5A-LV25MG121NC1/I0")
     dev_ver = os.environ.get("DEVICE_VERSION", "A")
@@ -205,15 +244,7 @@ def pnr():
     work_dir = os.path.abspath(
         os.environ.get("PNR_WORK_DIR") or os.path.join(config.BUILD, "synth", "impl")
     )
-    log_path = (
-        os.path.join(work_dir, "pnr.log")
-        if os.environ.get("PNR_WORK_DIR")
-        else (
-            os.path.join(config.run_dir(), "pnr.log")
-            if config.run_dir()
-            else os.path.join(work_dir, "pnr.log")
-        )
-    )
+    log_path = _log_path(work_dir)
     cst = os.path.join(config.SYNTH, "kyberlink_top.cst")
     run = pnr_run(target, place_opt, route_opt, device, dev_ver, work_dir, log_path, cst=cst)
     cfg = {

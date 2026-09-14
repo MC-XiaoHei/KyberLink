@@ -19,37 +19,46 @@ def sim(mod, testcase=None):
     build_dir = os.path.join(config.BUILD, "test", mod)
     os.makedirs(build_dir, exist_ok=True)
     runner = get_runner("verilator")
-    waves = os.environ.get("WAVES")
-    build_args = list(config.WNO)
-    if waves:
-        build_args.append("--trace-fst")
+    waves = bool(os.environ.get("WAVES"))
+
     runner.build(
         sources=cfg["src"],
         hdl_toplevel=cfg["top"],
         build_dir=build_dir,
         defines={"COCOTB_SIM": "1"},
-        build_args=build_args,
+        build_args=_build_args(waves),
         clean=True,
     )
-    rd = config.run_dir("test")
-    results_xml = os.path.join(rd, mod + ".results.xml")
-    test_args = []
-    if waves:
-        fst = os.path.join(build_dir, (testcase or "all") + ".fst")
-        test_args = ["--trace", "--trace-file", fst]
-        print("waves: " + os.path.relpath(fst, config.REPO))
+    results_xml = os.path.join(config.run_dir("test"), mod + ".results.xml")
     runner.test(
         hdl_toplevel=cfg["top"],
-        test_module=os.environ.get(
-            "TEST_MODULE",
-            cfg.get("test_module", UNIT_TEST.get(mod) or INTG_TEST.get(mod) or "tb_" + mod),
-        ),
+        test_module=_test_module(mod, cfg),
         build_dir=build_dir,
         testcase=testcase,
         results_xml=results_xml,
-        test_args=test_args,
+        test_args=_test_args(build_dir, testcase, waves),
     )
     return results_xml
+
+
+def _build_args(waves):
+    args = list(config.WNO)
+    if waves:
+        args.append("--trace-fst")
+    return args
+
+
+def _test_args(build_dir, testcase, waves):
+    if not waves:
+        return []
+    fst = os.path.join(build_dir, (testcase or "all") + ".fst")
+    print("waves: " + os.path.relpath(fst, config.REPO))
+    return ["--trace", "--trace-file", fst]
+
+
+def _test_module(mod, cfg):
+    default = UNIT_TEST.get(mod) or INTG_TEST.get(mod) or "tb_" + mod
+    return os.environ.get("TEST_MODULE", cfg.get("test_module", default))
 
 
 def sim_all(mods, testcase=None):
