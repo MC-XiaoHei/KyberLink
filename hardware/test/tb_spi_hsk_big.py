@@ -112,5 +112,5 @@ async def spi_tx_fifo_overflow(dut):
     for w in range(words):
         store[w % 512] = pat[w]
     exp = [store[i % 512] for i in range(words)]
-assert got == exp, f"overflow got0 {got[0]:08x} exp0 {exp[0]:08x} n {len(got)}"
+    assert got == exp, f"overflow got0 {got[0]:08x} exp0 {exp[0]:08x} n {len(got)}"
     print(f"tx overflow ok {len(got)} words", flush=True)
