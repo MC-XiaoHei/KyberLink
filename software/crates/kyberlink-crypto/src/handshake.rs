@@ -114,6 +114,10 @@ pub fn hkdf_extract(salt: &[u8], ikm: &[u8]) -> [u8; 32] {
     hmac_sha3_256(salt, ikm)
 }
 
+fn encap_m(seed_d: &[u8; 32], seed_z: &[u8; 32], h: &[u8; 32]) -> [u8; 32] {
+    shake::sha3_256_parts(&[seed_d, seed_z, h, b"KyberLink-m1"])
+}
+
 pub fn hkdf_expand(prk: &[u8; 32], info: &[u8], out: &mut [u8]) {
     let mut t = [0u8; 32];
     let mut t_len = 0usize;
@@ -163,6 +167,7 @@ pub struct InitiatorState {
     vk_r: [u8; VK_LEN],
     ss_i: [u8; 32],
     h: [u8; 32],
+    m_i: [u8; 32],
 }
 
 pub fn initiator_start<I: Identity + ?Sized>(
@@ -188,6 +193,7 @@ pub fn initiator_start<I: Identity + ?Sized>(
             vk_r: [0u8; VK_LEN],
             ss_i: [0u8; 32],
             h: h1,
+            m_i: encap_m(seed_kem_d, seed_kem_z, &h1),
         },
         m1,
     )
@@ -223,9 +229,11 @@ pub fn initiator_recv_m2<I: Identity + ?Sized>(
     }
     st.h = h2;
     st.vk_r.copy_from_slice(vk_rb);
-    let (ss, ct) = encaps_internal(ek_rb.try_into().unwrap(), &st.nonce_i);
+    let (ss, ct) = encaps_internal(ek_rb.try_into().unwrap(), &st.m_i);
     st.ss_i = ss;
-    let spi_i: u32 = 0x10000001u32.wrapping_add(st.nonce_i[0] as u32);
+    let spi_i: u32 = (0x1000_0001u32
+        ^ u32::from_be_bytes([st.nonce_i[0], st.nonce_i[1], st.nonce_i[2], st.nonce_i[3]]))
+        | 1;
     let mut m3 = [0u8; M3_LEN];
     m3[..CT_LEN].copy_from_slice(&ct);
     m3[CT_LEN..CT_LEN + 4].copy_from_slice(&spi_i.to_be_bytes());
@@ -275,6 +283,7 @@ pub struct ResponderState {
     ek_i: [u8; EK_LEN],
     ss_r: [u8; 32],
     h: [u8; 32],
+    m_r: [u8; 32],
 }
 
 pub fn responder_start<I: Identity + ?Sized>(
@@ -321,6 +330,7 @@ pub fn responder_start<I: Identity + ?Sized>(
             ek_i: *ek_ib,
             ss_r: [0u8; 32],
             h: h2,
+            m_r: encap_m(seed_kem_d, seed_kem_z, &h1),
         },
         m2,
     ))
@@ -349,7 +359,7 @@ pub fn responder_recv_m3<I: Identity + ?Sized>(
     }
     st.h = h3;
     let ss_i = decaps_internal(&st.dk_r, ctb);
-    let (ss_r, ct_r) = encaps_internal(&st.ek_i, &st.nonce_r);
+    let (ss_r, ct_r) = encaps_internal(&st.ek_i, &st.m_r);
     st.ss_r = ss_r;
     let spi_r = spi_i.wrapping_add(0x20000001u32);
     let mut m4 = [0u8; M4_LEN];
