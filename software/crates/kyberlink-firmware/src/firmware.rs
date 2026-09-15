@@ -98,6 +98,9 @@ fn clock_config() -> ch32_hal::Config {
 
 fn load_device(flash: &mut FlashPort) -> Result<(Binding, RomIdentity), CfgError> {
     let binding = Binding::load(flash)?;
+    if !binding.is_configured() {
+        return Err(CfgError::Value);
+    }
     let identity = cfg_msg::load_identity(flash)?;
     Ok((binding, identity))
 }
@@ -156,8 +159,12 @@ async fn run_forever(
     signal: &usb::ActionSignal,
 ) -> ! {
     let mut ticks = 0u32;
+    let mut last = embassy_time::Instant::now();
     loop {
-        if let FsmOutcome::Sa(sa) = fsm.poll() {
+        let now = embassy_time::Instant::now();
+        let elapsed = ((now - last).as_millis() as u32).max(1);
+        last = now;
+        if let FsmOutcome::Sa(sa) = fsm.poll_ms(elapsed) {
             write_sa(fsm.spi, &sa, binding.role_initiator, SA_SEQ_INIT);
         }
         if signal.signaled() {

@@ -124,6 +124,15 @@ impl Binding {
         })
     }
 
+    pub fn is_configured(&self) -> bool {
+        self.src_mac != [0; MAC_LEN]
+            && self.dst_mac != [0; MAC_LEN]
+            && self.src_ip != [0; IP_LEN]
+            && self.dst_ip != [0; IP_LEN]
+            && self.src_port != 0
+            && self.dst_port != 0
+    }
+
     pub fn load<F: NorFlash>(flash: &mut F) -> Result<Binding, CfgError> {
         cfg_store::verify(flash, BINDING_BASE, &MAGIC_BINDING, BINDING_LEN as u16)?;
         let mut buf = [0u8; BINDING_LEN];
