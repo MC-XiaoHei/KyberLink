@@ -8,9 +8,11 @@ use crate::qbus::QBus;
 
 pub(crate) struct FsmHandle {
     pub(crate) fsm: Mutex<Fsm<'static, QBus>>,
-    _identity: Box<TestIdentity>,
-    pub(crate) cfg: Box<Config>,
-    pub(crate) qbus: Box<QBus>,
+    pub(crate) cfg: &'static Config,
+    pub(crate) qbus: &'static QBus,
+    pub(crate) cfg_ptr: *mut Config,
+    pub(crate) qbus_ptr: *mut QBus,
+    pub(crate) identity_ptr: *mut TestIdentity,
 }
 
 pub(crate) fn create(
@@ -21,29 +23,31 @@ pub(crate) fn create(
     seed_z: &[u8],
     nonce: &[u8],
 ) -> *mut FsmHandle {
-    let identity = identity::from_seed(seed_identity);
-    let fp = hs::Identity::fingerprint(&*identity);
+    let identity_ptr = Box::into_raw(identity::from_seed(seed_identity));
+    let identity = unsafe { &*identity_ptr };
+    let fp = hs::Identity::fingerprint(identity);
     let peer_fp_arr: [u8; 32] = if peer_fp.iter().any(|&x| x != 0) {
         peer_fp.try_into().unwrap()
     } else {
         fp
     };
-    let cfg = Box::new(Config {
+    let cfg_ptr = Box::into_raw(Box::new(Config {
         role_initiator: role == 0,
         peer_fp: peer_fp_arr,
         seed_kem_d: seed_d.try_into().unwrap(),
         seed_kem_z: seed_z.try_into().unwrap(),
         nonce: nonce.try_into().unwrap(),
-        identity: unsafe { &*(&*identity as *const TestIdentity) },
-    });
-    let qbus = Box::new(QBus::new());
-    let fsm = Fsm::new(unsafe { &*(&*cfg as *const Config) }, unsafe {
-        &*(&*qbus as *const QBus)
-    });
+        identity,
+    }));
+    let qbus_ptr = Box::into_raw(Box::new(QBus::new()));
+    let (cfg, qbus) = unsafe { (&*cfg_ptr, &*qbus_ptr) };
+    let fsm = Fsm::new(cfg, qbus);
     Box::into_raw(Box::new(FsmHandle {
         fsm: Mutex::new(fsm),
-        _identity: identity,
         cfg,
         qbus,
+        cfg_ptr,
+        qbus_ptr,
+        identity_ptr,
     }))
 }
