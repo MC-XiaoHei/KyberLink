@@ -512,6 +512,10 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
         self.phase = 0;
         self.phase_ms = 0;
         self.session = None;
+        self.tx = None;
+        self.rx = RxSink::new();
+        self.ack_pend = None;
+        self.buf = [0u8; HSK_MAX_MSG];
     }
 
     fn enter_phase(&mut self, phase: u8) {
@@ -559,7 +563,13 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
         let Some(n) = self.recv_msg() else {
             return FsmOutcome::Wait;
         };
+        if n != hs::M2_LEN {
+            return FsmOutcome::Wait;
+        }
         self.capture_peer_vk();
+        if hs::fingerprint(&self.pc_vk) != self.cfg.peer_fp {
+            return FsmOutcome::Wait;
+        }
         let vk = self.pc_vk;
         self.ensure_pc(&vk);
         let Session::Initiator(st) = self.session.as_mut().unwrap() else {
@@ -592,6 +602,9 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
         let Some(n) = self.recv_msg() else {
             return FsmOutcome::Wait;
         };
+        if n != hs::M4_LEN {
+            return FsmOutcome::Wait;
+        }
         let vk = self.pc_vk;
         self.ensure_pc(&vk);
         let Session::Initiator(st) = self.session.as_mut().unwrap() else {
@@ -625,7 +638,13 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
         let Some(n) = self.recv_msg() else {
             return FsmOutcome::Wait;
         };
+        if n != hs::M1_LEN {
+            return FsmOutcome::Wait;
+        }
         self.capture_peer_vk();
+        if hs::fingerprint(&self.pc_vk) != self.cfg.peer_fp {
+            return FsmOutcome::Wait;
+        }
         let vk = self.pc_vk;
         self.ensure_pc(&vk);
         match hs::responder_start(
@@ -650,6 +669,9 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
         let Some(n) = self.recv_msg() else {
             return FsmOutcome::Wait;
         };
+        if n != hs::M3_LEN {
+            return FsmOutcome::Wait;
+        }
         let mut sb = [0u8; 4];
         sb.copy_from_slice(&self.buf[hs::SPI_OFF..hs::SPI_OFF + 4]);
         self.spi_i = u32::from_be_bytes(sb);
