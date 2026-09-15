@@ -964,6 +964,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn fsm_end_to_end_handshake() {
         let id_i = identity_i();
         let id_r = identity_r();
@@ -1016,6 +1017,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn initiator_bad_m2_restarts() {
         let cfg = Config {
             role_initiator: true,
