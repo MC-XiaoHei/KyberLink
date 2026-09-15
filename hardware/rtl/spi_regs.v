@@ -312,6 +312,7 @@ module spi_regs (
               if (tx_n == tx_words - 13'd1) begin
                 tx_state <= TX_IDLE;
                 tx_n <= 13'd0;
+                tx_cnt <= 10'd0;
               end else begin
                 tx_n <= tx_n + 13'd1;
               end
