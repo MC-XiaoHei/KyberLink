@@ -1,5 +1,4 @@
-use ch32_hal::adc::AnyAdcChannel;
-use ch32_hal::peripherals::{ADC1, PA11, PA12, PA4, PA5, PA6, PA7, PA8};
+use ch32_hal::peripherals::{PA11, PA12, PA4, PA5, PA6, PA7, PA8};
 use ch32_hal::Peri;
 
 pub struct Pins {
@@ -10,5 +9,4 @@ pub struct Pins {
     pub fpga_rst: Peri<'static, PA8>,
     pub usb_dm: Peri<'static, PA11>,
     pub usb_dp: Peri<'static, PA12>,
-    pub adc: [AnyAdcChannel<ADC1>; 4],
 }

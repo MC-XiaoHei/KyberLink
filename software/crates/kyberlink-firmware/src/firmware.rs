@@ -1,10 +1,9 @@
 use core::sync::atomic::{AtomicU8, Ordering};
 
-use ch32_hal::adc::{Adc, AdcChannel, AnyAdcChannel, Pga, SampleTime};
 use ch32_hal::flash::{Blocking as FlashBlocking, Flash};
 use ch32_hal::gpio::{Level, Output};
 use ch32_hal::mode::Blocking;
-use ch32_hal::peripherals::{ADC1, PA11, PA12, SPI1, USBD};
+use ch32_hal::peripherals::{PA11, PA12, SPI1, USBD};
 use ch32_hal::spi::{Config as SpiConfig, Spi};
 use ch32_hal::time::Hertz;
 use ch32_hal::Peri;
@@ -105,17 +104,33 @@ fn load_device(flash: &mut FlashPort) -> Result<(Binding, RomIdentity), CfgError
     Ok((binding, identity))
 }
 
-fn sample_entropy(adc: &mut Adc<'_, ADC1>, chans: &mut [AnyAdcChannel<ADC1>]) -> KemSeeds {
-    let mut raw = [0u8; 256];
+fn clock_entropy() -> [u8; 256] {
+    let mut buf = [0u8; 256];
+    let rtc = ch32_hal::pac::RTC;
     let mut i = 0;
-    for _ in 0..64 {
-        for ch in chans.iter_mut() {
-            let v = adc.convert(ch, SampleTime::CYCLES239_5, Pga::X1);
-            raw[i] = (v as u8) ^ (riscv::register::mcycle::read() as u8);
-            i += 1;
+    for _ in 0..128 {
+        let d0 = rtc.divl().read().divl();
+        let t0 = riscv::register::mcycle::read();
+        let mut d1 = d0;
+        let mut spins = 0u32;
+        while d1 == d0 && spins < 200_000 {
+            d1 = rtc.divl().read().divl();
+            spins += 1;
         }
+        let t1 = riscv::register::mcycle::read();
+        let dt = t1.wrapping_sub(t0) as u16;
+        buf[i] = (dt & 0xFF) as u8;
+        buf[i + 1] = (dt >> 8) as u8;
+        i += 2;
     }
-    derive_kem_seeds(&raw)
+    buf
+}
+
+fn sample_entropy() -> KemSeeds {
+    let mut buf = [0u8; 268];
+    buf[..256].copy_from_slice(&clock_entropy());
+    buf[256..].copy_from_slice(&ch32_hal::signature::unique_id());
+    derive_kem_seeds(&buf)
 }
 
 async fn provisioning(
@@ -157,8 +172,6 @@ async fn run_forever(
     rst: &'static mut Output<'static>,
     binding: &'static Binding,
     signal: &usb::ActionSignal,
-    mut adc: Adc<'static, ADC1>,
-    mut adc_ch: [AnyAdcChannel<ADC1>; 4],
 ) -> ! {
     let mut ticks = 0u32;
     let mut last = embassy_time::Instant::now();
@@ -172,7 +185,7 @@ async fn run_forever(
         if signal.signaled() {
             match signal.wait().await {
                 Action::Rekey => {
-                    let fresh = sample_entropy(&mut adc, &mut adc_ch);
+                    let fresh = sample_entropy();
                     fsm.cfg.seeds.lock(|s| *s.borrow_mut() = fresh);
                     let (cfg, spi) = (fsm.cfg, fsm.spi);
                     *fsm = Fsm::new(cfg, spi);
@@ -206,7 +219,7 @@ fn system_reset() -> ! {
 async fn main(_spawner: Spawner) -> ! {
     let p = ch32_hal::init(clock_config());
 
-    let mut pins = Pins {
+    let pins = Pins {
         spi_sck: p.PA5,
         spi_mosi: p.PA7,
         spi_miso: p.PA6,
@@ -214,12 +227,6 @@ async fn main(_spawner: Spawner) -> ! {
         fpga_rst: p.PA8,
         usb_dm: p.PA11,
         usb_dp: p.PA12,
-        adc: [
-            p.PA0.degrade_adc(),
-            p.PA1.degrade_adc(),
-            p.PA2.degrade_adc(),
-            p.PA3.degrade_adc(),
-        ],
     };
 
     let mut flash = FlashPort(Flash::new_blocking(p.FLASH));
@@ -235,8 +242,7 @@ async fn main(_spawner: Spawner) -> ! {
     let spi = Spi::new_blocking::<0>(p.SPI1, pins.spi_sck, pins.spi_mosi, pins.spi_miso, spi_config);
     let cs = Output::new(pins.spi_cs, Level::High, Default::default());
 
-    let mut adc = Adc::new(p.ADC1, Default::default());
-    let seeds = sample_entropy(&mut adc, &mut pins.adc);
+    let seeds = sample_entropy();
 
     let rst = FPGA_RST.init(Output::new(pins.fpga_rst, Level::High, Default::default()));
     embassy_time::block_for(embassy_time::Duration::from_millis(10));
@@ -245,5 +251,5 @@ async fn main(_spawner: Spawner) -> ! {
     let mut console = Console::new(Mode::Running);
     let signal = usb::ActionSignal::new();
     let usb = usb::serve(p.USBD, pins.usb_dp, pins.usb_dm, &mut console, &mut flash, &signal);
-    match join(usb, run_forever(fsm, rst, binding, &signal, adc, pins.adc)).await {}
+    match join(usb, run_forever(fsm, rst, binding, &signal)).await {}
 }
