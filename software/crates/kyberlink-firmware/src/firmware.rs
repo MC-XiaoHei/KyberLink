@@ -142,7 +142,7 @@ fn start_fsm(
     spi: Spi<'static, SPI1, Blocking>,
     cs: Output<'static>,
     binding: &Binding,
-    seeds: &KemSeeds,
+    seeds: KemSeeds,
     identity: RomIdentity,
 ) -> &'static mut Fsm<'static, SpiMaster> {
     let identity = IDENTITY.init(identity);
@@ -157,6 +157,8 @@ async fn run_forever(
     rst: &'static mut Output<'static>,
     binding: &'static Binding,
     signal: &usb::ActionSignal,
+    mut adc: Adc<'static, ADC1>,
+    mut adc_ch: [AnyAdcChannel<ADC1>; 4],
 ) -> ! {
     let mut ticks = 0u32;
     let mut last = embassy_time::Instant::now();
@@ -170,6 +172,8 @@ async fn run_forever(
         if signal.signaled() {
             match signal.wait().await {
                 Action::Rekey => {
+                    let fresh = sample_entropy(&mut adc, &mut adc_ch);
+                    fsm.cfg.seeds.lock(|s| *s.borrow_mut() = fresh);
                     let (cfg, spi) = (fsm.cfg, fsm.spi);
                     *fsm = Fsm::new(cfg, spi);
                 }
@@ -237,9 +241,9 @@ async fn main(_spawner: Spawner) -> ! {
     let rst = FPGA_RST.init(Output::new(pins.fpga_rst, Level::High, Default::default()));
     embassy_time::block_for(embassy_time::Duration::from_millis(10));
     let binding: &'static Binding = BINDING.init(binding);
-    let fsm = start_fsm(spi, cs, binding, &seeds, identity);
+    let fsm = start_fsm(spi, cs, binding, seeds, identity);
     let mut console = Console::new(Mode::Running);
     let signal = usb::ActionSignal::new();
     let usb = usb::serve(p.USBD, pins.usb_dp, pins.usb_dm, &mut console, &mut flash, &signal);
-    match join(usb, run_forever(fsm, rst, binding, &signal)).await {}
+    match join(usb, run_forever(fsm, rst, binding, &signal, adc, pins.adc)).await {}
 }

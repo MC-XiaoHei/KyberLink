@@ -41,24 +41,20 @@ const STATUS_TX_BUSY: u32 = 1 << 1;
 pub struct Config {
     pub role_initiator: bool,
     pub peer_fp: [u8; 32],
-    pub seed_kem_d: [u8; 32],
-    pub seed_kem_z: [u8; 32],
-    pub nonce: [u8; 32],
+    pub seeds: CriticalSectionMutex<RefCell<kyberlink_crypto::entropy::KemSeeds>>,
     pub identity: &'static dyn hs::Identity,
 }
 
 impl Config {
     pub fn from_parts(
         binding: &Binding,
-        seeds: &kyberlink_crypto::entropy::KemSeeds,
+        seeds: kyberlink_crypto::entropy::KemSeeds,
         identity: &'static dyn hs::Identity,
     ) -> Config {
         Config {
             role_initiator: binding.role_initiator,
             peer_fp: binding.peer_fp,
-            seed_kem_d: seeds.d,
-            seed_kem_z: seeds.z,
-            nonce: seeds.nonce,
+            seeds: CriticalSectionMutex::new(RefCell::new(seeds)),
             identity,
         }
     }
@@ -547,12 +543,11 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
     }
 
     fn initiator_start(&mut self) -> FsmOutcome {
-        let (st, m1) = hs::initiator_start(
-            self.cfg.identity,
-            &self.cfg.seed_kem_d,
-            &self.cfg.seed_kem_z,
-            &self.cfg.nonce,
-        );
+        let (seed_d, seed_z, nonce) = self.cfg.seeds.lock(|s| {
+            let s = s.borrow();
+            (s.d, s.z, s.nonce)
+        });
+        let (st, m1) = hs::initiator_start(self.cfg.identity, &seed_d, &seed_z, &nonce);
         self.session = Some(Session::Initiator(st));
         self.tx = Some(TxJob::new(&m1));
         self.enter_phase(1);
@@ -647,11 +642,15 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
         }
         let vk = self.pc_vk;
         self.ensure_pc(&vk);
+        let (seed_d, seed_z, nonce) = self.cfg.seeds.lock(|s| {
+            let s = s.borrow();
+            (s.d, s.z, s.nonce)
+        });
         match hs::responder_start(
             self.cfg.identity,
-            &self.cfg.seed_kem_d,
-            &self.cfg.seed_kem_z,
-            &self.cfg.nonce,
+            &seed_d,
+            &seed_z,
+            &nonce,
             &self.buf[..n],
             &self.cfg.peer_fp,
         ) {
@@ -961,6 +960,26 @@ mod tests {
     static IDENTITY_I: std::sync::OnceLock<TestIdentity> = std::sync::OnceLock::new();
     static IDENTITY_R: std::sync::OnceLock<TestIdentity> = std::sync::OnceLock::new();
 
+    fn cfg_of(
+        role_initiator: bool,
+        peer_fp: [u8; 32],
+        d: u8,
+        z: u8,
+        nonce: u8,
+        identity: &'static TestIdentity,
+    ) -> Config {
+        Config {
+            role_initiator,
+            peer_fp,
+            seeds: CriticalSectionMutex::new(RefCell::new(kyberlink_crypto::entropy::KemSeeds {
+                d: [d; 32],
+                z: [z; 32],
+                nonce: [nonce; 32],
+            })),
+            identity,
+        }
+    }
+
     fn identity_i() -> &'static TestIdentity {
         IDENTITY_I.get_or_init(|| {
             let (vk, sk) = kyberlink_crypto::mldsa_internal::keygen_internal(&[3u8; 32]);
@@ -997,22 +1016,8 @@ mod tests {
         let fp_i = id_i.fingerprint();
         let fp_r = id_r.fingerprint();
 
-        let cfg_i = Config {
-            role_initiator: true,
-            peer_fp: fp_r,
-            seed_kem_d: [1u8; 32],
-            seed_kem_z: [2u8; 32],
-            nonce: [4u8; 32],
-            identity: id_i,
-        };
-        let cfg_r = Config {
-            role_initiator: false,
-            peer_fp: fp_i,
-            seed_kem_d: [5u8; 32],
-            seed_kem_z: [6u8; 32],
-            nonce: [8u8; 32],
-            identity: id_r,
-        };
+        let cfg_i = cfg_of(true, fp_r, 1, 2, 4, id_i);
+        let cfg_r = cfg_of(false, fp_i, 5, 6, 8, id_r);
         let bus_i = MockSpi::default();
         let bus_r = MockSpi::default();
         let mut fi = Fsm::new(&cfg_i, &bus_i);
@@ -1053,14 +1058,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn initiator_bad_m2_restarts() {
-        let cfg = Config {
-            role_initiator: true,
-            peer_fp: [9u8; 32],
-            seed_kem_d: [1u8; 32],
-            seed_kem_z: [2u8; 32],
-            nonce: [4u8; 32],
-            identity: identity_i(),
-        };
+        let cfg = cfg_of(true, [9u8; 32], 1, 2, 4, identity_i());
         let bus = MockSpi::default();
         let mut f = Fsm::new(&cfg, &bus);
         for _ in 0..4 {

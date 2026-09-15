@@ -1,6 +1,10 @@
+use core::cell::RefCell;
+
+use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use parking_lot::Mutex;
 
 use kyberlink_core::handshake_fsm::{Config, Fsm};
+use kyberlink_crypto::entropy::KemSeeds;
 use kyberlink_crypto::handshake as hs;
 
 use crate::identity::{self, TestIdentity};
@@ -34,9 +38,11 @@ pub(crate) fn create(
     let cfg_ptr = Box::into_raw(Box::new(Config {
         role_initiator: role == 0,
         peer_fp: peer_fp_arr,
-        seed_kem_d: seed_d.try_into().unwrap(),
-        seed_kem_z: seed_z.try_into().unwrap(),
-        nonce: nonce.try_into().unwrap(),
+        seeds: CriticalSectionMutex::new(RefCell::new(KemSeeds {
+            d: seed_d.try_into().unwrap(),
+            z: seed_z.try_into().unwrap(),
+            nonce: nonce.try_into().unwrap(),
+        })),
         identity,
     }));
     let qbus_ptr = Box::into_raw(Box::new(QBus::new()));

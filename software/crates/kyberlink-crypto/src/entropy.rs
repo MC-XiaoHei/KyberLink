@@ -2,6 +2,7 @@ use crate::shake;
 
 pub const SEED_LEN: usize = 32;
 
+#[derive(Clone, Copy)]
 pub struct KemSeeds {
     pub d: [u8; SEED_LEN],
     pub z: [u8; SEED_LEN],

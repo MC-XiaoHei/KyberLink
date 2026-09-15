@@ -11,4 +11,5 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 kyberlink-core = { path = "../kyberlink-core", features = ["std"] }
 kyberlink-crypto = { path = "../kyberlink-crypto", features = ["std"] }
+embassy-sync = "0.8.0"
 parking_lot = "0.12.1"
