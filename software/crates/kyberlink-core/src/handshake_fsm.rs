@@ -171,6 +171,7 @@ impl TxJob {
 const TX_ACK_TIMEOUT_MS: u32 = 120;
 const PHASE_TIMEOUT_MS: u32 = 30000;
 const TX_TOTAL_TIMEOUT_MS: u32 = 8000;
+const PHASE_DONE: u8 = 3;
 
 pub fn hsk_tx_step<S: SpiBus>(spi: &S, j: &mut TxJob, rx: &mut RxSink, elapsed_ms: u32) {
     if !wait_ack(spi, j, rx, elapsed_ms) {
@@ -465,12 +466,12 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
         }
         if self.tx.is_none() {
             if let Some(sa) = self.pending_sa.take() {
-                self.phase = 0;
+                self.phase = PHASE_DONE;
                 self.phase_ms = 0;
                 return FsmOutcome::Sa(sa);
             }
         }
-        if self.phase_expired(elapsed_ms) {
+        if self.phase != PHASE_DONE && self.phase_expired(elapsed_ms) {
             self.reset_session();
             return FsmOutcome::Wait;
         }
@@ -536,6 +537,7 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
         match self.phase {
             0 => self.initiator_start(),
             1 => self.initiator_recv_m2(),
+            PHASE_DONE => FsmOutcome::Wait,
             _ => self.initiator_recv_m4(),
         }
     }
@@ -612,6 +614,8 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
     fn poll_responder(&mut self) -> FsmOutcome {
         if self.phase == 0 {
             self.responder_recv_m1()
+        } else if self.phase == PHASE_DONE {
+            FsmOutcome::Wait
         } else {
             self.responder_recv_m3()
         }
@@ -1010,10 +1014,18 @@ mod tests {
                 assert_eq!(a.sk_ei, b.sk_ei);
                 assert_eq!(a.sk_er, b.sk_er);
                 assert_eq!(a.sa_salt, b.sa_salt);
-                return;
+                break;
             }
         }
-        panic!("handshake did not complete");
+        assert!(sa_i.is_some() && sa_r.is_some(), "handshake did not complete");
+        bus_i.outbox.borrow_mut().clear();
+        bus_r.outbox.borrow_mut().clear();
+        for _ in 0..100 {
+            assert!(matches!(fi.poll(), FsmOutcome::Wait));
+            assert!(matches!(fr.poll(), FsmOutcome::Wait));
+        }
+        assert!(bus_i.outbox.borrow().is_empty(), "initiator restarted after sa");
+        assert!(bus_r.outbox.borrow().is_empty(), "responder restarted after sa");
     }
 
     #[test]
