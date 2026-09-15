@@ -68,6 +68,7 @@ static CONFIG: StaticCell<Config> = StaticCell::new();
 static IDENTITY: StaticCell<RomIdentity> = StaticCell::new();
 static FSM: StaticCell<Fsm<'static, SpiMaster>> = StaticCell::new();
 static FPGA_RST: StaticCell<Output<'static>> = StaticCell::new();
+static BINDING: StaticCell<Binding> = StaticCell::new();
 static ERR_FLAGS: AtomicU8 = AtomicU8::new(0);
 
 pub(crate) fn err_flags() -> u8 {
@@ -151,13 +152,13 @@ fn start_fsm(
 async fn run_forever(
     fsm: &'static mut Fsm<'static, SpiMaster>,
     rst: &'static mut Output<'static>,
-    initiator: bool,
+    binding: &'static Binding,
     signal: &usb::ActionSignal,
 ) -> ! {
     let mut ticks = 0u32;
     loop {
         if let FsmOutcome::Sa(sa) = fsm.poll() {
-            write_sa(fsm.spi, &sa, initiator, SA_SEQ_INIT);
+            write_sa(fsm.spi, &sa, binding.role_initiator, SA_SEQ_INIT);
         }
         if signal.signaled() {
             match signal.wait().await {
@@ -165,6 +166,7 @@ async fn run_forever(
                     let (cfg, spi) = (fsm.cfg, fsm.spi);
                     *fsm = Fsm::new(cfg, spi);
                 }
+                Action::Resume => write_data_plane(fsm.spi, binding),
                 Action::Reboot => {
                     rst.set_low();
                     embassy_time::block_for(embassy_time::Duration::from_millis(10));
@@ -227,9 +229,10 @@ async fn main(_spawner: Spawner) -> ! {
 
     let rst = FPGA_RST.init(Output::new(pins.fpga_rst, Level::High, Default::default()));
     embassy_time::block_for(embassy_time::Duration::from_millis(10));
-    let fsm = start_fsm(spi, cs, &binding, &seeds, identity);
+    let binding: &'static Binding = BINDING.init(binding);
+    let fsm = start_fsm(spi, cs, binding, &seeds, identity);
     let mut console = Console::new(Mode::Running);
     let signal = usb::ActionSignal::new();
     let usb = usb::serve(p.USBD, pins.usb_dp, pins.usb_dm, &mut console, &mut flash, &signal);
-    match join(usb, run_forever(fsm, rst, binding.role_initiator, &signal)).await {}
+    match join(usb, run_forever(fsm, rst, binding, &signal)).await {}
 }
