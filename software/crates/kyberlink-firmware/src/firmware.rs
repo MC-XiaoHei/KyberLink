@@ -225,8 +225,9 @@ async fn main(_spawner: Spawner) -> ! {
     let mut adc = Adc::new(p.ADC1, Default::default());
     let seeds = sample_entropy(&mut adc, &mut pins.adc);
 
-    let fsm = start_fsm(spi, cs, &binding, &seeds, identity);
     let rst = FPGA_RST.init(Output::new(pins.fpga_rst, Level::High, Default::default()));
+    embassy_time::block_for(embassy_time::Duration::from_millis(10));
+    let fsm = start_fsm(spi, cs, &binding, &seeds, identity);
     let mut console = Console::new(Mode::Running);
     let signal = usb::ActionSignal::new();
     let usb = usb::serve(p.USBD, pins.usb_dp, pins.usb_dm, &mut console, &mut flash, &signal);
