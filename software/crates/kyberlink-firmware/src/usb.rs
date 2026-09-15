@@ -86,7 +86,9 @@ async fn session<'d, F: NorFlash>(
         for &byte in &buf[..n] {
             let action = console.push(byte, flash);
             if let Some(reply) = console.take_reply() {
-                class.write_packet(reply.as_bytes()).await?;
+                for chunk in reply.as_bytes().chunks(PACKET as usize) {
+                    class.write_packet(chunk).await?;
+                }
             }
             match action {
                 Action::Rekey | Action::Reboot => signal.signal(action),
