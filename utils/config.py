@@ -36,6 +36,7 @@ GOWIN_PLL = S("gowin_pll_sim.v")
 
 UNIT = ["aes_pipe", "gcm", "spi"]
 INTG = ["bridge", "bw", "full", "node", "gmii_rx", "diag2", "spi_big", "top", "fifo"]
+MIRI = ["kyberlink-core", "kyberlink-simnode"]
 
 AES_CORE = [
     R("aes256_core_pipe.v"),

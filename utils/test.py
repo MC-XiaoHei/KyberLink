@@ -8,6 +8,8 @@ from .core import AppError, Result
 def run(args, reporter):
     if args.level == "unit":
         return unit(args.name, args.testcase)
+    if args.level == "miri":
+        return miri(args.name)
     return intg(args.name, args.testcase)
 
 
@@ -70,8 +72,22 @@ def intg(name=None, testcase=None):
     return Result("test intg", metrics={"test": mods})
 
 
+def miri(name=None):
+    pkgs = [name] if name else config.MIRI
+    if name and name not in config.MIRI:
+        raise AppError(f"{name} not in test miri: {', '.join(config.MIRI)}", 2)
+    host = os.environ.get("HOST_TARGET", "x86_64-pc-windows-msvc")
+    tc = os.environ.get("RUST_TOOLCHAIN", "nightly")
+    for pkg in pkgs:
+        script = f"rustup run {tc} cargo miri test -p {pkg} --target {host}"
+        rc = subprocess.call(["cmd", "/c", script], cwd=os.path.join(config.REPO, "software"))
+        if rc != 0:
+            raise AppError(f"miri {pkg} failed rc={rc}", rc)
+    return Result("test miri", metrics={"miri": pkgs})
+
+
 def add_args(sub):
     p = sub.add_parser("test")
-    p.add_argument("level", choices=["unit", "intg"])
+    p.add_argument("level", choices=["unit", "intg", "miri"])
     p.add_argument("name", nargs="?", default=None)
     p.add_argument("--testcase", "-t", default=None)
