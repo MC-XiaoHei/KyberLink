@@ -9,7 +9,7 @@ try:
     from simnode import DLL, Fsm, fingerprint
 
     HAVE_FFI = True
-except (ImportError, OSError):
+except (ImportError, OSError, AttributeError):
     DLL = ""
     HAVE_FFI = False
 

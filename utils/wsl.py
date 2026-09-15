@@ -19,6 +19,12 @@ def wsl_sim(mod, testcase=None):
     rd = config.run_dir("test")
     log = os.path.join(rd, mod + ".log")
     ver = os.environ.get("WSL_VERILATOR", "$HOME/verilator-532/bin")
+    rc = _wsl(
+        f"cd {wsl_path(config.REPO)}/software && "
+        "cargo build -p kyberlink-simnode --target x86_64-unknown-linux-gnu"
+    )
+    if rc != 0:
+        raise AppError(f"simnode cdylib build failed rc={rc}", rc)
     tc = f" {testcase}" if testcase else ""
     tm = (
         f'export TEST_MODULE="{os.environ["TEST_MODULE"]}" && '
