@@ -304,7 +304,13 @@ pub fn exec<F: NorFlash>(line: &str, ctx: &Ctx, flash: &mut F, out: &mut LineBuf
         "RESUME" if configure => Action::Resume,
         "REKEY" if !configure => Action::Rekey,
         "REBOOT" => Action::Reboot,
-        "SPK" if configure => Action::Spill,
+        "SPK" if configure => {
+            if args.next() != Some("CONFIRM") {
+                err(out, "confirm required")
+            } else {
+                Action::Spill
+            }
+        }
         "FP" if configure => cmd_fp(args.next(), flash, out),
         "ROLE" if configure => cmd_role(args.next(), flash, out),
         "NET" if configure => cmd_net(&mut args, flash, out),
@@ -447,7 +453,7 @@ mod tests {
         assert_eq!(a, Action::Rekey);
         let (_, a) = run("REBOOT", Mode::Configure, &mut f);
         assert_eq!(a, Action::Reboot);
-        let (_, a) = run("SPK", Mode::Configure, &mut f);
+        let (_, a) = run("SPK CONFIRM", Mode::Configure, &mut f);
         assert_eq!(a, Action::Spill);
     }
 

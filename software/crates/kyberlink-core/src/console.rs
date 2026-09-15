@@ -233,7 +233,7 @@ mod tests {
         let payload = identity_payload();
         let hex = hex_of(&payload);
 
-        let events = push_str(&mut c, &mut f, "SPK\n");
+        let events = push_str(&mut c, &mut f, "SPK CONFIRM\n");
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].1, "READY\n");
 
@@ -260,7 +260,7 @@ mod tests {
     fn spill_bad_hex_aborts_and_recovers() {
         let mut f = MemFlash::new(0x4_0000);
         let mut c = Console::new(Mode::Configure);
-        push_str(&mut c, &mut f, "SPK\n");
+        push_str(&mut c, &mut f, "SPK CONFIRM\n");
         let events = push_str(&mut c, &mut f, "zz\n");
         assert_eq!(events[0].1, "ERR bad hex\n");
         assert!(verify(&mut f, IDENTITY_BASE, &MAGIC_IDENTITY, IDENTITY_LEN as u16).is_err());
