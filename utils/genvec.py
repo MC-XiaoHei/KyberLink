@@ -4,7 +4,7 @@ from . import config
 from .core import AppError, Result
 from .wsl import wsl_path
 
-MODES = ["all", "shake", "aes", "gcm", "ghash", "cipher", "esp", "handshake", "cross"]
+MODES = ["all", "aes", "gcm", "handshake", "cross"]
 
 
 def genvec(mode="all", n=32):
