@@ -177,7 +177,7 @@ async def hsk_recv(dut, spi, expect, tag, max_retry=40):
         end = min(ofs + len(pl), len(expect))
         if len(got) < end:
             got.extend(b"\x00" * (end - len(got)))
-        got[ofs:end] = expect[ofs:end]
+        got[ofs:end] = pl[:end - ofs]
         await hsk_send_ack(dut, spi, ofs)
         if len(got) >= total:
             break
