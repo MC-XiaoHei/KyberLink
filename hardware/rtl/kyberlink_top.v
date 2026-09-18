@@ -173,7 +173,7 @@ module kyberlink_top (
       .USE_CLK90("FALSE"),
       .ENABLE_PADDING(1),
       .MIN_FRAME_LENGTH(64),
-      .SPEED_FORCE(1'b1),
+      .SPEED_FORCE(1'b0),
       .RX_FIFO_DEPTH(2048),
       .RX_FRAME_FIFO(1)
   ) u_mac_lan (
@@ -222,7 +222,7 @@ module kyberlink_top (
       .USE_CLK90("FALSE"),
       .ENABLE_PADDING(1),
       .MIN_FRAME_LENGTH(64),
-      .SPEED_FORCE(1'b1),
+      .SPEED_FORCE(1'b0),
       .RX_FIFO_DEPTH(2048),
       .RX_FRAME_FIFO(1)
   ) u_mac_wan (
