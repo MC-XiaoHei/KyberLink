@@ -40,11 +40,6 @@ module spi_regs (
 
     input wire [4:0] err_pulse,
 
-    output wire       ctrl_valid,
-    output wire [7:0] ctrl_data,
-    output wire       ctrl_last,
-    input  wire       ctrl_ready,
-
     output wire soft_rst
 );
 
@@ -89,19 +84,8 @@ module spi_regs (
   reg         hsk_tx_valid_r;
   reg         hsk_tx_last_r;
 
-  reg  [31:0] c_mem          [0:15];
-  reg  [ 3:0] c_wr_ptr;
-  reg  [ 3:0] c_rd_ptr;
-  reg  [ 4:0] c_cnt;
-  reg  [ 8:0] c_len;
-  reg  [ 1:0] c_state;
-  reg  [ 1:0] c_hb;
-  reg  [ 8:0] c_tx_n;
-
   localparam TX_IDLE = 2'd0;
   localparam TX_DUMP = 2'd1;
-  localparam C_IDLE  = 2'd0;
-  localparam C_RUN   = 2'd1;
 
   wire tx_busy = (tx_cnt != 10'd0) || (tx_state == TX_DUMP);
   wire [15:0] tx_words = {2'd0, tx_len_lim_r[15:2]} + {14'd0, |tx_len_lim_r[1:0]};
@@ -188,13 +172,6 @@ module spi_regs (
       tx_len_lim_r <= 16'd0;
       hsk_tx_valid_r <= 1'b0;
       hsk_tx_last_r <= 1'b0;
-      c_wr_ptr <= 4'd0;
-      c_rd_ptr <= 4'd0;
-      c_cnt <= 5'd0;
-      c_len <= 9'd0;
-      c_state <= C_IDLE;
-      c_hb <= 2'd0;
-      c_tx_n <= 9'd0;
     end else begin
       key_load   <= 1'b0;
       soft_rst_r <= 1'b0;
@@ -240,20 +217,6 @@ module spi_regs (
             end else begin
               err_flags[5] <= 1'b1;
             end
-          end
-          7'h41: begin
-            if (c_cnt < 5'd16) begin
-              c_mem[c_wr_ptr[3:0]] <= wdata;
-              c_wr_ptr <= c_wr_ptr + 4'd1;
-              c_cnt <= c_cnt + 5'd1;
-            end
-          end
-          7'h42: begin
-            c_len <= wdata[8:0];
-            c_rd_ptr <= 4'd0;
-            c_tx_n <= 9'd0;
-            c_hb <= 2'd0;
-            c_state <= C_RUN;
           end
           7'h50:   err_flags <= 6'd0;
           7'h44:   r_key_enc[255:224] <= wdata;
@@ -336,24 +299,6 @@ module spi_regs (
           default: ;
         endcase
       end
-      case (c_state)
-        C_RUN: begin
-          if (ctrl_ready) begin
-            c_hb <= c_hb + 2'd1;
-            if (c_hb == 2'd3) begin
-              c_rd_ptr <= c_rd_ptr + 4'd1;
-              c_cnt <= c_cnt - 5'd1;
-            end
-            if (c_tx_n == c_len - 9'd1) begin
-              c_state <= C_IDLE;
-              c_tx_n  <= 9'd0;
-            end else begin
-              c_tx_n <= c_tx_n + 9'd1;
-            end
-          end
-        end
-        default: ;
-      endcase
     end
   end
 
@@ -370,9 +315,5 @@ module spi_regs (
     endcase
   end
   assign rdata = rdata_c;
-
-  assign ctrl_valid = (c_state == C_RUN);
-  assign ctrl_data = c_mem[c_rd_ptr[3:0]][31-8*c_hb-:8];
-  assign ctrl_last = (c_tx_n == c_len - 9'd1);
 
 endmodule

@@ -386,49 +386,6 @@ async def soft_rst_mid_traffic(dut):
     print("soft_rst_mid_traffic PASS", flush=True)
 
 
-@cocotb.test()
-async def ctrl_fifo_tx(dut):
-    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
-    dut.rst_n.value = 0
-    dut.spi_sck.value = 0
-    dut.spi_mosi.value = 0
-    dut.spi_csn.value = 1
-    dut.hsk_rx_wr.value = 0
-    dut.hsk_rx_data.value = 0
-    dut.hsk_rx_last.value = 0
-    dut.hsk_rx_len.value = 0
-    dut.hsk_tx_ready.value = 1
-    dut.ctrl_ready.value = 1
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
-
-    words = [0x11223344, 0x55667788, 0x99AABBCC]
-    for w in words:
-        await spi_write(dut, 0x41, w)
-
-    out = bytearray()
-    last_seen = False
-
-    async def collect_ctrl():
-        nonlocal last_seen
-        for _ in range(500):
-            if int(dut.ctrl_valid.value):
-                out.append(int(dut.ctrl_data.value))
-                if int(dut.ctrl_last.value):
-                    last_seen = True
-                    return
-            await ClockCycles(dut.clk, 1)
-
-    await spi_write(dut, 0x42, len(words) * 4)
-    cc = cocotb.start_soon(collect_ctrl())
-    await cc
-    assert last_seen, "ctrl_last never seen"
-    exp = b"".join(w.to_bytes(4, "big") for w in words)
-    assert bytes(out) == exp, f"ctrl bytes {bytes(out).hex()} vs {exp.hex()}"
-    print("ctrl_fifo_tx PASS", flush=True)
-
-
 async def spi_read_slow(dut, addr, half=30):
     dut.spi_csn.value = 0
     await ClockCycles(dut.clk, 1)

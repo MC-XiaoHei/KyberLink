@@ -60,10 +60,6 @@ module link_core (
   wire [ 15:0] hsk_len;
   wire         hsk_ready;
   wire [  9:0] hsk_room;
-  wire [  7:0] ctrl_tx_tdata;
-  wire         ctrl_tx_tvalid;
-  wire         ctrl_tx_tlast;
-  wire         ctrl_tx_tready;
 
   wire         hsk_tx_valid;
   wire [ 31:0] hsk_tx_data;
@@ -115,11 +111,6 @@ module link_core (
       .err_replay_i(err_replay_w),
       .err_oversize_i(err_oversize_w),
       .err_rxdrop_i(err_rxdrop_w),
-
-      .ctrl_ready(ctrl_tx_tready),
-      .ctrl_valid(ctrl_tx_tvalid),
-      .ctrl_data (ctrl_tx_tdata),
-      .ctrl_last (ctrl_tx_tlast),
 
       .soft_rst(soft_rst_w)
   );
@@ -206,10 +197,6 @@ module link_core (
       .cfg_dst_ip(cfg_dst_ip),
       .cfg_src_mac(cfg_src_mac),
       .cfg_dst_mac(cfg_dst_mac),
-      .s_ctrl_tdata(ctrl_tx_tdata),
-      .s_ctrl_tvalid(ctrl_tx_tvalid),
-      .s_ctrl_tlast(ctrl_tx_tlast),
-      .s_ctrl_tready(ctrl_tx_tready),
       .m_tdata(wan_txd),
       .m_tvalid(wan_tx_en),
       .m_tlast(wan_tx_last),
