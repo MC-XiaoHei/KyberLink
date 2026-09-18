@@ -72,8 +72,8 @@ module gcm_stream (
   wire gh_accept;
   wire [127:0] gh_tag;
 
-  wire cb_h = (phase == PHASE_AES_H) && !h_submit && aes_load_rdy && !aes_done;
-  wire cb_j0 = (phase == PHASE_AES_J0) && !j0_submit && aes_load_rdy && !aes_done;
+  wire cb_h = (phase == PHASE_AES_H) && !h_submit && aes_load_rdy && !aes_done && !aes_start;
+  wire cb_j0 = (phase == PHASE_AES_J0) && !j0_submit && aes_load_rdy && !aes_done && !aes_start;
   wire blk_valid_w = cb_h || cb_j0 || cb_sub_pt;
   wire [127:0] aes_block_w = cb_h ? 128'd0 :
                   cb_j0 ? {nonce, 31'b0, 1'b1} :

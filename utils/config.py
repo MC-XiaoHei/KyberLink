@@ -40,7 +40,6 @@ MIRI = ["kyberlink-core", "kyberlink-simnode"]
 
 AES_CORE = [
     R("aes256_core_pipe.v"),
-    R("sbox_combo_cf_lut.v"),
     R("sb_sbox16.v"),
 ]
 
@@ -103,7 +102,6 @@ CONF = {
         "top": "aes256_core_pipe",
         "test_module": "tb_aes_pipe",
         "src": [
-            R("sbox_combo_cf_lut.v"),
             R("sb_sbox16.v"),
             R("aes256_core_pipe.v"),
             R("bram_128x16.v"),
