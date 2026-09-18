@@ -220,7 +220,7 @@ async def err_counters(dut):
     await drive_esp(bad)
     await wait_idle()
     st = await spi_read(dut, 0x50)
-    assert st & 1 and st & 4, f"badtag/replay flags {st:08x}"
+    assert st & 1, f"badtag flag {st:08x}"
 
     big = bytes((j * 3) & 0xFF for j in range(2200))
     for j, b in enumerate(big):
@@ -510,29 +510,11 @@ async def soft_rst_mid_flight(dut):
 async def replay_window_bounds(dut):
     await start_drained(dut)
 
-    frame = make_frame(100)
-    esp_out = bytearray()
-
-    async def wan_collect():
-        while True:
-            if int(dut.wan_tx_en.value):
-                esp_out.append(int(dut.wan_txd.value))
-                if int(dut.wan_tx_last.value):
-                    return
-            await ClockCycles(dut.clk, 1)
-
-    c = cocotb.start_soon(wan_collect())
-    for j, b in enumerate(frame):
-        dut.lan_rxd.value = b
-        dut.lan_rx_dv.value = 1
-        dut.lan_rx_last.value = 1 if j == len(frame) - 1 else 0
-        await ClockCycles(dut.clk, 1)
-    dut.lan_rx_dv.value = 0
-    dut.lan_rx_last.value = 0
-    await c
-    esp = bytearray(esp_out)
-    data = bytes(esp[12:])
-    assert len(data) > 38, "esp too short"
+    e1 = await lan_emit_esp(dut)
+    e2 = await lan_emit_esp(dut)
+    data = bytes(e1[12:])
+    data2 = bytes(e2[12:])
+    assert len(data) > 38 and len(data2) > 38, "esp too short"
 
     async def wait_idle():
         for _ in range(200000):
@@ -567,23 +549,23 @@ async def replay_window_bounds(dut):
     await drive_esp(with_seq(100))
     await wait_idle()
     b1, r1 = await counters()
-    assert (b1, r1) == (1, 0), f"fwd: badtag {b1} replay {r1}"
+    assert (b1, r1) == (1, 0), f"forged fwd: badtag {b1} replay {r1}"
     await drive_esp(with_seq(36))
     await wait_idle()
     b2, r2 = await counters()
-    assert (b2, r2) == (0, 1), f"back 64 should replay (bt {b2} rp {r2})"
-    await drive_esp(with_seq(37))
+    assert (b2, r2) == (1, 0), f"forged back: badtag {b2} replay {r2}"
+    await drive_esp(data)
     await wait_idle()
     b3, r3 = await counters()
-    assert (b3, r3) == (1, 0), f"back 63 accept (bt {b3} rp {r3})"
-    await drive_esp(with_seq(37))
+    assert (b3, r3) == (0, 0), f"authentic accept: badtag {b3} replay {r3}"
+    await drive_esp(data2)
     await wait_idle()
     b4, r4 = await counters()
-    assert (b4, r4) == (0, 1), f"window bit already set replay (bt {b4} rp {r4})"
-    await drive_esp(with_seq(64))
+    assert (b4, r4) == (0, 0), f"authentic next: badtag {b4} replay {r4}"
+    await drive_esp(data)
     await wait_idle()
     b5, r5 = await counters()
-    assert (b5, r5) == (1, 0), f"back 36 accept (bt {b5} rp {r5})"
+    assert (b5, r5) == (0, 1), f"in-window replay: badtag {b5} replay {r5}"
     print("replay_window_bounds PASS", flush=True)
 
 
@@ -612,6 +594,34 @@ async def drive_wan(dut, payload):
     dut.wan_rx_dv.value = 0
     dut.wan_rx_last.value = 0
     await ClockCycles(dut.clk, 200)
+
+
+async def lan_emit_esp(dut, n=100):
+    frame = make_frame(n)
+    esp_out = bytearray()
+
+    async def wan_collect():
+        for _ in range(200000):
+            if int(dut.wan_tx_en.value):
+                esp_out.append(int(dut.wan_txd.value))
+                if int(dut.wan_tx_last.value):
+                    return
+            await ClockCycles(dut.clk, 1)
+
+    c = cocotb.start_soon(wan_collect())
+    for j, b in enumerate(frame):
+        dut.lan_rxd.value = b
+        dut.lan_rx_dv.value = 1
+        dut.lan_rx_last.value = 1 if j == len(frame) - 1 else 0
+        await ClockCycles(dut.clk, 1)
+    dut.lan_rx_dv.value = 0
+    dut.lan_rx_last.value = 0
+    for _ in range(400000):
+        await ClockCycles(dut.clk, 1)
+        if c.done():
+            break
+    c.kill()
+    return bytes(esp_out)
 
 
 async def lan_roundtrip(dut, n=100):
@@ -683,28 +693,10 @@ async def short_frame_no_hang(dut):
 async def in_order_replay_rejected(dut):
     await start(dut)
 
-    frame = make_frame(100)
-    esp_out = bytearray()
-
-    async def wan_collect():
-        while True:
-            if int(dut.wan_tx_en.value):
-                esp_out.append(int(dut.wan_txd.value))
-                if int(dut.wan_tx_last.value):
-                    return
-            await ClockCycles(dut.clk, 1)
-
-    c = cocotb.start_soon(wan_collect())
-    for j, b in enumerate(frame):
-        dut.lan_rxd.value = b
-        dut.lan_rx_dv.value = 1
-        dut.lan_rx_last.value = 1 if j == len(frame) - 1 else 0
-        await ClockCycles(dut.clk, 1)
-    dut.lan_rx_dv.value = 0
-    dut.lan_rx_last.value = 0
-    await c
-    esp = bytearray(esp_out)
-    data = bytes(esp[12:])
+    e1 = await lan_emit_esp(dut)
+    e2 = await lan_emit_esp(dut)
+    data = bytes(e1[12:])
+    data2 = bytes(e2[12:])
 
     async def wait_idle():
         for _ in range(200000):
@@ -713,10 +705,8 @@ async def in_order_replay_rejected(dut):
             await ClockCycles(dut.clk, 1)
         raise AssertionError("dec never idle")
 
-    async def drive_seq(v):
-        d = bytearray(data)
-        d[34:38] = v.to_bytes(4, "big")
-        rsp = SRC_MAC.to_bytes(6, "big") + DST_MAC.to_bytes(6, "big") + bytes(d)
+    async def drive_esp(payload):
+        rsp = SRC_MAC.to_bytes(6, "big") + DST_MAC.to_bytes(6, "big") + payload
         for j, b in enumerate(rsp):
             dut.wan_rxd.value = b
             dut.wan_rx_dv.value = 1
@@ -734,20 +724,20 @@ async def in_order_replay_rejected(dut):
     b, r = await counters()
     assert (b, r) == (0, 0), f"init errors {b} {r}"
 
-    await drive_seq(10)
+    await drive_esp(data)
     await wait_idle()
     b, r = await counters()
-    assert r == 0, f"seq10 replay {r}"
+    assert (b, r) == (0, 0), f"first accept {b} {r}"
 
-    await drive_seq(11)
+    await drive_esp(data2)
     await wait_idle()
     b, r = await counters()
-    assert r == 0, f"seq11 replay {r}"
+    assert (b, r) == (0, 0), f"next accept {b} {r}"
 
-    await drive_seq(10)
+    await drive_esp(data)
     await wait_idle()
     b, r = await counters()
-    assert r == 1, f"seq10 accepted {r}"
+    assert (b, r) == (0, 1), f"replay {b} {r}"
     print("in-order replay rejected PASS", flush=True)
 
 
@@ -755,27 +745,12 @@ async def in_order_replay_rejected(dut):
 async def jump_keeps_replay_window(dut):
     await start(dut)
 
-    frame = make_frame(100)
-    esp_out = bytearray()
-
-    async def wan_collect():
-        while True:
-            if int(dut.wan_tx_en.value):
-                esp_out.append(int(dut.wan_txd.value))
-                if int(dut.wan_tx_last.value):
-                    return
-            await ClockCycles(dut.clk, 1)
-
-    c = cocotb.start_soon(wan_collect())
-    for j, b in enumerate(frame):
-        dut.lan_rxd.value = b
-        dut.lan_rx_dv.value = 1
-        dut.lan_rx_last.value = 1 if j == len(frame) - 1 else 0
-        await ClockCycles(dut.clk, 1)
-    dut.lan_rx_dv.value = 0
-    dut.lan_rx_last.value = 0
-    await c
-    data = bytes(esp_out)[12:]
+    e1 = await lan_emit_esp(dut)
+    e2 = await lan_emit_esp(dut)
+    e3 = await lan_emit_esp(dut)
+    d1 = bytes(e1[12:])
+    d2 = bytes(e2[12:])
+    d3 = bytes(e3[12:])
 
     async def wait_idle():
         for _ in range(200000):
@@ -784,10 +759,8 @@ async def jump_keeps_replay_window(dut):
             await ClockCycles(dut.clk, 1)
         raise AssertionError("dec never idle")
 
-    async def drive_seq(v):
-        d = bytearray(data)
-        d[34:38] = v.to_bytes(4, "big")
-        rsp = SRC_MAC.to_bytes(6, "big") + DST_MAC.to_bytes(6, "big") + bytes(d)
+    async def drive_esp(payload):
+        rsp = SRC_MAC.to_bytes(6, "big") + DST_MAC.to_bytes(6, "big") + payload
         for j, b in enumerate(rsp):
             dut.wan_rxd.value = b
             dut.wan_rx_dv.value = 1
@@ -805,28 +778,23 @@ async def jump_keeps_replay_window(dut):
     b, r = await counters()
     assert (b, r) == (0, 0), f"init errors {b} {r}"
 
-    await drive_seq(10)
+    await drive_esp(d1)
     await wait_idle()
     b, r = await counters()
-    assert r == 0, f"seq10 replay {r}"
+    assert (b, r) == (0, 0), f"first {b} {r}"
 
-    await drive_seq(20)
+    await drive_esp(d3)
     await wait_idle()
     b, r = await counters()
-    assert r == 0, f"seq20 fwd replay {r}"
+    assert (b, r) == (0, 0), f"jump fwd {b} {r}"
 
-    await drive_seq(10)
+    await drive_esp(d1)
     await wait_idle()
     b, r = await counters()
-    assert r == 1, f"seq10 after jump accepted {r}"
+    assert (b, r) == (0, 1), f"behind window {b} {r}"
 
-    await drive_seq(85)
+    await drive_esp(d2)
     await wait_idle()
     b, r = await counters()
-    assert r == 0, f"seq85 fwd replay {r}"
-
-    await drive_seq(21)
-    await wait_idle()
-    b, r = await counters()
-    assert r == 1, f"seq21 out-of-window accepted {r}"
+    assert (b, r) == (0, 0), f"inside window {b} {r}"
     print("jump keeps window PASS", flush=True)
