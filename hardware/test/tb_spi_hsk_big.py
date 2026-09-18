@@ -53,7 +53,7 @@ async def spi_tx_big(dut):
     dut.rst_n.value = 1
     await ClockCycles(dut.clk, 2)
 
-    data = bytes((i * 13 + 7) & 0xFF for i in range(3168))
+    data = bytes((i * 13 + 7) & 0xFF for i in range(2000))
     await spi_write(dut, 0x3C, len(data))
     for i in range(0, len(data), 4):
         chunk = data[i:i + 4]
@@ -70,7 +70,7 @@ async def spi_tx_big(dut):
             if int(dut.hsk_tx_last.value):
                 last_seen = 1
         await ClockCycles(dut.clk, 1)
-    assert len(got) == 3168, f"txbig len {len(got)}"
+    assert len(got) == 2000, f"txbig len {len(got)}"
     assert got == data, f"txbig content {got[:8].hex()}"
     assert last_seen, "txbig last"
     print(f"TXBIG ok len={len(got)} head={got[:16].hex()} tail={got[-16:].hex()}", flush=True)
@@ -108,9 +108,7 @@ async def spi_tx_fifo_overflow(dut):
                 break
         await ClockCycles(dut.clk, 1)
     assert len(got) > 0, "overflow no out"
-    store = [None] * 512
-    for w in range(words):
-        store[w % 512] = pat[w]
-    exp = [store[i % 512] for i in range(words)]
-    assert got == exp, f"overflow got0 {got[0]:08x} exp0 {exp[0]:08x} n {len(got)}"
+    assert got == pat[:512], f"overflow got {len(got)} words"
+    st = await spi_read(dut, 0x50)
+    assert st & 0x20, f"overflow flag {st:08x}"
     print(f"tx overflow ok {len(got)} words", flush=True)

@@ -68,7 +68,7 @@ module spi_regs (
   reg [  3:0] len_rd_ptr;
   reg [  4:0] len_cnt;
   reg [ 15:0] rx_left;
-  reg [  4:0] err_flags;
+  reg [  5:0] err_flags;
   reg         soft_rst_r;
   assign soft_rst = soft_rst_r;
 
@@ -83,6 +83,7 @@ module spi_regs (
   reg  [ 1:0] tx_state;
   reg  [12:0] tx_n;
   reg  [15:0] tx_len_r;
+  reg  [15:0] tx_len_lim_r;
 
   wire [31:0] tx_rd_data;
   reg         hsk_tx_valid_r;
@@ -103,8 +104,8 @@ module spi_regs (
   localparam C_RUN   = 2'd1;
 
   wire tx_busy = (tx_cnt != 10'd0) || (tx_state == TX_DUMP);
-  wire [15:0] tx_words = {2'd0, tx_len_r[15:2]} + {14'd0, |tx_len_r[1:0]};
-  assign hsk_tx_len = tx_len_r;
+  wire [15:0] tx_words = {2'd0, tx_len_lim_r[15:2]} + {14'd0, |tx_len_lim_r[1:0]};
+  assign hsk_tx_len = tx_len_lim_r;
   wire [ 3:0] nxt_ptr = len_rd_ptr + 4'd1;
   wire        len_push = hsk_rx_last && (len_cnt != 5'd16);
   wire        rd_pop = rreq && (raddr == 7'h38) && (rx_cnt != 13'd0);
@@ -145,7 +146,7 @@ module spi_regs (
       .clk(clk),
       .waddr(tx_wr_ptr[8:0]),
       .wdata(wdata),
-      .we(wvalid && (waddr == 7'h40)),
+      .we(wvalid && (waddr == 7'h40) && (tx_cnt != 10'd512)),
       .raddr(tx_rd_ptr[8:0]),
       .rdata(tx_rd_data)
   );
@@ -173,7 +174,7 @@ module spi_regs (
       rx_rd_hold <= 32'd0;
       key_load <= 1'b0;
       r_seq <= 32'd1;
-      err_flags <= 5'd0;
+      err_flags <= 6'd0;
       soft_rst_r <= 1'b0;
       rx_wr_ptr <= 9'd0;
       rx_rd_ptr <= 9'd0;
@@ -184,6 +185,7 @@ module spi_regs (
       tx_state <= TX_IDLE;
       tx_n <= 13'd0;
       tx_len_r <= 16'd0;
+      tx_len_lim_r <= 16'd0;
       hsk_tx_valid_r <= 1'b0;
       hsk_tx_last_r <= 1'b0;
       c_wr_ptr <= 4'd0;
@@ -212,6 +214,10 @@ module spi_regs (
               tx_state <= TX_DUMP;
               tx_n <= 13'd0;
               tx_len_r <= r_hsk_tx_len;
+              tx_len_lim_r <=
+                  (r_hsk_tx_len > {4'd0, tx_cnt, 2'b00})
+                  ? {4'd0, tx_cnt, 2'b00}
+                  : r_hsk_tx_len;
             end
           end
           7'h08:   r_spi <= wdata;
@@ -228,8 +234,12 @@ module spi_regs (
           7'h74:   r_seq <= wdata;
           7'h3C:   r_hsk_tx_len <= wdata[15:0];
           7'h40: begin
-            tx_wr_ptr <= tx_wr_ptr + 9'd1;
-            tx_cnt <= tx_cnt + 10'd1;
+            if (tx_cnt != 10'd512) begin
+              tx_wr_ptr <= tx_wr_ptr + 9'd1;
+              tx_cnt <= tx_cnt + 10'd1;
+            end else begin
+              err_flags[5] <= 1'b1;
+            end
           end
           7'h41: begin
             if (c_cnt < 5'd16) begin
@@ -245,7 +255,7 @@ module spi_regs (
             c_hb <= 2'd0;
             c_state <= C_RUN;
           end
-          7'h50:   err_flags <= 5'd0;
+          7'h50:   err_flags <= 6'd0;
           7'h44:   r_key_enc[255:224] <= wdata;
           7'h45:   r_key_enc[223:192] <= wdata;
           7'h46:   r_key_enc[191:160] <= wdata;
@@ -289,7 +299,7 @@ module spi_regs (
       if (err_pulse[3]) err_flags[3] <= 1'b1;
       if (err_pulse[4]) err_flags[4] <= 1'b1;
       if (soft_rst_r) begin
-        err_flags <= 5'd0;
+        err_flags <= 6'd0;
         rx_wr_ptr <= 9'd0;
         rx_rd_ptr <= 9'd0;
         rx_cnt <= 10'd0;
@@ -303,10 +313,15 @@ module spi_regs (
         tx_state <= TX_IDLE;
         tx_n <= 13'd0;
         tx_len_r <= 16'd0;
+        tx_len_lim_r <= 16'd0;
       end else begin
         case (tx_state)
           TX_DUMP: begin
-            if (hsk_tx_ready && tx_n < tx_words) begin
+            if (tx_n >= tx_words) begin
+              tx_state <= TX_IDLE;
+              tx_n <= 13'd0;
+              tx_cnt <= 10'd0;
+            end else if (hsk_tx_ready) begin
               tx_rd_ptr <= tx_rd_ptr + 9'd1;
               tx_cnt <= tx_cnt - 10'd1;
               if (tx_n == tx_words - 13'd1) begin
@@ -349,7 +364,7 @@ module spi_regs (
       7'h04:   rdata_c = {28'd0, tx_busy, hsk_rx_pending};
       7'h34:   rdata_c = {16'd0, (len_cnt != 5'd0) ? len_q[len_rd_ptr] : 16'd0};
       7'h38:   rdata_c = rx_rd_hold;
-      7'h50:   rdata_c = {27'd0, err_flags};
+      7'h50:   rdata_c = {26'd0, err_flags};
       7'h74:   rdata_c = r_seq;
       default: rdata_c = 32'd0;
     endcase
