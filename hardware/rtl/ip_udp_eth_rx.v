@@ -126,6 +126,8 @@ module ip_udp_eth_rx (
                   m_data_tvalid <= 1'b1;
                   m_data_tdata  <= d;
                   m_data_tlast  <= pay_end || s_tlast;
+                end else begin
+                  err_rxdrop <= 1'b1;
                 end
               end else if (is_hsk) begin
                 hsk_len_r <= hsk_len_r + 16'd1;
