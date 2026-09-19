@@ -492,7 +492,7 @@ module bridge_dec_path (
           err_replay <= 1'b1;
         end else begin
           out_len_p[dec_sel] <= out_len_c;
-          ct_avail[dec_sel] <= 1'b1;
+          ct_avail[dec_sel]  <= 1'b1;
           if (seq_fwd_ds == 32'd0) begin
             win_r[6'd0] <= 1'b1;
           end else if (seq_behind_w) begin

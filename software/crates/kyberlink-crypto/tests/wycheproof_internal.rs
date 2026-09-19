@@ -31,8 +31,14 @@ fn mlkem_keygen_internal() {
         for t in g["tests"].as_array().unwrap() {
             let valid = t["result"].as_str() == Some("valid");
             let seed_ok = t["seed"].as_str().map(|s| s.len() == 128).unwrap_or(false);
-            let ek_ok = t["ek"].as_str().map(|s| s.len() == 2 * ki::EK_LEN).unwrap_or(false);
-            let dk_ok = t["dk"].as_str().map(|s| s.len() == 2 * ki::DK_LEN).unwrap_or(false);
+            let ek_ok = t["ek"]
+                .as_str()
+                .map(|s| s.len() == 2 * ki::EK_LEN)
+                .unwrap_or(false);
+            let dk_ok = t["dk"]
+                .as_str()
+                .map(|s| s.len() == 2 * ki::DK_LEN)
+                .unwrap_or(false);
             if !seed_ok || !ek_ok || !dk_ok {
                 assert!(!valid, "tcId={}", t["tcId"]);
                 continue;
@@ -62,8 +68,14 @@ fn mlkem_encaps_internal() {
         for t in g["tests"].as_array().unwrap() {
             let valid = t["result"].as_str() == Some("valid");
             let m_ok = t["m"].as_str().map(|s| s.len() == 64).unwrap_or(false);
-            let ek_ok = t["ek"].as_str().map(|s| s.len() == 2 * ki::EK_LEN).unwrap_or(false);
-            let c_ok = t["c"].as_str().map(|s| s.len() == 2 * ki::CT_LEN).unwrap_or(false);
+            let ek_ok = t["ek"]
+                .as_str()
+                .map(|s| s.len() == 2 * ki::EK_LEN)
+                .unwrap_or(false);
+            let c_ok = t["c"]
+                .as_str()
+                .map(|s| s.len() == 2 * ki::CT_LEN)
+                .unwrap_or(false);
             let k_ok = t["K"].as_str().map(|s| s.len() == 64).unwrap_or(false);
             if !m_ok || !ek_ok || !c_ok || !k_ok {
                 assert!(!valid, "tcId={}", t["tcId"]);
