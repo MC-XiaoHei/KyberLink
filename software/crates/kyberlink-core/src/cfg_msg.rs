@@ -1,12 +1,7 @@
-const _: () = assert!(core::mem::align_of::<SignPrecomp>() <= 4);
-
 use kyberlink_crypto::handshake::RomIdentity;
 use kyberlink_crypto::mldsa_internal::{SignPrecomp, VK_LEN};
 
-use crate::cfg_store::{
-    self, CfgError, NorFlash, BINDING_BASE, BINDING_PAGES, IDENTITY_BASE, MAGIC_BINDING,
-    MAGIC_IDENTITY,
-};
+use crate::cfg_store::{self, CfgError, NorFlash, BINDING_BASE, BINDING_PAGES, MAGIC_BINDING};
 
 pub use kyberlink_crypto::handshake::{KK_LEN, TR_LEN};
 pub const FP_LEN: usize = 32;
@@ -20,8 +15,7 @@ const TR_OFF: usize = KK_OFF + KK_LEN;
 const SPC_OFF: usize = TR_OFF + TR_LEN;
 pub const IDENTITY_LEN: usize = SPC_OFF + SPC_LEN;
 
-const B_ROLE: usize = 0;
-const B_PEER_FP: usize = B_ROLE + 1;
+const B_PEER_FP: usize = 0;
 const B_SRC_MAC: usize = B_PEER_FP + FP_LEN;
 const B_DST_MAC: usize = B_SRC_MAC + MAC_LEN;
 const B_SRC_IP: usize = B_DST_MAC + MAC_LEN;
@@ -54,7 +48,6 @@ impl<'a> Identity<'a> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Binding {
-    pub role_initiator: bool,
     pub peer_fp: [u8; FP_LEN],
     pub src_mac: [u8; MAC_LEN],
     pub dst_mac: [u8; MAC_LEN],
@@ -67,7 +60,6 @@ pub struct Binding {
 impl Default for Binding {
     fn default() -> Self {
         Binding {
-            role_initiator: false,
             peer_fp: [0; FP_LEN],
             src_mac: [0; MAC_LEN],
             dst_mac: [0; MAC_LEN],
@@ -84,7 +76,6 @@ impl Binding {
         if out.len() < BINDING_LEN {
             return Err(CfgError::Length);
         }
-        out[B_ROLE] = self.role_initiator as u8;
         out[B_PEER_FP..B_SRC_MAC].copy_from_slice(&self.peer_fp);
         out[B_SRC_MAC..B_DST_MAC].copy_from_slice(&self.src_mac);
         out[B_DST_MAC..B_SRC_IP].copy_from_slice(&self.dst_mac);
@@ -99,9 +90,6 @@ impl Binding {
         if b.len() < BINDING_LEN {
             return Err(CfgError::Length);
         }
-        if b[B_ROLE] > 1 {
-            return Err(CfgError::Value);
-        }
         let mut peer_fp = [0u8; FP_LEN];
         peer_fp.copy_from_slice(&b[B_PEER_FP..B_SRC_MAC]);
         let mut src_mac = [0u8; MAC_LEN];
@@ -113,7 +101,6 @@ impl Binding {
         let mut dst_ip = [0u8; IP_LEN];
         dst_ip.copy_from_slice(&b[B_DST_IP..B_SRC_PORT]);
         Ok(Binding {
-            role_initiator: b[B_ROLE] == 1,
             peer_fp,
             src_mac,
             dst_mac,
@@ -147,67 +134,52 @@ impl Binding {
     }
 }
 
-pub fn load_identity<F: NorFlash>(flash: &mut F) -> Result<RomIdentity, CfgError> {
-    cfg_store::verify(flash, IDENTITY_BASE, &MAGIC_IDENTITY, IDENTITY_LEN as u16)?;
-    let payload = flash
-        .map(IDENTITY_BASE + cfg_store::HEADER_LEN as u32, IDENTITY_LEN)
-        .ok_or(CfgError::Unmapped)?;
+pub fn identity_from_payload(payload: &'static [u8]) -> Result<RomIdentity, CfgError> {
     let parts = Identity::decode(payload)?;
     Ok(RomIdentity {
         vk: parts.vk.try_into().map_err(|_| CfgError::Length)?,
         kk: parts.kk.try_into().map_err(|_| CfgError::Length)?,
         tr: parts.tr.try_into().map_err(|_| CfgError::Length)?,
-        spc: unsafe { &*(parts.spc.as_ptr() as *const SignPrecomp) },
+        spc: SignPrecomp::from_bytes(parts.spc.try_into().map_err(|_| CfgError::Length)?),
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cfg_store::tests::MemFlash;
-    use crate::cfg_store::{FrameStream, IDENTITY_PAGES};
+    use std::sync::LazyLock;
 
-    fn write_identity_frame(f: &mut MemFlash, payload: &[u8]) {
-        let mut s = FrameStream::begin(f, IDENTITY_BASE, IDENTITY_PAGES, MAGIC_IDENTITY).unwrap();
-        for chunk in payload.chunks(251) {
-            s.write(f, chunk).unwrap();
-        }
-        s.finish(f).unwrap();
-    }
+    static PAYLOAD: LazyLock<[u8; IDENTITY_LEN]> = LazyLock::new(|| {
+        let mut p = [0u8; IDENTITY_LEN];
+        p[VK_OFF..KK_OFF].fill(0x11);
+        p[KK_OFF..TR_OFF].fill(0x22);
+        p[TR_OFF..SPC_OFF].fill(0x33);
+        p[SPC_OFF..].fill(0x44);
+        p
+    });
+
+    static SHORT: LazyLock<[u8; IDENTITY_LEN - 1]> = LazyLock::new(|| [0u8; IDENTITY_LEN - 1]);
 
     #[test]
-    fn load_identity_borrows_flash_payload() {
-        let mut f = MemFlash::new(0x4_0000);
-        let mut payload = [0u8; IDENTITY_LEN];
-        payload[VK_OFF..KK_OFF].fill(0x11);
-        payload[KK_OFF..TR_OFF].fill(0x22);
-        payload[TR_OFF..SPC_OFF].fill(0x33);
-        payload[SPC_OFF..].fill(0x44);
-        write_identity_frame(&mut f, &payload);
-
-        let id = load_identity(&mut f).unwrap();
+    fn identity_from_payload_splits_fields() {
+        let id = identity_from_payload(&PAYLOAD[..]).unwrap();
         assert_eq!(id.vk[0], 0x11);
         assert_eq!(id.vk[VK_LEN - 1], 0x11);
         assert_eq!(id.kk[0], 0x22);
         assert_eq!(id.kk[KK_LEN - 1], 0x22);
         assert_eq!(id.tr[0], 0x33);
         assert_eq!(id.tr[TR_LEN - 1], 0x33);
-        let spc = unsafe {
-            core::slice::from_raw_parts(id.spc as *const SignPrecomp as *const u8, SPC_LEN)
-        };
-        assert_eq!(spc[0], 0x44);
-        assert_eq!(spc[SPC_LEN - 1], 0x44);
+        assert_eq!(id.spc.as_bytes()[0], 0x44);
+        assert_eq!(id.spc.as_bytes()[SPC_LEN - 1], 0x44);
     }
 
     #[test]
-    fn load_identity_rejects_blank_flash() {
-        let mut f = MemFlash::new(0x4_0000);
-        assert!(load_identity(&mut f).is_err());
+    fn identity_from_payload_rejects_wrong_length() {
+        assert!(identity_from_payload(&SHORT[..]).is_err());
     }
 
     fn sample_binding() -> Binding {
         Binding {
-            role_initiator: true,
             peer_fp: [0xAB; FP_LEN],
             src_mac: [1, 2, 3, 4, 5, 6],
             dst_mac: [7, 8, 9, 10, 11, 12],
@@ -225,17 +197,9 @@ mod tests {
         b.encode(&mut buf).unwrap();
         assert_eq!(Binding::decode(&buf).unwrap(), b);
         let mut r = b;
-        r.role_initiator = false;
+        r.peer_fp[0] = 0xCD;
         r.encode(&mut buf).unwrap();
         assert_eq!(Binding::decode(&buf).unwrap(), r);
-    }
-
-    #[test]
-    fn binding_role_out_of_range_rejected() {
-        let mut buf = [0u8; BINDING_LEN];
-        sample_binding().encode(&mut buf).unwrap();
-        buf[B_ROLE] = 2;
-        assert_eq!(Binding::decode(&buf), Err(CfgError::Value));
     }
 
     #[test]

@@ -570,9 +570,9 @@ async def full_fw_roundtrip(dut):
     fp_a = fingerprint(seed_a)
     fp_b = fingerprint(seed_b)
     fsm_a = Fsm(seed_identity=seed_a, seed_peer=fp_b,
-                role=0, seed_d=fd, seed_z=fz, nonce=nc)
+                seed_d=fd, seed_z=fz, nonce=nc)
     fsm_b = Fsm(seed_identity=seed_b, seed_peer=fp_a,
-                role=1, seed_d=fd, seed_z=fz, nonce=nc)
+                seed_d=fd, seed_z=fz, nonce=nc)
     try:
         done = [False, False]
         nspi = [0, 0]
@@ -617,6 +617,8 @@ async def full_fw_roundtrip(dut):
         assert all(done), (
             f"handshake not complete via FW Fsm: it={it} done={done} "
             f"blk_to_b={nblk[0]} blk_to_a={nblk[1]} last={last} nspi={nspi}")
+        assert sorted([fsm_a.role(), fsm_b.role()]) == [1, 2], (
+            f"role pair {fsm_a.role()} {fsm_b.role()}")
 
         for f, spi in ((fsm_a, spi_a), (fsm_b, spi_b)):
             while True:
@@ -642,6 +644,87 @@ async def full_fw_roundtrip(dut):
         rx_a = await ca
         assert rx_a[0] == plain, "FW B->A mismatch"
         print("FW roundtrip B->A PASS", flush=True)
+    finally:
+        fsm_a.close()
+        fsm_b.close()
+
+
+@cocotb.test()
+async def dual_simultaneous_start(dut):
+    if not HAVE_FFI:
+        raise AssertionError(
+            f"simnode library missing {os.path.basename(DLL)}:"
+            "cargo build -p kyberlink-simnode")
+    spi_a, spi_b = await boot(dut)
+    await cfg_gw(dut, *spi_a, MAC_A, MAC_B, IP_A, IP_B)
+    await cfg_gw(dut, *spi_b, MAC_B, MAC_A, IP_B, IP_A)
+    await ClockCycles(dut.clk, 10)
+
+    fd = bytes(range(0x30, 0x50))
+    fz = bytes(range(0x50, 0x70))
+    nc = bytes(range(0x70, 0x90))
+    seed_a = bytes(range(32))
+    seed_b = bytes(range(64, 96))
+    fp_a = fingerprint(seed_a)
+    fp_b = fingerprint(seed_b)
+    fsm_a = Fsm(seed_identity=seed_a, seed_peer=fp_b, seed_d=fd, seed_z=fz, nonce=nc)
+    fsm_b = Fsm(seed_identity=seed_b, seed_peer=fp_a, seed_d=fd, seed_z=fz, nonce=nc)
+    try:
+        fsm_a.poll()
+        fsm_b.poll()
+        assert fsm_a.role() == 1 and fsm_b.role() == 1, (
+            f"both must open as initiator got {fsm_a.role()} {fsm_b.role()}")
+        for addr, data in fsm_a.take_writes():
+            await spi_write(dut, *spi_a, addr, data)
+        for addr, data in fsm_b.take_writes():
+            await spi_write(dut, *spi_b, addr, data)
+
+        done = [False, False]
+        for it in range(FFI_ITERS):
+            if not done[0] and fsm_a.poll() == 1:
+                done[0] = True
+            for addr, data in fsm_a.take_writes():
+                await spi_write(dut, *spi_a, addr, data)
+            st = await spi_read(dut, *spi_b, 0x04)
+            fsm_b.set_status(st)
+            if st & 1:
+                fsm_b.push_rx(await hsk_read_raw(dut, spi_b))
+
+            if not done[1] and fsm_b.poll() == 1:
+                done[1] = True
+            for addr, data in fsm_b.take_writes():
+                await spi_write(dut, *spi_b, addr, data)
+            st = await spi_read(dut, *spi_a, 0x04)
+            fsm_a.set_status(st)
+            if st & 1:
+                fsm_a.push_rx(await hsk_read_raw(dut, spi_a))
+
+            if all(done):
+                break
+            await ClockCycles(dut.clk, IDLE_CLOCKS)
+        assert all(done), (
+            f"simultaneous start stuck: it={it} done={done} "
+            f"role_a={fsm_a.role()} role_b={fsm_b.role()}")
+        assert (fsm_a.role() == 1) == (fp_a < fp_b), (
+            f"tie-break mismatch role_a={fsm_a.role()} role_b={fsm_b.role()} "
+            f"fp_a_lt_b={fp_a < fp_b}")
+
+        for f, spi in ((fsm_a, spi_a), (fsm_b, spi_b)):
+            while True:
+                w = f.take_writes()
+                if not w:
+                    break
+                for addr, data in w:
+                    await spi_write(dut, *spi, addr, data)
+
+        plain = bytes((j * 7 + 3) & 0xFF for j in range(PAYLOAD))
+        fa = cocotb.start_soon(feed(dut, dut.a_lan_rxd, dut.a_lan_rx_dv, dut.a_lan_rx_last,
+                                    dut.u_a_node.enc_s_tready, plain))
+        cb = cocotb.start_soon(collect(dut, dut.b_lan_txd, dut.b_lan_tx_en, dut.b_lan_tx_last, 1, "tie A->B"))
+        await fa
+        rx_b = await cb
+        assert rx_b[0] == plain, f"tie A->B len {len(rx_b[0])} vs {len(plain)}"
+        print("simultaneous start tie-break PASS", flush=True)
     finally:
         fsm_a.close()
         fsm_b.close()

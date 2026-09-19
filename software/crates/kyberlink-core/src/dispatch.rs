@@ -196,11 +196,7 @@ fn cmd_show<F: NorFlash>(flash: &mut F, out: &mut LineBuf) -> Action {
 }
 
 fn write_binding(out: &mut LineBuf, b: &Binding) {
-    let _ = write!(
-        out,
-        "ROLE {} PEER ",
-        if b.role_initiator { "I" } else { "R" }
-    );
+    let _ = write!(out, "PEER ");
     hex_write(out, &b.peer_fp);
     let _ = write!(out, " SRC ");
     hex_write(out, &b.src_mac);
@@ -222,21 +218,6 @@ fn cmd_fp<F: NorFlash>(arg: Option<&str>, flash: &mut F, out: &mut LineBuf) -> A
     match arg.and_then(|s| hex_arr::<32>(s).ok()) {
         Some(fp) => flash_result(out, update_binding(flash, |b| b.peer_fp = fp)),
         None => err(out, "bad fingerprint"),
-    }
-}
-
-fn cmd_role<F: NorFlash>(arg: Option<&str>, flash: &mut F, out: &mut LineBuf) -> Action {
-    match role_of(arg) {
-        Some(role) => flash_result(out, update_binding(flash, |b| b.role_initiator = role)),
-        None => err(out, "role I|R"),
-    }
-}
-
-fn role_of(arg: Option<&str>) -> Option<bool> {
-    match arg {
-        Some("I") => Some(true),
-        Some("R") => Some(false),
-        _ => None,
     }
 }
 
@@ -312,10 +293,9 @@ pub fn exec<F: NorFlash>(line: &str, ctx: &Ctx, flash: &mut F, out: &mut LineBuf
             }
         }
         "FP" if configure => cmd_fp(args.next(), flash, out),
-        "ROLE" if configure => cmd_role(args.next(), flash, out),
         "NET" if configure => cmd_net(&mut args, flash, out),
         "FACTORY" => cmd_factory(args.next(), flash, out),
-        "SPK" | "FP" | "ROLE" | "NET" | "HALT" | "RESUME" | "REKEY" => err(out, "busy"),
+        "SPK" | "FP" | "NET" | "HALT" | "RESUME" | "REKEY" => err(out, "busy"),
         _ => err(out, "unknown"),
     }
 }
@@ -344,7 +324,6 @@ mod tests {
     fn seeded_flash() -> MemFlash {
         let mut f = MemFlash::new(0x4_0000);
         let b = Binding {
-            role_initiator: true,
             peer_fp: [0xAB; 32],
             src_mac: [0, 1, 2, 3, 4, 5],
             dst_mac: [6, 7, 8, 9, 10, 11],
@@ -378,7 +357,7 @@ mod tests {
     #[test]
     fn configure_only_commands_rejected_when_running() {
         let mut f = seeded_flash();
-        for line in ["SPK", "FP 00", "ROLE I", "NET a b c d e f", "RESUME"] {
+        for line in ["SPK", "FP 00", "NET a b c d e f", "RESUME"] {
             let (r, _) = run(line, Mode::Running, &mut f);
             assert_eq!(r, "ERR busy\n", "line {line}");
         }
@@ -389,14 +368,12 @@ mod tests {
     }
 
     #[test]
-    fn role_and_fp_persist() {
+    fn fp_persists() {
         let mut f = MemFlash::new(0x4_0000);
-        let (r, _) = run("ROLE R", Mode::Configure, &mut f);
-        assert_eq!(r, "OK\n");
         let (r, _) = run(&format!("FP {}", "cd".repeat(32)), Mode::Configure, &mut f);
         assert_eq!(r, "OK\n");
         let (r, _) = run("SHOW", Mode::Configure, &mut f);
-        assert!(r.starts_with("ROLE R PEER cdcd"), "{r}");
+        assert!(r.starts_with("PEER cdcd"), "{r}");
         assert!(r.ends_with("PORTS 0/0\n"), "{r}");
     }
 
@@ -416,7 +393,6 @@ mod tests {
         assert_eq!(b.dst_mac, [0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB]);
         assert_eq!(b.dst_ip, [192, 168, 1, 2]);
         assert_eq!(b.dst_port, 4501);
-        assert!(!b.role_initiator);
     }
 
     #[test]

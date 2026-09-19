@@ -24,7 +24,6 @@ pub trait NorFlash {
     fn read(&mut self, off: u32, buf: &mut [u8]) -> Result<(), CfgError>;
     fn write_page(&mut self, off: u32, page: &[u8]) -> Result<(), CfgError>;
     fn erase(&mut self, off: u32, len: u32) -> Result<(), CfgError>;
-    fn map(&mut self, off: u32, len: usize) -> Option<&'static [u8]>;
 }
 
 const fn crc_table() -> [u32; 256] {
@@ -300,14 +299,6 @@ pub(crate) mod tests {
             let off = off as usize;
             self.mem[off..off + len as usize].fill(0xFF);
             Ok(())
-        }
-
-        fn map(&mut self, off: u32, len: usize) -> Option<&'static [u8]> {
-            let off = off as usize;
-            if off.checked_add(len)? > self.mem.len() {
-                return None;
-            }
-            Some(unsafe { core::slice::from_raw_parts(self.mem.as_ptr().add(off), len) })
         }
     }
 

@@ -10,12 +10,12 @@ use ch32_hal::Peri;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_time::Timer;
-use kyberlink_core::cfg_msg::{self, Binding};
-use kyberlink_core::cfg_store::{CfgError, NorFlash};
+use kyberlink_core::cfg_msg::{self, Binding, IDENTITY_LEN};
+use kyberlink_core::cfg_store::{self, CfgError, NorFlash, IDENTITY_BASE, MAGIC_IDENTITY};
 use kyberlink_core::console::Console;
 use kyberlink_core::dispatch::{Action, Mode};
 use kyberlink_core::handshake_fsm::{
-    write_data_plane, write_sa, Config, Fsm, FsmOutcome, SpiBus, REG_ERR,
+    write_data_plane, write_sa, Config, Fsm, FsmOutcome, Role, SpiBus, REG_ERR,
 };
 use kyberlink_crypto::entropy::{derive_kem_seeds, KemSeeds};
 use kyberlink_crypto::handshake::RomIdentity;
@@ -30,12 +30,20 @@ const FLASH_LEN: u32 = 0x7_8000;
 const SA_SEQ_INIT: u32 = 1;
 const ERR_POLL_TICKS: u32 = 100;
 
-const IWDG_BASE: u32 = 0x4000_3000;
-const IWDG_UNLOCK: u32 = 0x5555;
-const IWDG_START: u32 = 0xcccc;
-const IWDG_FEED: u32 = 0xaaaa;
-const IWDG_DIV64: u32 = 4;
-const IWDG_PERIOD: u32 = 4095;
+fn flash_window() -> &'static [u8; FLASH_LEN as usize] {
+    // SAFETY: the flash window is memory-mapped at a fixed address and stays
+    // valid for the entire program run.
+    unsafe { &*(FLASH_BASE as *const [u8; FLASH_LEN as usize]) }
+}
+
+const IWDG_CTLR: u32 = 0x4000_3000;
+const IWDG_PSCR: u32 = IWDG_CTLR + 4;
+const IWDG_RLR: u32 = IWDG_CTLR + 8;
+const IWDG_CTLR_UNLOCK: u32 = 0x5555;
+const IWDG_CTLR_START: u32 = 0xcccc;
+const IWDG_CTLR_FEED: u32 = 0xaaaa;
+const IWDG_PSCR_DIV64: u32 = 4;
+const IWDG_RLR_PERIOD: u32 = 4095;
 
 struct FlashPort<'d>(Flash<'d, FlashBlocking>);
 
@@ -55,17 +63,9 @@ impl NorFlash for FlashPort<'_> {
             .blocking_erase(off, off + len)
             .map_err(|_| CfgError::Flash)
     }
-
-    fn map(&mut self, off: u32, len: usize) -> Option<&'static [u8]> {
-        debug_assert!(off as usize + len <= FLASH_LEN as usize);
-        Some(unsafe { core::slice::from_raw_parts((FLASH_BASE + off) as *const u8, len) })
-    }
 }
 
-static SPI: StaticCell<SpiMaster> = StaticCell::new();
-static CONFIG: StaticCell<Config> = StaticCell::new();
-static IDENTITY: StaticCell<RomIdentity> = StaticCell::new();
-static FSM: StaticCell<Fsm<'static, SpiMaster>> = StaticCell::new();
+static FSM: StaticCell<Fsm<SpiMaster, RomIdentity>> = StaticCell::new();
 static FPGA_RST: StaticCell<Output<'static>> = StaticCell::new();
 static BINDING: StaticCell<Binding> = StaticCell::new();
 static ERR_FLAGS: AtomicU8 = AtomicU8::new(0);
@@ -75,17 +75,19 @@ pub(crate) fn err_flags() -> u8 {
 }
 
 fn watchdog_start() {
+    // SAFETY: IWDG occupies a fixed peripheral window that stays mapped for the
+    // whole run; the writes follow the reference manual unlock/load/start order.
     unsafe {
-        let ctlr = IWDG_BASE as *mut u32;
-        ctlr.write_volatile(IWDG_UNLOCK);
-        ((IWDG_BASE + 4) as *mut u32).write_volatile(IWDG_DIV64);
-        ((IWDG_BASE + 8) as *mut u32).write_volatile(IWDG_PERIOD);
-        ctlr.write_volatile(IWDG_START);
+        (IWDG_CTLR as *mut u32).write_volatile(IWDG_CTLR_UNLOCK);
+        (IWDG_PSCR as *mut u32).write_volatile(IWDG_PSCR_DIV64);
+        (IWDG_RLR as *mut u32).write_volatile(IWDG_RLR_PERIOD);
+        (IWDG_CTLR as *mut u32).write_volatile(IWDG_CTLR_START);
     }
 }
 
 fn watchdog_feed() {
-    unsafe { (IWDG_BASE as *mut u32).write_volatile(IWDG_FEED) };
+    // SAFETY: same fixed peripheral window as watchdog_start.
+    unsafe { (IWDG_CTLR as *mut u32).write_volatile(IWDG_CTLR_FEED) };
 }
 
 fn clock_config() -> ch32_hal::Config {
@@ -100,8 +102,12 @@ fn load_device(flash: &mut FlashPort) -> Result<(Binding, RomIdentity), CfgError
     if !binding.is_configured() {
         return Err(CfgError::Value);
     }
-    let identity = cfg_msg::load_identity(flash)?;
-    Ok((binding, identity))
+    cfg_store::verify(flash, IDENTITY_BASE, &MAGIC_IDENTITY, IDENTITY_LEN as u16)?;
+    let base = IDENTITY_BASE as usize + cfg_store::HEADER_LEN;
+    let payload = flash_window()
+        .get(base..base + IDENTITY_LEN)
+        .ok_or(CfgError::Unmapped)?;
+    Ok((binding, cfg_msg::identity_from_payload(payload)?))
 }
 
 fn clock_entropy() -> [u8; 256] {
@@ -159,16 +165,14 @@ fn start_fsm(
     binding: &Binding,
     seeds: KemSeeds,
     identity: RomIdentity,
-) -> &'static mut Fsm<'static, SpiMaster> {
-    let identity = IDENTITY.init(identity);
-    let bus: &'static SpiMaster = SPI.init(SpiMaster::new(spi, cs));
-    write_data_plane(bus, binding);
-    let cfg: &'static Config = CONFIG.init(Config::from_parts(binding, seeds, identity));
-    FSM.init(Fsm::new(cfg, bus))
+) -> &'static mut Fsm<SpiMaster, RomIdentity> {
+    let bus = SpiMaster::new(spi, cs);
+    write_data_plane(&bus, binding);
+    FSM.init(Fsm::new(Config::from_parts(binding, seeds, identity), bus))
 }
 
 async fn run_forever(
-    fsm: &'static mut Fsm<'static, SpiMaster>,
+    fsm: &'static mut Fsm<SpiMaster, RomIdentity>,
     rst: &'static mut Output<'static>,
     binding: &'static Binding,
     signal: &usb::ActionSignal,
@@ -180,17 +184,12 @@ async fn run_forever(
         let elapsed = ((now - last).as_millis() as u32).max(1);
         last = now;
         if let FsmOutcome::Sa(sa) = fsm.poll_ms(elapsed) {
-            write_sa(fsm.spi, &sa, binding.role_initiator, SA_SEQ_INIT);
+            write_sa(&fsm.spi, &sa, fsm.role == Role::Initiator, SA_SEQ_INIT);
         }
         if signal.signaled() {
             match signal.wait().await {
-                Action::Rekey => {
-                    let fresh = sample_entropy();
-                    fsm.cfg.seeds.lock(|s| *s.borrow_mut() = fresh);
-                    let (cfg, spi) = (fsm.cfg, fsm.spi);
-                    *fsm = Fsm::new(cfg, spi);
-                }
-                Action::Resume => write_data_plane(fsm.spi, binding),
+                Action::Rekey => fsm.reseed(sample_entropy()),
+                Action::Resume => write_data_plane(&fsm.spi, binding),
                 Action::Reboot => {
                     rst.set_low();
                     embassy_time::block_for(embassy_time::Duration::from_millis(10));

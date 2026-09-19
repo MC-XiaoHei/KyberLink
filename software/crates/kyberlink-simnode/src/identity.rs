@@ -23,14 +23,14 @@ impl hs::Identity for TestIdentity {
     }
 }
 
-pub(crate) fn from_seed(seed: &[u8]) -> Box<TestIdentity> {
+pub(crate) fn from_seed(seed: &[u8]) -> TestIdentity {
     let (vk, sk) = keygen_internal(seed.try_into().unwrap());
     let mut spc = hs::SignPrecomp::default();
     sign_precomp_new_into(&mut spc, &sk);
-    Box::new(TestIdentity {
+    TestIdentity {
         vk,
         kk: hs::kk_of(&sk),
         tr: hs::tr_of(&sk),
         spc,
-    })
+    }
 }

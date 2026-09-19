@@ -16,9 +16,10 @@ else:
 _U8P = ctypes.POINTER(ctypes.c_uint8)
 
 SIGNATURES = {
-    "kyb_fsm_new": (ctypes.c_void_p, [ctypes.c_uint32] + [_U8P] * 5),
+    "kyb_fsm_new": (ctypes.c_void_p, [_U8P] * 5),
     "kyb_fsm_free": (None, [ctypes.c_void_p]),
     "kyb_fsm_poll": (ctypes.c_uint32, [ctypes.c_void_p]),
+    "kyb_fsm_role": (ctypes.c_uint32, [ctypes.c_void_p]),
     "kyb_simnode_set_status": (None, [ctypes.c_void_p, ctypes.c_uint32]),
     "kyb_fsm_take_writes": (
         ctypes.c_uint32,
@@ -42,10 +43,9 @@ _LIB = _load()
 
 
 class Fsm:
-    def __init__(self, seed_identity: bytes, seed_peer: bytes = b"", role: int = 0,
+    def __init__(self, seed_identity: bytes, seed_peer: bytes = b"",
                  seed_d: bytes = b"", seed_z: bytes = b"", nonce: bytes = b""):
         self.h = _LIB.kyb_fsm_new(
-            role,
             (ctypes.c_uint8 * 32).from_buffer_copy(_pad32(seed_peer)),
             (ctypes.c_uint8 * 32).from_buffer_copy(_pad32(seed_identity)),
             (ctypes.c_uint8 * 32).from_buffer_copy(_pad32(seed_d)),
@@ -57,6 +57,9 @@ class Fsm:
 
     def poll(self) -> int:
         return int(_LIB.kyb_fsm_poll(self.h))
+
+    def role(self) -> int:
+        return int(_LIB.kyb_fsm_role(self.h))
 
     def set_status(self, value: int) -> None:
         _LIB.kyb_simnode_set_status(self.h, value)

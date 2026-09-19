@@ -275,9 +275,9 @@ mod tests {
         let events = push_str(&mut c, &mut f, "HALT\n");
         assert_eq!(events[0].0, Action::Halt);
         assert_eq!(c.mode(), Mode::Configure);
-        let events = push_str(&mut c, &mut f, "ROLE I\n");
+        let events = push_str(&mut c, &mut f, &format!("FP {}\n", "ab".repeat(32)));
         assert_eq!(events[0].1, "OK\n");
-        assert!(Binding::load(&mut f).unwrap().role_initiator);
+        assert_eq!(Binding::load(&mut f).unwrap().peer_fp, [0xAB; 32]);
         let events = push_str(&mut c, &mut f, "RESUME\n");
         assert_eq!(events[0].0, Action::Resume);
         assert_eq!(c.mode(), Mode::Running);

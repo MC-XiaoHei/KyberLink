@@ -77,6 +77,21 @@ pub trait Identity {
     }
 }
 
+impl<T: Identity + ?Sized> Identity for &T {
+    fn vk(&self) -> &[u8; VK_LEN] {
+        (**self).vk()
+    }
+    fn kk(&self) -> &[u8; KK_LEN] {
+        (**self).kk()
+    }
+    fn tr(&self) -> &[u8; TR_LEN] {
+        (**self).tr()
+    }
+    fn spc(&self) -> &SignPrecomp {
+        (**self).spc()
+    }
+}
+
 pub struct RomIdentity {
     pub vk: &'static [u8; VK_LEN],
     pub kk: &'static [u8; KK_LEN],

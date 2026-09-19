@@ -38,21 +38,19 @@ const CTRL_HSK_SEND: u32 = 1 << 1;
 const STATUS_RX_PENDING: u32 = 1 << 0;
 const STATUS_TX_BUSY: u32 = 1 << 1;
 
-pub struct Config {
-    pub role_initiator: bool,
+pub struct Config<I: hs::Identity> {
     pub peer_fp: [u8; 32],
     pub seeds: CriticalSectionMutex<RefCell<kyberlink_crypto::entropy::KemSeeds>>,
-    pub identity: &'static dyn hs::Identity,
+    pub identity: I,
 }
 
-impl Config {
+impl<I: hs::Identity> Config<I> {
     pub fn from_parts(
         binding: &Binding,
         seeds: kyberlink_crypto::entropy::KemSeeds,
-        identity: &'static dyn hs::Identity,
-    ) -> Config {
+        identity: I,
+    ) -> Config<I> {
         Config {
-            role_initiator: binding.role_initiator,
             peer_fp: binding.peer_fp,
             seeds: CriticalSectionMutex::new(RefCell::new(seeds)),
             identity,
@@ -385,16 +383,24 @@ pub enum FsmOutcome {
     Wait,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Role {
+    Undecided,
+    Initiator,
+    Responder,
+}
+
 #[allow(clippy::large_enum_variant)]
 pub enum Session {
     Initiator(hs::InitiatorState),
     Responder(hs::ResponderState),
 }
 
-pub struct Fsm<'a, S: SpiBus> {
-    pub cfg: &'a Config,
-    pub spi: &'a S,
-    pub role_initiator: bool,
+pub struct Fsm<S: SpiBus, I: hs::Identity> {
+    pub cfg: Config<I>,
+    pub spi: S,
+    pub role: Role,
+    pub self_fp: [u8; 32],
     pub session: Option<Session>,
     pub spi_i: u32,
     pub phase: u8,
@@ -411,12 +417,13 @@ pub struct Fsm<'a, S: SpiBus> {
 static PC_CACHE: CriticalSectionMutex<RefCell<Option<VerifyPrecomp>>> =
     CriticalSectionMutex::new(RefCell::new(None));
 
-impl<'a, S: SpiBus> Fsm<'a, S> {
-    pub fn new(cfg: &'a Config, spi: &'a S) -> Self {
+impl<S: SpiBus, I: hs::Identity> Fsm<S, I> {
+    pub fn new(cfg: Config<I>, spi: S) -> Self {
         Fsm {
+            self_fp: hs::fingerprint(cfg.identity.vk()),
             cfg,
             spi,
-            role_initiator: cfg.role_initiator,
+            role: Role::Undecided,
             session: None,
             spi_i: 0,
             phase: 0,
@@ -429,6 +436,13 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
             tx_total_ms: 0,
             pending_sa: None,
         }
+    }
+
+    pub fn reseed(&mut self, seeds: kyberlink_crypto::entropy::KemSeeds) {
+        self.cfg.seeds.lock(|s| *s.borrow_mut() = seeds);
+        self.reset_session();
+        self.spi_i = 0;
+        self.tx_total_ms = 0;
     }
 
     fn ensure_pc(&mut self, vk: &[u8]) {
@@ -454,7 +468,7 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
 
     pub fn poll_ms(&mut self, elapsed_ms: u32) -> FsmOutcome {
         if let Some(off) = self.ack_pend.take() {
-            hsk_send_ack(self.spi, off);
+            hsk_send_ack(&self.spi, off);
         }
         if self.advance_tx(elapsed_ms) {
             self.reset_session();
@@ -471,11 +485,37 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
             self.reset_session();
             return FsmOutcome::Wait;
         }
-        if self.role_initiator {
-            self.poll_initiator()
-        } else {
-            self.poll_responder()
+        if self.phase == PHASE_DONE {
+            return self.poll_done();
         }
+        match self.role {
+            Role::Initiator => self.poll_initiator(),
+            Role::Responder => self.poll_responder(),
+            Role::Undecided => self.poll_undecided(),
+        }
+    }
+
+    fn poll_done(&mut self) -> FsmOutcome {
+        let Some(n) = self.recv_msg() else {
+            return FsmOutcome::Wait;
+        };
+        if n != hs::M1_LEN {
+            return FsmOutcome::Wait;
+        }
+        self.accept_m1(n)
+    }
+
+    fn poll_undecided(&mut self) -> FsmOutcome {
+        if self.tx.is_some() {
+            return FsmOutcome::Wait;
+        }
+        if let Some(n) = self.recv_msg() {
+            if n == hs::M1_LEN {
+                return self.accept_m1(n);
+            }
+            return FsmOutcome::Wait;
+        }
+        self.initiator_start()
     }
 
     fn advance_tx(&mut self, elapsed_ms: u32) -> bool {
@@ -483,7 +523,7 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
             self.tx_total_ms = 0;
             return false;
         };
-        hsk_tx_step(self.spi, j, &mut self.rx, elapsed_ms);
+        hsk_tx_step(&self.spi, j, &mut self.rx, elapsed_ms);
         self.tx_total_ms = self.tx_total_ms.saturating_add(elapsed_ms);
         if j.done() {
             self.tx = None;
@@ -507,6 +547,7 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
         self.pending_sa = None;
         self.phase = 0;
         self.phase_ms = 0;
+        self.role = Role::Undecided;
         self.session = None;
         self.tx = None;
         self.rx = RxSink::new();
@@ -521,7 +562,7 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
 
     fn recv_msg(&mut self) -> Option<usize> {
         let mut ack = None;
-        let n = hsk_recv(self.spi, &mut self.rx, &mut self.buf, &mut ack);
+        let n = hsk_recv(&self.spi, &mut self.rx, &mut self.buf, &mut ack);
         if ack.is_some() {
             self.ack_pend = ack;
         }
@@ -537,7 +578,6 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
         match self.phase {
             0 => self.initiator_start(),
             1 => self.initiator_recv_m2(),
-            PHASE_DONE => FsmOutcome::Wait,
             _ => self.initiator_recv_m4(),
         }
     }
@@ -547,7 +587,8 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
             let s = s.borrow();
             (s.d, s.z, s.nonce)
         });
-        let (st, m1) = hs::initiator_start(self.cfg.identity, &seed_d, &seed_z, &nonce);
+        let (st, m1) = hs::initiator_start(&self.cfg.identity, &seed_d, &seed_z, &nonce);
+        self.role = Role::Initiator;
         self.session = Some(Session::Initiator(st));
         self.tx = Some(TxJob::new(&m1));
         self.enter_phase(1);
@@ -558,6 +599,9 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
         let Some(n) = self.recv_msg() else {
             return FsmOutcome::Wait;
         };
+        if n == hs::M1_LEN && self.self_fp > self.cfg.peer_fp {
+            return self.accept_m1(n);
+        }
         if n != hs::M2_LEN {
             return FsmOutcome::Wait;
         }
@@ -573,7 +617,7 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
         PC_CACHE.lock(|s| {
             match hs::initiator_recv_m2(
                 st,
-                self.cfg.identity,
+                &self.cfg.identity,
                 &self.buf[..n],
                 &self.cfg.peer_fp,
                 s.borrow().as_ref(),
@@ -622,8 +666,6 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
     fn poll_responder(&mut self) -> FsmOutcome {
         if self.phase == 0 {
             self.responder_recv_m1()
-        } else if self.phase == PHASE_DONE {
-            FsmOutcome::Wait
         } else {
             self.responder_recv_m3()
         }
@@ -636,6 +678,10 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
         if n != hs::M1_LEN {
             return FsmOutcome::Wait;
         }
+        self.accept_m1(n)
+    }
+
+    fn accept_m1(&mut self, n: usize) -> FsmOutcome {
         self.capture_peer_vk();
         if hs::fingerprint(&self.pc_vk) != self.cfg.peer_fp {
             return FsmOutcome::Wait;
@@ -647,7 +693,7 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
             (s.d, s.z, s.nonce)
         });
         match hs::responder_start(
-            self.cfg.identity,
+            &self.cfg.identity,
             &seed_d,
             &seed_z,
             &nonce,
@@ -655,6 +701,9 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
             &self.cfg.peer_fp,
         ) {
             Ok((st, m2)) => {
+                self.role = Role::Responder;
+                self.pending_sa = None;
+                self.rx = RxSink::new();
                 self.session = Some(Session::Responder(st));
                 self.tx = Some(TxJob::new(&m2));
                 self.enter_phase(1);
@@ -682,7 +731,7 @@ impl<'a, S: SpiBus> Fsm<'a, S> {
         PC_CACHE.lock(|s| {
             match hs::responder_recv_m3(
                 st,
-                self.cfg.identity,
+                &self.cfg.identity,
                 &self.buf[..n],
                 self.spi_i,
                 s.borrow().as_ref(),
@@ -775,7 +824,6 @@ mod tests {
     fn write_data_plane_sets_network_registers() {
         let m = MockSpi::new();
         let b = crate::cfg_msg::Binding {
-            role_initiator: true,
             peer_fp: [0xAB; 32],
             src_mac: [0x00, 0x11, 0x22, 0x33, 0x44, 0x55],
             dst_mac: [0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB],
@@ -961,15 +1009,13 @@ mod tests {
     static IDENTITY_R: std::sync::OnceLock<TestIdentity> = std::sync::OnceLock::new();
 
     fn cfg_of(
-        role_initiator: bool,
         peer_fp: [u8; 32],
         d: u8,
         z: u8,
         nonce: u8,
         identity: &'static TestIdentity,
-    ) -> Config {
+    ) -> Config<&'static TestIdentity> {
         Config {
-            role_initiator,
             peer_fp,
             seeds: CriticalSectionMutex::new(RefCell::new(kyberlink_crypto::entropy::KemSeeds {
                 d: [d; 32],
@@ -1016,12 +1062,10 @@ mod tests {
         let fp_i = id_i.fingerprint();
         let fp_r = id_r.fingerprint();
 
-        let cfg_i = cfg_of(true, fp_r, 1, 2, 4, id_i);
-        let cfg_r = cfg_of(false, fp_i, 5, 6, 8, id_r);
-        let bus_i = MockSpi::default();
-        let bus_r = MockSpi::default();
-        let mut fi = Fsm::new(&cfg_i, &bus_i);
-        let mut fr = Fsm::new(&cfg_r, &bus_r);
+        let cfg_i = cfg_of(fp_r, 1, 2, 4, id_i);
+        let cfg_r = cfg_of(fp_i, 5, 6, 8, id_r);
+        let mut fi = Fsm::new(cfg_i, MockSpi::default());
+        let mut fr = Fsm::new(cfg_r, MockSpi::default());
         let mut sa_i = None;
         let mut sa_r = None;
         for _ in 0..400 {
@@ -1029,12 +1073,12 @@ mod tests {
                 FsmOutcome::Sa(sa) => sa_i = Some(sa),
                 FsmOutcome::Wait => {}
             }
-            bus_i.pump(&bus_r);
+            fi.spi.pump(&fr.spi);
             match fr.poll() {
                 FsmOutcome::Sa(sa) => sa_r = Some(sa),
                 FsmOutcome::Wait => {}
             }
-            bus_r.pump(&bus_i);
+            fr.spi.pump(&fi.spi);
             if let (Some(a), Some(b)) = (&sa_i, &sa_r) {
                 assert_eq!(a.spi_i, b.spi_i);
                 assert_eq!(a.spi_r, b.spi_r);
@@ -1045,33 +1089,65 @@ mod tests {
             }
         }
         assert!(sa_i.is_some() && sa_r.is_some(), "handshake did not complete");
-        bus_i.outbox.borrow_mut().clear();
-        bus_r.outbox.borrow_mut().clear();
+        fi.spi.outbox.borrow_mut().clear();
+        fr.spi.outbox.borrow_mut().clear();
         for _ in 0..100 {
             assert!(matches!(fi.poll(), FsmOutcome::Wait));
             assert!(matches!(fr.poll(), FsmOutcome::Wait));
         }
-        assert!(bus_i.outbox.borrow().is_empty(), "initiator restarted after sa");
-        assert!(bus_r.outbox.borrow().is_empty(), "responder restarted after sa");
+        assert!(fi.spi.outbox.borrow().is_empty(), "initiator restarted after sa");
+        assert!(fr.spi.outbox.borrow().is_empty(), "responder restarted after sa");
     }
 
     #[test]
     #[cfg_attr(miri, ignore)]
     fn initiator_bad_m2_restarts() {
-        let cfg = cfg_of(true, [9u8; 32], 1, 2, 4, identity_i());
-        let bus = MockSpi::default();
-        let mut f = Fsm::new(&cfg, &bus);
+        let cfg = cfg_of([9u8; 32], 1, 2, 4, identity_i());
+        let mut f = Fsm::new(cfg, MockSpi::default());
         for _ in 0..4 {
             let _ = f.poll();
         }
-        let m1 = bus.outbox.borrow()[0].clone();
+        let m1 = f.spi.outbox.borrow()[0].clone();
         assert_eq!(m1[0..4], [0, 0, 12, 96], "m1 chunk header (3168B total)");
-        bus.outbox.borrow_mut().clear();
-        bus.push_rx(&[0xEE; 64]);
+        f.spi.outbox.borrow_mut().clear();
+        f.spi.push_rx(&[0xEE; 64]);
         for _ in 0..400 {
             let _ = f.poll();
         }
-        let resent = bus.outbox.borrow().iter().any(|p| p == &m1);
+        let resent = f.spi.outbox.borrow().iter().any(|p| p == &m1);
         assert!(resent, "m1 must be resent after bad m2");
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn simultaneous_start_breaks_tie_by_fingerprint() {
+        let id_i = identity_i();
+        let id_r = identity_r();
+        let fp_i = id_i.fingerprint();
+        let fp_r = id_r.fingerprint();
+        assert_ne!(fp_i, fp_r);
+        let cfg_i = cfg_of(fp_r, 1, 2, 4, id_i);
+        let cfg_r = cfg_of(fp_i, 5, 6, 8, id_r);
+        let mut fi = Fsm::new(cfg_i, MockSpi::default());
+        let mut fr = Fsm::new(cfg_r, MockSpi::default());
+
+        for _ in 0..4000 {
+            let _ = fi.poll();
+            let _ = fr.poll();
+            fi.spi.pump(&fr.spi);
+            if fi.role != Role::Undecided
+                && fr.role != Role::Undecided
+                && (fi.role == Role::Initiator) != (fr.role == Role::Initiator)
+            {
+                break;
+            }
+        }
+        let (want_i, want_r) = if fp_i < fp_r {
+            (Role::Initiator, Role::Responder)
+        } else {
+            (Role::Responder, Role::Initiator)
+        };
+        assert_eq!(fi.role, want_i, "lower fingerprint must win the tie");
+        assert_eq!(fr.role, want_r);
     }
 }

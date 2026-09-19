@@ -715,22 +715,63 @@ fn unpack3(p: &[u8], idx: usize) -> u32 {
     p[idx] as u32 | ((p[idx + 1] as u32) << 8) | ((p[idx + 2] as u32) << 16)
 }
 
-#[repr(C)]
-pub struct SignPrecomp {
-    pub a_hat_packed: [u8; K * L * 256 * 3],
-    pub s1_hat_packed: [u8; L * 256 * 3],
-    pub s2_hat_packed: [u8; K * 256 * 3],
-    pub t0_hat_packed: [u8; K * 256 * 3],
+pub const SPC_LEN: usize = K * L * 256 * 3 + L * 256 * 3 + K * 256 * 3 + K * 256 * 3;
+
+const A_HAT_LEN: usize = K * L * 256 * 3;
+const S1_HAT_OFF: usize = A_HAT_LEN;
+const S2_HAT_OFF: usize = S1_HAT_OFF + L * 256 * 3;
+const T0_HAT_OFF: usize = S2_HAT_OFF + K * 256 * 3;
+
+#[repr(transparent)]
+pub struct SignPrecomp([u8; SPC_LEN]);
+
+impl SignPrecomp {
+    pub fn from_bytes(raw: &[u8; SPC_LEN]) -> &Self {
+        // SAFETY: repr(transparent) over the same array type guarantees the
+        // layout is identical, so the pointer cast is valid.
+        unsafe { &*(raw as *const [u8; SPC_LEN] as *const SignPrecomp) }
+    }
+
+    pub fn as_bytes(&self) -> &[u8; SPC_LEN] {
+        &self.0
+    }
+
+    fn a_hat(&self) -> &[u8] {
+        &self.0[..A_HAT_LEN]
+    }
+
+    fn a_hat_mut(&mut self) -> &mut [u8] {
+        &mut self.0[..A_HAT_LEN]
+    }
+
+    fn s1_hat(&self) -> &[u8] {
+        &self.0[S1_HAT_OFF..S2_HAT_OFF]
+    }
+
+    fn s1_hat_mut(&mut self) -> &mut [u8] {
+        &mut self.0[S1_HAT_OFF..S2_HAT_OFF]
+    }
+
+    fn s2_hat(&self) -> &[u8] {
+        &self.0[S2_HAT_OFF..T0_HAT_OFF]
+    }
+
+    fn s2_hat_mut(&mut self) -> &mut [u8] {
+        &mut self.0[S2_HAT_OFF..T0_HAT_OFF]
+    }
+
+    fn t0_hat(&self) -> &[u8] {
+        &self.0[T0_HAT_OFF..]
+    }
+
+    fn t0_hat_mut(&mut self) -> &mut [u8] {
+        &mut self.0[T0_HAT_OFF..]
+    }
 }
 
 impl Default for SignPrecomp {
     fn default() -> Self {
-        SignPrecomp {
-            a_hat_packed: [0u8; K * L * 256 * 3],
-            s1_hat_packed: [0u8; L * 256 * 3],
-            s2_hat_packed: [0u8; K * 256 * 3],
-            t0_hat_packed: [0u8; K * 256 * 3],
-        }
+        SignPrecomp([0u8; SPC_LEN])
     }
 }
 
@@ -744,23 +785,23 @@ pub fn sign_precomp_new_into(pc: &mut SignPrecomp, sk: &[u8; SK_LEN]) {
         for j in 0..L {
             let p = rej_ntt_poly(rho, i as u8, j as u8);
             for (k, &v) in p.iter().enumerate() {
-                pack3(&mut pc.a_hat_packed, ((i * L + j) * 256 + k) * 3, v);
+                pack3(pc.a_hat_mut(), ((i * L + j) * 256 + k) * 3, v);
             }
         }
     }
     for (i, s) in ntt_vec(&s1).iter().enumerate() {
         for (k, &v) in s.iter().enumerate() {
-            pack3(&mut pc.s1_hat_packed, (i * 256 + k) * 3, v);
+            pack3(pc.s1_hat_mut(), (i * 256 + k) * 3, v);
         }
     }
     for (i, s) in ntt_vec(&s2).iter().enumerate() {
         for (k, &v) in s.iter().enumerate() {
-            pack3(&mut pc.s2_hat_packed, (i * 256 + k) * 3, v);
+            pack3(pc.s2_hat_mut(), (i * 256 + k) * 3, v);
         }
     }
     for (i, s) in ntt_vec(&t0).iter().enumerate() {
         for (k, &v) in s.iter().enumerate() {
-            pack3(&mut pc.t0_hat_packed, (i * 256 + k) * 3, v);
+            pack3(pc.t0_hat_mut(), (i * 256 + k) * 3, v);
         }
     }
 }
@@ -806,7 +847,7 @@ pub fn sign_precomp_kk_into(
             for (k, wc) in wi.iter_mut().enumerate() {
                 let mut acc = 0u64;
                 for j in 0..L {
-                    let ar = unpack3(pc.a_hat_packed.as_slice(), ((i * L + j) * 256 + k) * 3);
+                    let ar = unpack3(pc.a_hat(), ((i * L + j) * 256 + k) * 3);
                     let yr = unpack3(y_hat_packed.as_slice(), (j * 256 + k) * 3);
                     acc += ar as u64 * yr as u64;
                 }
@@ -839,7 +880,7 @@ pub fn sign_precomp_kk_into(
         for (i, yi) in y.iter_mut().enumerate() {
             for k in 0..256 {
                 let cr = c_hat[k] as u64;
-                let sr = unpack3(pc.s1_hat_packed.as_slice(), (i * 256 + k) * 3) as u64;
+                let sr = unpack3(pc.s1_hat(), (i * 256 + k) * 3) as u64;
                 cp[k] = ((cr * sr) % Q as u64) as u32;
             }
             invntt(&mut cp);
@@ -858,7 +899,7 @@ pub fn sign_precomp_kk_into(
         for (i, wi) in w.iter_mut().enumerate() {
             for k in 0..256 {
                 let cr = c_hat[k] as u64;
-                let sr = unpack3(pc.s2_hat_packed.as_slice(), (i * 256 + k) * 3) as u64;
+                let sr = unpack3(pc.s2_hat(), (i * 256 + k) * 3) as u64;
                 cp[k] = ((cr * sr) % Q as u64) as u32;
             }
             invntt(&mut cp);
@@ -882,7 +923,7 @@ pub fn sign_precomp_kk_into(
         for i in 0..K {
             for k in 0..256 {
                 let cr = c_hat[k] as u64;
-                let tr = unpack3(pc.t0_hat_packed.as_slice(), (i * 256 + k) * 3) as u64;
+                let tr = unpack3(pc.t0_hat(), (i * 256 + k) * 3) as u64;
                 cp[k] = ((cr * tr) % Q as u64) as u32;
             }
             invntt(&mut cp);
@@ -1163,7 +1204,7 @@ mod tests {
             for (k, wc) in wi.iter_mut().enumerate() {
                 let mut acc = 0u64;
                 for j in 0..L {
-                    let ar = unpack3(pc.a_hat_packed.as_slice(), ((i * L + j) * 256 + k) * 3);
+                    let ar = unpack3(pc.a_hat(), ((i * L + j) * 256 + k) * 3);
                     let yr = unpack3(y_hat_packed.as_slice(), (j * 256 + k) * 3);
                     acc += ar as u64 * yr as u64;
                 }
@@ -1228,7 +1269,7 @@ mod tests {
         for (i, yi) in y.iter_mut().enumerate() {
             for k in 0..256 {
                 let cr = c_hat[k] as u64;
-                let sr = unpack3(pc.s1_hat_packed.as_slice(), (i * 256 + k) * 3) as u64;
+                let sr = unpack3(pc.s1_hat(), (i * 256 + k) * 3) as u64;
                 cp[k] = ((cr * sr) % Q as u64) as u32;
             }
             invntt(&mut cp);
@@ -1252,7 +1293,7 @@ mod tests {
         for (i, wi) in w.iter_mut().enumerate() {
             for k in 0..256 {
                 let cr = c_hat[k] as u64;
-                let sr = unpack3(pc.s2_hat_packed.as_slice(), (i * 256 + k) * 3) as u64;
+                let sr = unpack3(pc.s2_hat(), (i * 256 + k) * 3) as u64;
                 cp[k] = ((cr * sr) % Q as u64) as u32;
             }
             invntt(&mut cp);
@@ -1287,7 +1328,7 @@ mod tests {
         for i in 0..K {
             for k in 0..256 {
                 let cr = c_hat[k] as u64;
-                let tr = unpack3(pc.t0_hat_packed.as_slice(), (i * 256 + k) * 3) as u64;
+                let tr = unpack3(pc.t0_hat(), (i * 256 + k) * 3) as u64;
                 cp[k] = ((cr * tr) % Q as u64) as u32;
             }
             invntt(&mut cp);
@@ -1342,7 +1383,7 @@ mod tests {
         for i in 0..K {
             for k in 0..256 {
                 let cr = c_hat[k] as u64;
-                let tr = unpack3(pc.t0_hat_packed.as_slice(), (i * 256 + k) * 3) as u64;
+                let tr = unpack3(pc.t0_hat(), (i * 256 + k) * 3) as u64;
                 cp[k] = ((cr * tr) % Q as u64) as u32;
             }
             invntt(&mut cp);
