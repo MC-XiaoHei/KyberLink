@@ -19,8 +19,9 @@ use kyberlink_core::handshake_fsm::{
 };
 use kyberlink_crypto::entropy::{derive_kem_seeds, KemSeeds};
 use kyberlink_crypto::handshake::RomIdentity;
+use kyberlink_crypto::mldsa_internal::VerifyPrecomp;
 use kyberlink_firmware::spi::SpiMaster;
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 
 use crate::pinmap::Pins;
 use crate::usb;
@@ -66,6 +67,7 @@ impl NorFlash for FlashPort<'_> {
 }
 
 static FSM: StaticCell<Fsm<SpiMaster, RomIdentity>> = StaticCell::new();
+static PC: ConstStaticCell<VerifyPrecomp> = ConstStaticCell::new(VerifyPrecomp::const_zeroed());
 static FPGA_RST: StaticCell<Output<'static>> = StaticCell::new();
 static BINDING: StaticCell<Binding> = StaticCell::new();
 static ERR_FLAGS: AtomicU8 = AtomicU8::new(0);
@@ -173,6 +175,7 @@ fn start_fsm(
 
 async fn run_forever(
     fsm: &'static mut Fsm<SpiMaster, RomIdentity>,
+    pc: &'static mut VerifyPrecomp,
     rst: &'static mut Output<'static>,
     binding: &'static Binding,
     signal: &usb::ActionSignal,
@@ -183,7 +186,7 @@ async fn run_forever(
         let now = embassy_time::Instant::now();
         let elapsed = ((now - last).as_millis() as u32).max(1);
         last = now;
-        if let FsmOutcome::Sa(sa) = fsm.poll_ms(elapsed) {
+        if let FsmOutcome::Sa(sa) = fsm.poll_ms(elapsed, pc) {
             write_sa(&fsm.spi, &sa, fsm.role == Role::Initiator, SA_SEQ_INIT);
         }
         if signal.signaled() {
@@ -238,7 +241,13 @@ async fn main(_spawner: Spawner) -> ! {
 
     let mut spi_config = SpiConfig::default();
     spi_config.frequency = Hertz::khz(2250);
-    let spi = Spi::new_blocking::<0>(p.SPI1, pins.spi_sck, pins.spi_mosi, pins.spi_miso, spi_config);
+    let spi = Spi::new_blocking::<0>(
+        p.SPI1,
+        pins.spi_sck,
+        pins.spi_mosi,
+        pins.spi_miso,
+        spi_config,
+    );
     let cs = Output::new(pins.spi_cs, Level::High, Default::default());
 
     let seeds = sample_entropy();
@@ -247,8 +256,16 @@ async fn main(_spawner: Spawner) -> ! {
     embassy_time::block_for(embassy_time::Duration::from_millis(10));
     let binding: &'static Binding = BINDING.init(binding);
     let fsm = start_fsm(spi, cs, binding, seeds, identity);
+    let pc = PC.take();
     let mut console = Console::new(Mode::Running);
     let signal = usb::ActionSignal::new();
-    let usb = usb::serve(p.USBD, pins.usb_dp, pins.usb_dm, &mut console, &mut flash, &signal);
-    match join(usb, run_forever(fsm, rst, binding, &signal)).await {}
+    let usb = usb::serve(
+        p.USBD,
+        pins.usb_dp,
+        pins.usb_dm,
+        &mut console,
+        &mut flash,
+        &signal,
+    );
+    match join(usb, run_forever(fsm, pc, rst, binding, &signal)).await {}
 }

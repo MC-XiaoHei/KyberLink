@@ -414,8 +414,14 @@ pub struct Fsm<S: SpiBus, I: hs::Identity> {
     pub pending_sa: Option<hs::SaParams>,
 }
 
-static PC_CACHE: CriticalSectionMutex<RefCell<Option<VerifyPrecomp>>> =
-    CriticalSectionMutex::new(RefCell::new(None));
+fn ensure_pc(pc: &mut VerifyPrecomp, vk: &[u8]) {
+    let vk_hash = hs::fingerprint(vk);
+    if pc.vk_hash != vk_hash {
+        let mut vk_arr = [0u8; VK_LEN];
+        vk_arr.copy_from_slice(vk);
+        kyberlink_crypto::mldsa_internal::verify_precomp_new_into(pc, &vk_arr);
+    }
+}
 
 impl<S: SpiBus, I: hs::Identity> Fsm<S, I> {
     pub fn new(cfg: Config<I>, spi: S) -> Self {
@@ -445,28 +451,11 @@ impl<S: SpiBus, I: hs::Identity> Fsm<S, I> {
         self.tx_total_ms = 0;
     }
 
-    fn ensure_pc(&mut self, vk: &[u8]) {
-        let vk_hash = hs::fingerprint(vk);
-        let need = PC_CACHE.lock(|s| match s.borrow().as_ref() {
-            Some(pc) => pc.vk_hash != vk_hash,
-            None => true,
-        });
-        if need {
-            let mut vk_arr = [0u8; VK_LEN];
-            vk_arr.copy_from_slice(vk);
-            PC_CACHE.lock(|s| {
-                let mut binding = s.borrow_mut();
-                let pc = binding.get_or_insert_default();
-                kyberlink_crypto::mldsa_internal::verify_precomp_new_into(pc, &vk_arr);
-            });
-        }
+    pub fn poll(&mut self, pc: &mut VerifyPrecomp) -> FsmOutcome {
+        self.poll_ms(1, pc)
     }
 
-    pub fn poll(&mut self) -> FsmOutcome {
-        self.poll_ms(1)
-    }
-
-    pub fn poll_ms(&mut self, elapsed_ms: u32) -> FsmOutcome {
+    pub fn poll_ms(&mut self, elapsed_ms: u32, pc: &mut VerifyPrecomp) -> FsmOutcome {
         if let Some(off) = self.ack_pend.take() {
             hsk_send_ack(&self.spi, off);
         }
@@ -486,32 +475,32 @@ impl<S: SpiBus, I: hs::Identity> Fsm<S, I> {
             return FsmOutcome::Wait;
         }
         if self.phase == PHASE_DONE {
-            return self.poll_done();
+            return self.poll_done(pc);
         }
         match self.role {
-            Role::Initiator => self.poll_initiator(),
-            Role::Responder => self.poll_responder(),
-            Role::Undecided => self.poll_undecided(),
+            Role::Initiator => self.poll_initiator(pc),
+            Role::Responder => self.poll_responder(pc),
+            Role::Undecided => self.poll_undecided(pc),
         }
     }
 
-    fn poll_done(&mut self) -> FsmOutcome {
+    fn poll_done(&mut self, pc: &mut VerifyPrecomp) -> FsmOutcome {
         let Some(n) = self.recv_msg() else {
             return FsmOutcome::Wait;
         };
         if n != hs::M1_LEN {
             return FsmOutcome::Wait;
         }
-        self.accept_m1(n)
+        self.accept_m1(n, pc)
     }
 
-    fn poll_undecided(&mut self) -> FsmOutcome {
+    fn poll_undecided(&mut self, pc: &mut VerifyPrecomp) -> FsmOutcome {
         if self.tx.is_some() {
             return FsmOutcome::Wait;
         }
         if let Some(n) = self.recv_msg() {
             if n == hs::M1_LEN {
-                return self.accept_m1(n);
+                return self.accept_m1(n, pc);
             }
             return FsmOutcome::Wait;
         }
@@ -574,11 +563,11 @@ impl<S: SpiBus, I: hs::Identity> Fsm<S, I> {
             .copy_from_slice(&self.buf[32 + EK_LEN..32 + EK_LEN + VK_LEN]);
     }
 
-    fn poll_initiator(&mut self) -> FsmOutcome {
+    fn poll_initiator(&mut self, pc: &mut VerifyPrecomp) -> FsmOutcome {
         match self.phase {
             0 => self.initiator_start(),
-            1 => self.initiator_recv_m2(),
-            _ => self.initiator_recv_m4(),
+            1 => self.initiator_recv_m2(pc),
+            _ => self.initiator_recv_m4(pc),
         }
     }
 
@@ -595,12 +584,12 @@ impl<S: SpiBus, I: hs::Identity> Fsm<S, I> {
         FsmOutcome::Wait
     }
 
-    fn initiator_recv_m2(&mut self) -> FsmOutcome {
+    fn initiator_recv_m2(&mut self, pc: &mut VerifyPrecomp) -> FsmOutcome {
         let Some(n) = self.recv_msg() else {
             return FsmOutcome::Wait;
         };
         if n == hs::M1_LEN && self.self_fp > self.cfg.peer_fp {
-            return self.accept_m1(n);
+            return self.accept_m1(n, pc);
         }
         if n != hs::M2_LEN {
             return FsmOutcome::Wait;
@@ -610,34 +599,32 @@ impl<S: SpiBus, I: hs::Identity> Fsm<S, I> {
             return FsmOutcome::Wait;
         }
         let vk = self.pc_vk;
-        self.ensure_pc(&vk);
+        ensure_pc(pc, &vk);
         let Session::Initiator(st) = self.session.as_mut().unwrap() else {
             return FsmOutcome::Wait;
         };
-        PC_CACHE.lock(|s| {
-            match hs::initiator_recv_m2(
-                st,
-                &self.cfg.identity,
-                &self.buf[..n],
-                &self.cfg.peer_fp,
-                s.borrow().as_ref(),
-            ) {
-                Ok((m3, spi_i)) => {
-                    self.spi_i = spi_i;
-                    self.tx = Some(TxJob::new(&m3));
-                    self.phase = 2;
-                    self.phase_ms = 0;
-                    FsmOutcome::Wait
-                }
-                Err(_) => {
-                    self.phase = 0;
-                    FsmOutcome::Wait
-                }
+        match hs::initiator_recv_m2(
+            st,
+            &self.cfg.identity,
+            &self.buf[..n],
+            &self.cfg.peer_fp,
+            Some(&*pc),
+        ) {
+            Ok((m3, spi_i)) => {
+                self.spi_i = spi_i;
+                self.tx = Some(TxJob::new(&m3));
+                self.phase = 2;
+                self.phase_ms = 0;
+                FsmOutcome::Wait
             }
-        })
+            Err(_) => {
+                self.phase = 0;
+                FsmOutcome::Wait
+            }
+        }
     }
 
-    fn initiator_recv_m4(&mut self) -> FsmOutcome {
+    fn initiator_recv_m4(&mut self, pc: &mut VerifyPrecomp) -> FsmOutcome {
         let Some(n) = self.recv_msg() else {
             return FsmOutcome::Wait;
         };
@@ -645,49 +632,47 @@ impl<S: SpiBus, I: hs::Identity> Fsm<S, I> {
             return FsmOutcome::Wait;
         }
         let vk = self.pc_vk;
-        self.ensure_pc(&vk);
+        ensure_pc(pc, &vk);
         let Session::Initiator(st) = self.session.as_mut().unwrap() else {
             return FsmOutcome::Wait;
         };
-        PC_CACHE.lock(
-            |s| match hs::initiator_recv_m4(st, &self.buf[..n], self.spi_i, s.borrow().as_ref()) {
-                Ok(sa) => {
-                    self.pending_sa = Some(sa);
-                    FsmOutcome::Wait
-                }
-                Err(_) => {
-                    self.phase = 0;
-                    FsmOutcome::Wait
-                }
-            },
-        )
-    }
-
-    fn poll_responder(&mut self) -> FsmOutcome {
-        if self.phase == 0 {
-            self.responder_recv_m1()
-        } else {
-            self.responder_recv_m3()
+        match hs::initiator_recv_m4(st, &self.buf[..n], self.spi_i, Some(&*pc)) {
+            Ok(sa) => {
+                self.pending_sa = Some(sa);
+                FsmOutcome::Wait
+            }
+            Err(_) => {
+                self.phase = 0;
+                FsmOutcome::Wait
+            }
         }
     }
 
-    fn responder_recv_m1(&mut self) -> FsmOutcome {
+    fn poll_responder(&mut self, pc: &mut VerifyPrecomp) -> FsmOutcome {
+        if self.phase == 0 {
+            self.responder_recv_m1(pc)
+        } else {
+            self.responder_recv_m3(pc)
+        }
+    }
+
+    fn responder_recv_m1(&mut self, pc: &mut VerifyPrecomp) -> FsmOutcome {
         let Some(n) = self.recv_msg() else {
             return FsmOutcome::Wait;
         };
         if n != hs::M1_LEN {
             return FsmOutcome::Wait;
         }
-        self.accept_m1(n)
+        self.accept_m1(n, pc)
     }
 
-    fn accept_m1(&mut self, n: usize) -> FsmOutcome {
+    fn accept_m1(&mut self, n: usize, pc: &mut VerifyPrecomp) -> FsmOutcome {
         self.capture_peer_vk();
         if hs::fingerprint(&self.pc_vk) != self.cfg.peer_fp {
             return FsmOutcome::Wait;
         }
         let vk = self.pc_vk;
-        self.ensure_pc(&vk);
+        ensure_pc(pc, &vk);
         let (seed_d, seed_z, nonce) = self.cfg.seeds.lock(|s| {
             let s = s.borrow();
             (s.d, s.z, s.nonce)
@@ -713,7 +698,7 @@ impl<S: SpiBus, I: hs::Identity> Fsm<S, I> {
         }
     }
 
-    fn responder_recv_m3(&mut self) -> FsmOutcome {
+    fn responder_recv_m3(&mut self, pc: &mut VerifyPrecomp) -> FsmOutcome {
         let Some(n) = self.recv_msg() else {
             return FsmOutcome::Wait;
         };
@@ -724,29 +709,27 @@ impl<S: SpiBus, I: hs::Identity> Fsm<S, I> {
         sb.copy_from_slice(&self.buf[hs::SPI_OFF..hs::SPI_OFF + 4]);
         self.spi_i = u32::from_be_bytes(sb);
         let vk = self.pc_vk;
-        self.ensure_pc(&vk);
+        ensure_pc(pc, &vk);
         let Session::Responder(st) = self.session.as_mut().unwrap() else {
             return FsmOutcome::Wait;
         };
-        PC_CACHE.lock(|s| {
-            match hs::responder_recv_m3(
-                st,
-                &self.cfg.identity,
-                &self.buf[..n],
-                self.spi_i,
-                s.borrow().as_ref(),
-            ) {
-                Ok((m4, sa)) => {
-                    self.tx = Some(TxJob::new(&m4));
-                    self.pending_sa = Some(sa);
-                    FsmOutcome::Wait
-                }
-                Err(_) => {
-                    self.phase = 0;
-                    FsmOutcome::Wait
-                }
+        match hs::responder_recv_m3(
+            st,
+            &self.cfg.identity,
+            &self.buf[..n],
+            self.spi_i,
+            Some(&*pc),
+        ) {
+            Ok((m4, sa)) => {
+                self.tx = Some(TxJob::new(&m4));
+                self.pending_sa = Some(sa);
+                FsmOutcome::Wait
             }
-        })
+            Err(_) => {
+                self.phase = 0;
+                FsmOutcome::Wait
+            }
+        }
     }
 }
 
@@ -1066,15 +1049,17 @@ mod tests {
         let cfg_r = cfg_of(fp_i, 5, 6, 8, id_r);
         let mut fi = Fsm::new(cfg_i, MockSpi::default());
         let mut fr = Fsm::new(cfg_r, MockSpi::default());
+        let mut pc_i = VerifyPrecomp::const_zeroed();
+        let mut pc_r = VerifyPrecomp::const_zeroed();
         let mut sa_i = None;
         let mut sa_r = None;
         for _ in 0..400 {
-            match fi.poll() {
+            match fi.poll(&mut pc_i) {
                 FsmOutcome::Sa(sa) => sa_i = Some(sa),
                 FsmOutcome::Wait => {}
             }
             fi.spi.pump(&fr.spi);
-            match fr.poll() {
+            match fr.poll(&mut pc_r) {
                 FsmOutcome::Sa(sa) => sa_r = Some(sa),
                 FsmOutcome::Wait => {}
             }
@@ -1088,15 +1073,24 @@ mod tests {
                 break;
             }
         }
-        assert!(sa_i.is_some() && sa_r.is_some(), "handshake did not complete");
+        assert!(
+            sa_i.is_some() && sa_r.is_some(),
+            "handshake did not complete"
+        );
         fi.spi.outbox.borrow_mut().clear();
         fr.spi.outbox.borrow_mut().clear();
         for _ in 0..100 {
-            assert!(matches!(fi.poll(), FsmOutcome::Wait));
-            assert!(matches!(fr.poll(), FsmOutcome::Wait));
+            assert!(matches!(fi.poll(&mut pc_i), FsmOutcome::Wait));
+            assert!(matches!(fr.poll(&mut pc_r), FsmOutcome::Wait));
         }
-        assert!(fi.spi.outbox.borrow().is_empty(), "initiator restarted after sa");
-        assert!(fr.spi.outbox.borrow().is_empty(), "responder restarted after sa");
+        assert!(
+            fi.spi.outbox.borrow().is_empty(),
+            "initiator restarted after sa"
+        );
+        assert!(
+            fr.spi.outbox.borrow().is_empty(),
+            "responder restarted after sa"
+        );
     }
 
     #[test]
@@ -1104,15 +1098,16 @@ mod tests {
     fn initiator_bad_m2_restarts() {
         let cfg = cfg_of([9u8; 32], 1, 2, 4, identity_i());
         let mut f = Fsm::new(cfg, MockSpi::default());
+        let mut pc = VerifyPrecomp::const_zeroed();
         for _ in 0..4 {
-            let _ = f.poll();
+            let _ = f.poll(&mut pc);
         }
         let m1 = f.spi.outbox.borrow()[0].clone();
         assert_eq!(m1[0..4], [0, 0, 12, 96], "m1 chunk header (3168B total)");
         f.spi.outbox.borrow_mut().clear();
         f.spi.push_rx(&[0xEE; 64]);
         for _ in 0..400 {
-            let _ = f.poll();
+            let _ = f.poll(&mut pc);
         }
         let resent = f.spi.outbox.borrow().iter().any(|p| p == &m1);
         assert!(resent, "m1 must be resent after bad m2");
@@ -1130,10 +1125,12 @@ mod tests {
         let cfg_r = cfg_of(fp_i, 5, 6, 8, id_r);
         let mut fi = Fsm::new(cfg_i, MockSpi::default());
         let mut fr = Fsm::new(cfg_r, MockSpi::default());
+        let mut pc_i = VerifyPrecomp::const_zeroed();
+        let mut pc_r = VerifyPrecomp::const_zeroed();
 
         for _ in 0..4000 {
-            let _ = fi.poll();
-            let _ = fr.poll();
+            let _ = fi.poll(&mut pc_i);
+            let _ = fr.poll(&mut pc_r);
             fi.spi.pump(&fr.spi);
             if fi.role != Role::Undecided
                 && fr.role != Role::Undecided

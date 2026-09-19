@@ -25,15 +25,14 @@ pub unsafe extern "C" fn kyb_fsm_free(h: *mut FsmHandle) {
 
 #[no_mangle]
 pub unsafe extern "C" fn kyb_simnode_set_status(h: &mut FsmHandle, value: u32) {
-    h.fsm.lock().spi.set_status(value);
+    h.fsm.spi.set_status(value);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn kyb_fsm_poll(h: &mut FsmHandle) -> u32 {
-    let mut fsm = h.fsm.lock();
-    match fsm.poll() {
+    match h.fsm.poll(&mut h.pc) {
         FsmOutcome::Sa(sa) => {
-            write_sa(&fsm.spi, &sa, fsm.role == Role::Initiator, 1);
+            write_sa(&h.fsm.spi, &sa, h.fsm.role == Role::Initiator, 1);
             1
         }
         FsmOutcome::Wait => 0,
@@ -42,7 +41,7 @@ pub unsafe extern "C" fn kyb_fsm_poll(h: &mut FsmHandle) -> u32 {
 
 #[no_mangle]
 pub unsafe extern "C" fn kyb_fsm_role(h: &mut FsmHandle) -> u32 {
-    match h.fsm.lock().role {
+    match h.fsm.role {
         Role::Undecided => 0,
         Role::Initiator => 1,
         Role::Responder => 2,
@@ -51,7 +50,7 @@ pub unsafe extern "C" fn kyb_fsm_role(h: &mut FsmHandle) -> u32 {
 
 #[no_mangle]
 pub unsafe extern "C" fn kyb_fsm_take_writes(h: &mut FsmHandle, out: *mut u64, cap: u32) -> u32 {
-    let sunk = h.fsm.lock().spi.take_writes_n(cap as usize);
+    let sunk = h.fsm.spi.take_writes_n(cap as usize);
     let slot = unsafe { std::slice::from_raw_parts_mut(out, cap as usize) };
     for (i, (addr, data)) in sunk.iter().enumerate() {
         slot[i] = ((*data as u64) << 32) | *addr as u64;
@@ -62,7 +61,7 @@ pub unsafe extern "C" fn kyb_fsm_take_writes(h: &mut FsmHandle, out: *mut u64, c
 #[no_mangle]
 pub unsafe extern "C" fn kyb_fsm_push_rx(h: &mut FsmHandle, data: *const u8, len: u32) {
     let payload = unsafe { std::slice::from_raw_parts(data, len as usize) };
-    h.fsm.lock().spi.push_rx(payload);
+    h.fsm.spi.push_rx(payload);
 }
 
 #[no_mangle]
@@ -91,7 +90,9 @@ mod tests {
         let mut buf = vec![0u64; cap];
         let n = unsafe { kyb_fsm_take_writes(&mut *h, buf.as_mut_ptr(), cap as u32) } as usize;
         buf.truncate(n);
-        buf.into_iter().map(|w| ((w >> 32) as u32, w as u32)).collect()
+        buf.into_iter()
+            .map(|w| ((w >> 32) as u32, w as u32))
+            .collect()
     }
 
     fn pump_with(h: *mut FsmHandle, rounds: usize, cap: usize, status: u32) -> Vec<(u32, u32)> {

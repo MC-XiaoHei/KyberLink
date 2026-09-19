@@ -692,14 +692,20 @@ pub struct VerifyPrecomp {
     pub vk_hash: [u8; 32],
 }
 
-impl Default for VerifyPrecomp {
-    fn default() -> Self {
+impl VerifyPrecomp {
+    pub const fn const_zeroed() -> Self {
         VerifyPrecomp {
             a_hat_packed: [0u8; K * L * 256 * 3],
             t1_2d_hat_packed: [0u8; K * 256 * 3],
             tr_b: [0u8; 64],
             vk_hash: [0u8; 32],
         }
+    }
+}
+
+impl Default for VerifyPrecomp {
+    fn default() -> Self {
+        VerifyPrecomp::const_zeroed()
     }
 }
 

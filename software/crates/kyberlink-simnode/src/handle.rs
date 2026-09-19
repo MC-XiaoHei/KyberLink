@@ -1,17 +1,18 @@
 use core::cell::RefCell;
 
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
-use parking_lot::Mutex;
 
 use kyberlink_core::handshake_fsm::{Config, Fsm};
 use kyberlink_crypto::entropy::KemSeeds;
 use kyberlink_crypto::handshake as hs;
+use kyberlink_crypto::mldsa_internal::VerifyPrecomp;
 
 use crate::identity::{self, TestIdentity};
 use crate::qbus::QBus;
 
 pub(crate) struct FsmHandle {
-    pub(crate) fsm: Mutex<Fsm<QBus, TestIdentity>>,
+    pub(crate) fsm: Fsm<QBus, TestIdentity>,
+    pub(crate) pc: VerifyPrecomp,
 }
 
 pub(crate) fn create(
@@ -37,6 +38,7 @@ pub(crate) fn create(
         identity,
     };
     Box::into_raw(Box::new(FsmHandle {
-        fsm: Mutex::new(Fsm::new(cfg, QBus::new())),
+        fsm: Fsm::new(cfg, QBus::new()),
+        pc: VerifyPrecomp::const_zeroed(),
     }))
 }
