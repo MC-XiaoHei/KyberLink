@@ -1,73 +1,73 @@
-// Clock (Bank 5, VCCIO5 = 3.3V)
+// Clock
 IO_LOC "clk" E2;
 IO_PORT "clk" IO_TYPE=LVCMOS33;
 
-// Reset (Bank 7, VCCIO6/7 = 3.3V)
-IO_LOC "rst_n" H11;
+// Reset
+IO_LOC "rst_n" E1;
 IO_PORT "rst_n" IO_TYPE=LVCMOS33 PULL_MODE=UP;
 
-// LAN RGMII RX (Bank 2, VCCIO2 = 1.8V)
-IO_LOC "lan_rgmii_rx_clk" L4;
-IO_PORT "lan_rgmii_rx_clk" IO_TYPE=LVCMOS18;
-IO_LOC "lan_rgmii_rx_ctl" J4;
-IO_PORT "lan_rgmii_rx_ctl" IO_TYPE=LVCMOS18;
-IO_LOC "lan_rgmii_rxd[0]" L2;
-IO_PORT "lan_rgmii_rxd[0]" IO_TYPE=LVCMOS18;
-IO_LOC "lan_rgmii_rxd[1]" L1;
-IO_PORT "lan_rgmii_rxd[1]" IO_TYPE=LVCMOS18;
-IO_LOC "lan_rgmii_rxd[2]" K1;
-IO_PORT "lan_rgmii_rxd[2]" IO_TYPE=LVCMOS18;
-IO_LOC "lan_rgmii_rxd[3]" K2;
-IO_PORT "lan_rgmii_rxd[3]" IO_TYPE=LVCMOS18;
+// LAN RGMII RX
+IO_LOC "lan_rgmii_rx_clk" E11;
+IO_PORT "lan_rgmii_rx_clk" IO_TYPE=LVCMOS33;
+IO_LOC "lan_rgmii_rx_ctl" K7;
+IO_PORT "lan_rgmii_rx_ctl" IO_TYPE=LVCMOS33;
+IO_LOC "lan_rgmii_rxd[0]" K10;
+IO_PORT "lan_rgmii_rxd[0]" IO_TYPE=LVCMOS33;
+IO_LOC "lan_rgmii_rxd[1]" L10;
+IO_PORT "lan_rgmii_rxd[1]" IO_TYPE=LVCMOS33;
+IO_LOC "lan_rgmii_rxd[2]" L8;
+IO_PORT "lan_rgmii_rxd[2]" IO_TYPE=LVCMOS33;
+IO_LOC "lan_rgmii_rxd[3]" L7;
+IO_PORT "lan_rgmii_rxd[3]" IO_TYPE=LVCMOS33;
 
-// LAN RGMII TX (Bank 2, VCCIO2 = 1.8V)
-IO_LOC "lan_rgmii_tx_clk" J1;
-IO_PORT "lan_rgmii_tx_clk" IO_TYPE=LVCMOS18;
-IO_LOC "lan_rgmii_tx_ctl" J2;
-IO_PORT "lan_rgmii_tx_ctl" IO_TYPE=LVCMOS18;
-IO_LOC "lan_rgmii_txd[0]" K4;
-IO_PORT "lan_rgmii_txd[0]" IO_TYPE=LVCMOS18;
-IO_LOC "lan_rgmii_txd[1]" G2;
-IO_PORT "lan_rgmii_txd[1]" IO_TYPE=LVCMOS18;
-IO_LOC "lan_rgmii_txd[2]" G1;
-IO_PORT "lan_rgmii_txd[2]" IO_TYPE=LVCMOS18;
-IO_LOC "lan_rgmii_txd[3]" L3;
-IO_PORT "lan_rgmii_txd[3]" IO_TYPE=LVCMOS18;
+// LAN RGMII TX
+IO_LOC "lan_rgmii_tx_clk" E10;
+IO_PORT "lan_rgmii_tx_clk" IO_TYPE=LVCMOS33;
+IO_LOC "lan_rgmii_tx_ctl" J7;
+IO_PORT "lan_rgmii_tx_ctl" IO_TYPE=LVCMOS33;
+IO_LOC "lan_rgmii_txd[0]" C11;
+IO_PORT "lan_rgmii_txd[0]" IO_TYPE=LVCMOS33;
+IO_LOC "lan_rgmii_txd[1]" C10;
+IO_PORT "lan_rgmii_txd[1]" IO_TYPE=LVCMOS33;
+IO_LOC "lan_rgmii_txd[2]" B11;
+IO_PORT "lan_rgmii_txd[2]" IO_TYPE=LVCMOS33;
+IO_LOC "lan_rgmii_txd[3]" B10;
+IO_PORT "lan_rgmii_txd[3]" IO_TYPE=LVCMOS33;
 
-// WAN RGMII RX (Bank 0, VCCIO0 = 1.8V)
-IO_LOC "wan_rgmii_rx_clk" J8;
-IO_PORT "wan_rgmii_rx_clk" IO_TYPE=LVCMOS18;
-IO_LOC "wan_rgmii_rx_ctl" K8;
-IO_PORT "wan_rgmii_rx_ctl" IO_TYPE=LVCMOS18;
-IO_LOC "wan_rgmii_rxd[0]" F7;
-IO_PORT "wan_rgmii_rxd[0]" IO_TYPE=LVCMOS18;
-IO_LOC "wan_rgmii_rxd[1]" F6;
-IO_PORT "wan_rgmii_rxd[1]" IO_TYPE=LVCMOS18;
-IO_LOC "wan_rgmii_rxd[2]" L9;
-IO_PORT "wan_rgmii_rxd[2]" IO_TYPE=LVCMOS18;
-IO_LOC "wan_rgmii_rxd[3]" K9;
-IO_PORT "wan_rgmii_rxd[3]" IO_TYPE=LVCMOS18;
+// WAN RGMII RX
+IO_LOC "wan_rgmii_rx_clk" J5;
+IO_PORT "wan_rgmii_rx_clk" IO_TYPE=LVCMOS33;
+IO_LOC "wan_rgmii_rx_ctl" F6;
+IO_PORT "wan_rgmii_rx_ctl" IO_TYPE=LVCMOS33;
+IO_LOC "wan_rgmii_rxd[0]" K8;
+IO_PORT "wan_rgmii_rxd[0]" IO_TYPE=LVCMOS33;
+IO_LOC "wan_rgmii_rxd[1]" J8;
+IO_PORT "wan_rgmii_rxd[1]" IO_TYPE=LVCMOS33;
+IO_LOC "wan_rgmii_rxd[2]" K9;
+IO_PORT "wan_rgmii_rxd[2]" IO_TYPE=LVCMOS33;
+IO_LOC "wan_rgmii_rxd[3]" L9;
+IO_PORT "wan_rgmii_rxd[3]" IO_TYPE=LVCMOS33;
 
-// WAN RGMII TX (Bank 1, VCCIO1 = 1.8V)
-IO_LOC "wan_rgmii_tx_clk" H5;
-IO_PORT "wan_rgmii_tx_clk" IO_TYPE=LVCMOS18;
-IO_LOC "wan_rgmii_tx_ctl" F5;
-IO_PORT "wan_rgmii_tx_ctl" IO_TYPE=LVCMOS18;
+// WAN RGMII TX
+IO_LOC "wan_rgmii_tx_clk" K5;
+IO_PORT "wan_rgmii_tx_clk" IO_TYPE=LVCMOS33;
+IO_LOC "wan_rgmii_tx_ctl" F7;
+IO_PORT "wan_rgmii_tx_ctl" IO_TYPE=LVCMOS33;
 IO_LOC "wan_rgmii_txd[0]" H8;
-IO_PORT "wan_rgmii_txd[0]" IO_TYPE=LVCMOS18;
+IO_PORT "wan_rgmii_txd[0]" IO_TYPE=LVCMOS33;
 IO_LOC "wan_rgmii_txd[1]" H7;
-IO_PORT "wan_rgmii_txd[1]" IO_TYPE=LVCMOS18;
+IO_PORT "wan_rgmii_txd[1]" IO_TYPE=LVCMOS33;
 IO_LOC "wan_rgmii_txd[2]" G7;
-IO_PORT "wan_rgmii_txd[2]" IO_TYPE=LVCMOS18;
+IO_PORT "wan_rgmii_txd[2]" IO_TYPE=LVCMOS33;
 IO_LOC "wan_rgmii_txd[3]" G8;
-IO_PORT "wan_rgmii_txd[3]" IO_TYPE=LVCMOS18;
+IO_PORT "wan_rgmii_txd[3]" IO_TYPE=LVCMOS33;
 
-// SPI (Bank 7, VCCIO6/7 = 3.3V)
-IO_LOC "spi_sck" K7;
-IO_PORT "spi_sck" IO_TYPE=LVCMOS33;
-IO_LOC "spi_mosi" K6;
-IO_PORT "spi_mosi" IO_TYPE=LVCMOS33;
-IO_LOC "spi_miso" J7;
-IO_PORT "spi_miso" IO_TYPE=LVCMOS33;
-IO_LOC "spi_csn" L6;
+// SPI
+IO_LOC "spi_csn" J11;
 IO_PORT "spi_csn" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_LOC "spi_sck" J10;
+IO_PORT "spi_sck" IO_TYPE=LVCMOS33;
+IO_LOC "spi_miso" H11;
+IO_PORT "spi_miso" IO_TYPE=LVCMOS33;
+IO_LOC "spi_mosi" H10;
+IO_PORT "spi_mosi" IO_TYPE=LVCMOS33;
