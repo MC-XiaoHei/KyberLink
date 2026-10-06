@@ -23,7 +23,7 @@ use kyberlink_firmware::spi::SpiMaster;
 use static_cell::{ConstStaticCell, StaticCell};
 
 use crate::mdio;
-use crate::pinmap::Pins;
+use crate::pinmap::{Board, Pins};
 use crate::serial;
 
 const FLASH_BASE: u32 = 0x0800_0000;
@@ -68,7 +68,6 @@ impl NorFlash for FlashPort<'_> {
 
 static FSM: StaticCell<Fsm<SpiMaster, RomIdentity>> = StaticCell::new();
 static PC: ConstStaticCell<VerifyPrecomp> = ConstStaticCell::new(VerifyPrecomp::const_zeroed());
-static FPGA_RST: StaticCell<Output<'static>> = StaticCell::new();
 static BINDING: StaticCell<Binding> = StaticCell::new();
 static ERR_FLAGS: AtomicU8 = AtomicU8::new(0);
 static LINK_FLAGS: AtomicU8 = AtomicU8::new(0);
@@ -173,7 +172,7 @@ fn start_fsm(
 async fn run_forever(
     fsm: &'static mut Fsm<SpiMaster, RomIdentity>,
     pc: &'static mut VerifyPrecomp,
-    rst: &'static mut Output<'static>,
+    board: &mut Board<'_>,
     binding: &'static Binding,
     phys: Option<&mdio::PhysPair<'_>>,
     signal: &serial::ActionSignal,
@@ -192,8 +191,8 @@ async fn run_forever(
                 Action::Rekey => fsm.reseed(sample_entropy()),
                 Action::Resume => write_data_plane(&fsm.spi, binding),
                 Action::Reboot => {
-                    rst.set_low();
-                    embassy_time::block_for(embassy_time::Duration::from_millis(10));
+                    board.fpga_reset.enable();
+                    Timer::after_millis(10).await;
                     system_reset();
                 }
                 _ => {}
@@ -226,6 +225,8 @@ async fn main(_spawner: Spawner) -> ! {
         spi_miso: p.PA6,
         spi_cs: p.PA4,
         fpga_rst: p.PA1,
+        fpga_recfg: p.PA2,
+        fpga_done: p.PA3,
         uart_tx: p.PB6,
         uart_rx: p.PB7,
         phy_rst: p.PA11,
@@ -267,7 +268,7 @@ async fn main(_spawner: Spawner) -> ! {
 
     let seeds = sample_entropy();
 
-    let mut phy_rst = Output::new(pins.phy_rst, Level::Low, Default::default());
+    let mut board = Board::new(pins.fpga_rst, pins.fpga_recfg, pins.phy_rst, pins.fpga_done);
     let mdc = mdio::MdcPin::new(Output::new(pins.phy_mdc, Level::Low, Default::default()));
     let lan_bus = mdio::BitBangMdio::new(
         &mdc,
@@ -278,10 +279,11 @@ async fn main(_spawner: Spawner) -> ! {
         OutputOpenDrain::new(pins.wan_mdio, Level::High, Speed::Low),
     );
 
-    let rst = FPGA_RST.init(Output::new(pins.fpga_rst, Level::Low, Default::default()));
-    let phys = mdio::init_pair(lan_bus, wan_bus, &mut phy_rst).ok();
-    rst.set_high();
-    embassy_time::block_for(embassy_time::Duration::from_millis(10));
+    let phys = mdio::init_pair(lan_bus, wan_bus, &mut board.phy_reset)
+        .await
+        .ok();
+    board.fpga_reset.disable();
+    Timer::after_millis(10).await;
     let binding: &'static Binding = BINDING.init(binding);
     let fsm = start_fsm(spi, cs, binding, seeds, identity);
     let pc = PC.take();
@@ -303,7 +305,7 @@ async fn main(_spawner: Spawner) -> ! {
     );
     match join(
         link,
-        run_forever(fsm, pc, rst, binding, phys.as_ref(), &signal),
+        run_forever(fsm, pc, &mut board, binding, phys.as_ref(), &signal),
     )
     .await {}
 }

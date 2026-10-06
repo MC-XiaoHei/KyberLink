@@ -1,9 +1,11 @@
 use ch32_hal::gpio::{Output, OutputOpenDrain};
 use core::cell::RefCell;
-use embassy_time::{block_for, Duration};
+use embassy_time::Timer;
 use kyberlink_core::dispatch::{PhyAccess, PhyDev};
 use kyberlink_mdio::bus::{MdioError, MdioPins};
 use kyberlink_mdio::dp83867::{self, BlinkRate, DelayNs, Dp83867, Led, LedSource, PhyPair};
+
+use crate::pinmap::ActiveLow;
 
 const HALF_PERIOD_CYCLES: usize = 72;
 
@@ -69,15 +71,15 @@ impl MdioPins for BitBangMdio<'_> {
     }
 }
 
-pub fn init_pair<'d>(
+pub async fn init_pair<'d>(
     lan: BitBangMdio<'d>,
     wan: BitBangMdio<'d>,
-    phy_rst: &mut Output<'d>,
+    phy_reset: &mut ActiveLow<'d>,
 ) -> Result<PhyPair<BitBangMdio<'d>, BitBangMdio<'d>>, MdioError> {
-    phy_rst.set_low();
-    block_for(Duration::from_millis(1));
-    phy_rst.set_high();
-    block_for(Duration::from_millis(200));
+    phy_reset.enable();
+    Timer::after_millis(1).await;
+    phy_reset.disable();
+    Timer::after_millis(200).await;
 
     let lan_addr = dp83867::scan(&lan).ok_or(MdioError::NoResponse)?;
     let wan_addr = dp83867::scan(&wan).ok_or(MdioError::NoResponse)?;
