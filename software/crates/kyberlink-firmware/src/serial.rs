@@ -5,7 +5,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use kyberlink_core::cfg_store::NorFlash;
 use kyberlink_core::console::Console;
-use kyberlink_core::dispatch::Action;
+use kyberlink_core::dispatch::{Action, PhyAccess};
 
 pub type ActionSignal = Signal<CriticalSectionRawMutex, Action>;
 
@@ -24,10 +24,11 @@ pub struct UartPins {
     pub rx_dma: Peri<'static, DMA1_CH5>,
 }
 
-pub async fn serve<F: NorFlash>(
+pub async fn serve<F: NorFlash, P: PhyAccess>(
     pins: UartPins,
     console: &mut Console,
     flash: &mut F,
+    phy: &P,
     signal: &ActionSignal,
 ) -> ! {
     let UartPins {
@@ -50,7 +51,7 @@ pub async fn serve<F: NorFlash>(
         };
         console.set_err(crate::firmware::err_flags());
         for &byte in &buf[..n] {
-            let action = console.push(byte, flash);
+            let action = console.push_with(byte, flash, phy);
             if let Some(reply) = console.take_reply() {
                 let _ = tx.write(reply.as_bytes()).await;
             }

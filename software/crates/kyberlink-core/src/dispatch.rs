@@ -11,6 +11,38 @@ pub const FW_VERSION: &str = "0.1";
 pub const REPLY_MAX: usize = 192;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PhyDev {
+    Lan,
+    Wan,
+}
+
+impl PhyDev {
+    fn as_str(self) -> &'static str {
+        match self {
+            PhyDev::Lan => "lan",
+            PhyDev::Wan => "wan",
+        }
+    }
+}
+
+pub trait PhyAccess {
+    fn read(&self, dev: PhyDev, addr: u16) -> Option<u16>;
+    fn write(&self, dev: PhyDev, addr: u16, val: u16) -> bool;
+}
+
+pub struct NoPhy;
+
+impl PhyAccess for NoPhy {
+    fn read(&self, _dev: PhyDev, _addr: u16) -> Option<u16> {
+        None
+    }
+
+    fn write(&self, _dev: PhyDev, _addr: u16, _val: u16) -> bool {
+        false
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
     Configure,
     Running,
@@ -270,7 +302,63 @@ fn cmd_factory<F: NorFlash>(arg: Option<&str>, flash: &mut F, out: &mut LineBuf)
     flash_result(out, cfg_store::clear_all(flash))
 }
 
+fn parse_hex_u16(s: &str) -> Option<u16> {
+    let t = s
+        .strip_prefix("0x")
+        .or_else(|| s.strip_prefix("0X"))
+        .unwrap_or(s);
+    u16::from_str_radix(t, 16).ok()
+}
+
+fn cmd_phy<P: PhyAccess>(
+    args: &mut SplitAsciiWhitespace<'_>,
+    phy: &P,
+    out: &mut LineBuf,
+) -> Action {
+    let Some(dev) = args.next().and_then(|d| match d {
+        "lan" | "LAN" => Some(PhyDev::Lan),
+        "wan" | "WAN" => Some(PhyDev::Wan),
+        _ => None,
+    }) else {
+        return err(out, "PHY <lan|wan> <addr> [val]");
+    };
+    let Some(addr) = args.next().and_then(parse_hex_u16) else {
+        return err(out, "PHY <lan|wan> <addr> [val]");
+    };
+    match args.next() {
+        None => match phy.read(dev, addr) {
+            Some(v) => {
+                let _ = writeln!(out, "OK {} {addr:04x} {v:04x}", dev.as_str());
+            }
+            None => {
+                let _ = writeln!(out, "ERR mdio");
+            }
+        },
+        Some(text) => {
+            let Some(val) = parse_hex_u16(text) else {
+                return err(out, "bad value");
+            };
+            if phy.write(dev, addr, val) {
+                let _ = writeln!(out, "OK {} {addr:04x} {val:04x}", dev.as_str());
+            } else {
+                let _ = writeln!(out, "ERR mdio");
+            }
+        }
+    }
+    Action::None
+}
+
 pub fn exec<F: NorFlash>(line: &str, ctx: &Ctx, flash: &mut F, out: &mut LineBuf) -> Action {
+    exec_with(line, ctx, flash, &NoPhy, out)
+}
+
+pub fn exec_with<F: NorFlash, P: PhyAccess>(
+    line: &str,
+    ctx: &Ctx,
+    flash: &mut F,
+    phy: &P,
+    out: &mut LineBuf,
+) -> Action {
     let mut args = line.split_ascii_whitespace();
     let Some(cmd) = args.next() else {
         return err(out, "empty");
@@ -281,6 +369,7 @@ pub fn exec<F: NorFlash>(line: &str, ctx: &Ctx, flash: &mut F, out: &mut LineBuf
         "FPM" => cmd_fpm(flash, out),
         "SHOW" => cmd_show(flash, out),
         "STAT" => cmd_stat(ctx, out),
+        "PHY" => cmd_phy(&mut args, phy, out),
         "HALT" if !configure => Action::Halt,
         "RESUME" if configure => Action::Resume,
         "REKEY" if !configure => Action::Rekey,
@@ -344,6 +433,62 @@ mod tests {
             s.write(f, chunk).unwrap();
         }
         s.finish(f).unwrap();
+    }
+
+    struct FakePhy;
+
+    impl PhyAccess for FakePhy {
+        fn read(&self, _dev: PhyDev, addr: u16) -> Option<u16> {
+            (addr == 0x0086).then_some(0x0077)
+        }
+
+        fn write(&self, _dev: PhyDev, addr: u16, val: u16) -> bool {
+            addr == 0x0086 && val == 0x0077
+        }
+    }
+
+    fn run_phy(line: &str) -> (String, Action) {
+        let mut f = MemFlash::new(0x4_0000);
+        let mut out = LineBuf::new();
+        let action = exec_with(
+            line,
+            &Ctx {
+                mode: Mode::Running,
+                phase: 0,
+                err: 0,
+            },
+            &mut f,
+            &FakePhy,
+            &mut out,
+        );
+        (out.as_str().to_string(), action)
+    }
+
+    #[test]
+    fn phy_read_reports_register() {
+        let (r, a) = run_phy("PHY lan 0x0086");
+        assert_eq!(r, "OK lan 0086 0077\n");
+        assert_eq!(a, Action::None);
+    }
+
+    #[test]
+    fn phy_write_reports_acknowledged_value() {
+        let (r, _) = run_phy("PHY wan 86 77");
+        assert_eq!(r, "OK wan 0086 0077\n");
+    }
+
+    #[test]
+    fn phy_rejects_bad_arguments() {
+        assert_eq!(run_phy("PHY").0, "ERR PHY <lan|wan> <addr> [val]\n");
+        assert_eq!(run_phy("PHY mid 0").0, "ERR PHY <lan|wan> <addr> [val]\n");
+        assert_eq!(run_phy("PHY lan zz").0, "ERR PHY <lan|wan> <addr> [val]\n");
+        assert_eq!(run_phy("PHY lan 0 zz").0, "ERR bad value\n");
+    }
+
+    #[test]
+    fn phy_reports_link_failure() {
+        let (r, _) = run_phy("PHY lan 0x0018");
+        assert_eq!(r, "ERR mdio\n");
     }
 
     #[test]

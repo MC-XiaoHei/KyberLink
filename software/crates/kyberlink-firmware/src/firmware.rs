@@ -1,7 +1,7 @@
 use core::sync::atomic::{AtomicU8, Ordering};
 
 use ch32_hal::flash::{Blocking as FlashBlocking, Flash};
-use ch32_hal::gpio::{Level, Output};
+use ch32_hal::gpio::{Level, Output, OutputOpenDrain, Speed};
 use ch32_hal::mode::Blocking;
 use ch32_hal::peripherals::SPI1;
 use ch32_hal::spi::{Config as SpiConfig, Spi};
@@ -22,6 +22,7 @@ use kyberlink_crypto::mldsa_internal::VerifyPrecomp;
 use kyberlink_firmware::spi::SpiMaster;
 use static_cell::{ConstStaticCell, StaticCell};
 
+use crate::mdio;
 use crate::pinmap::Pins;
 use crate::serial;
 
@@ -70,9 +71,10 @@ static PC: ConstStaticCell<VerifyPrecomp> = ConstStaticCell::new(VerifyPrecomp::
 static FPGA_RST: StaticCell<Output<'static>> = StaticCell::new();
 static BINDING: StaticCell<Binding> = StaticCell::new();
 static ERR_FLAGS: AtomicU8 = AtomicU8::new(0);
+static LINK_FLAGS: AtomicU8 = AtomicU8::new(0);
 
 pub(crate) fn err_flags() -> u8 {
-    ERR_FLAGS.load(Ordering::Relaxed)
+    ERR_FLAGS.load(Ordering::Relaxed) | LINK_FLAGS.load(Ordering::Relaxed)
 }
 
 fn watchdog_start() {
@@ -143,7 +145,8 @@ fn sample_entropy() -> KemSeeds {
 async fn provisioning(flash: &mut FlashPort<'_>, pins: serial::UartPins) -> ! {
     let mut console = Console::new(Mode::Configure);
     let signal = serial::ActionSignal::new();
-    let link = serial::serve(pins, &mut console, flash, &signal);
+    let phy = mdio::PhyConsole::new(None);
+    let link = serial::serve(pins, &mut console, flash, &phy, &signal);
     match join(link, reboot_watch(&signal)).await {}
 }
 
@@ -172,6 +175,7 @@ async fn run_forever(
     pc: &'static mut VerifyPrecomp,
     rst: &'static mut Output<'static>,
     binding: &'static Binding,
+    phys: Option<&mdio::PhysPair<'_>>,
     signal: &serial::ActionSignal,
 ) -> ! {
     let mut ticks = 0u32;
@@ -198,6 +202,7 @@ async fn run_forever(
         ticks += 1;
         if ticks.is_multiple_of(ERR_POLL_TICKS) {
             ERR_FLAGS.store(fsm.spi.read_reg(REG_ERR) as u8, Ordering::Relaxed);
+            LINK_FLAGS.store(phys.map_or(0, mdio::link_flags), Ordering::Relaxed);
         }
         watchdog_feed();
         Timer::after_millis(1).await;
@@ -223,6 +228,10 @@ async fn main(_spawner: Spawner) -> ! {
         fpga_rst: p.PA1,
         uart_tx: p.PB6,
         uart_rx: p.PB7,
+        phy_rst: p.PA11,
+        phy_mdc: p.PC6,
+        wan_mdio: p.PC8,
+        lan_mdio: p.PC9,
     };
 
     let mut flash = FlashPort(Flash::new_blocking(p.FLASH));
@@ -258,13 +267,27 @@ async fn main(_spawner: Spawner) -> ! {
 
     let seeds = sample_entropy();
 
-    let rst = FPGA_RST.init(Output::new(pins.fpga_rst, Level::High, Default::default()));
+    let mut phy_rst = Output::new(pins.phy_rst, Level::Low, Default::default());
+    let mdc = mdio::MdcPin::new(Output::new(pins.phy_mdc, Level::Low, Default::default()));
+    let lan_bus = mdio::BitBangMdio::new(
+        &mdc,
+        OutputOpenDrain::new(pins.lan_mdio, Level::High, Speed::Low),
+    );
+    let wan_bus = mdio::BitBangMdio::new(
+        &mdc,
+        OutputOpenDrain::new(pins.wan_mdio, Level::High, Speed::Low),
+    );
+
+    let rst = FPGA_RST.init(Output::new(pins.fpga_rst, Level::Low, Default::default()));
+    let phys = mdio::init_pair(lan_bus, wan_bus, &mut phy_rst).ok();
+    rst.set_high();
     embassy_time::block_for(embassy_time::Duration::from_millis(10));
     let binding: &'static Binding = BINDING.init(binding);
     let fsm = start_fsm(spi, cs, binding, seeds, identity);
     let pc = PC.take();
     let mut console = Console::new(Mode::Running);
     let signal = serial::ActionSignal::new();
+    let console_phy = mdio::PhyConsole::new(phys.as_ref());
     let link = serial::serve(
         serial::UartPins {
             usart: p.USART1,
@@ -275,7 +298,12 @@ async fn main(_spawner: Spawner) -> ! {
         },
         &mut console,
         &mut flash,
+        &console_phy,
         &signal,
     );
-    match join(link, run_forever(fsm, pc, rst, binding, &signal)).await {}
+    match join(
+        link,
+        run_forever(fsm, pc, rst, binding, phys.as_ref(), &signal),
+    )
+    .await {}
 }

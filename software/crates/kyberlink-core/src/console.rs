@@ -2,7 +2,7 @@ use core::fmt::Write;
 
 use crate::cfg_msg;
 use crate::cfg_store::{FrameStream, NorFlash, IDENTITY_BASE, IDENTITY_PAGES, MAGIC_IDENTITY};
-use crate::dispatch::{self, Action, Ctx, LineBuf, Mode};
+use crate::dispatch::{self, Action, Ctx, LineBuf, Mode, NoPhy, PhyAccess};
 
 pub const LINE_MAX: usize = 512;
 
@@ -59,6 +59,15 @@ impl Console {
     }
 
     pub fn push<F: NorFlash>(&mut self, byte: u8, flash: &mut F) -> Action {
+        self.push_with(byte, flash, &NoPhy)
+    }
+
+    pub fn push_with<F: NorFlash, P: PhyAccess>(
+        &mut self,
+        byte: u8,
+        flash: &mut F,
+        phy: &P,
+    ) -> Action {
         if byte != b'\n' && byte != b'\r' {
             if self.len == LINE_MAX {
                 self.len = 0;
@@ -77,15 +86,15 @@ impl Console {
         self.len = 0;
         let line = core::str::from_utf8(&buf[..n]).unwrap_or("");
         self.out = LineBuf::new();
-        let action = self.handle(line, flash);
+        let action = self.handle(line, flash, phy);
         self.out_ready = !self.out.as_str().is_empty();
         action
     }
 
-    fn handle<F: NorFlash>(&mut self, line: &str, flash: &mut F) -> Action {
+    fn handle<F: NorFlash, P: PhyAccess>(&mut self, line: &str, flash: &mut F, phy: &P) -> Action {
         match self.spill.take() {
             Some(stream) => self.feed_spill(stream, line, flash),
-            None => self.run_command(line, flash),
+            None => self.run_command(line, flash, phy),
         }
     }
 
@@ -125,13 +134,18 @@ impl Console {
         }
     }
 
-    fn run_command<F: NorFlash>(&mut self, line: &str, flash: &mut F) -> Action {
+    fn run_command<F: NorFlash, P: PhyAccess>(
+        &mut self,
+        line: &str,
+        flash: &mut F,
+        phy: &P,
+    ) -> Action {
         let ctx = Ctx {
             mode: self.mode,
             phase: self.phase,
             err: self.err,
         };
-        let action = dispatch::exec(line, &ctx, flash, &mut self.out);
+        let action = dispatch::exec_with(line, &ctx, flash, phy, &mut self.out);
         self.track_mode(action);
         match action {
             Action::Spill => self.begin_spill(flash),

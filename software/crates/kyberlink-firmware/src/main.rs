@@ -5,6 +5,9 @@
 mod firmware;
 
 #[cfg(target_arch = "riscv32")]
+mod mdio;
+
+#[cfg(target_arch = "riscv32")]
 mod pinmap;
 
 #[cfg(target_arch = "riscv32")]
