@@ -8,7 +8,7 @@ mod firmware;
 mod pinmap;
 
 #[cfg(target_arch = "riscv32")]
-mod usb;
+mod serial;
 
 #[cfg(target_arch = "riscv32")]
 #[panic_handler]

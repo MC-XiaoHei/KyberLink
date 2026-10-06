@@ -3,10 +3,9 @@ use core::sync::atomic::{AtomicU8, Ordering};
 use ch32_hal::flash::{Blocking as FlashBlocking, Flash};
 use ch32_hal::gpio::{Level, Output};
 use ch32_hal::mode::Blocking;
-use ch32_hal::peripherals::{PA11, PA12, SPI1, USBD};
+use ch32_hal::peripherals::SPI1;
 use ch32_hal::spi::{Config as SpiConfig, Spi};
 use ch32_hal::time::Hertz;
-use ch32_hal::Peri;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_time::Timer;
@@ -24,7 +23,7 @@ use kyberlink_firmware::spi::SpiMaster;
 use static_cell::{ConstStaticCell, StaticCell};
 
 use crate::pinmap::Pins;
-use crate::usb;
+use crate::serial;
 
 const FLASH_BASE: u32 = 0x0800_0000;
 const FLASH_LEN: u32 = 0x7_8000;
@@ -141,19 +140,14 @@ fn sample_entropy() -> KemSeeds {
     derive_kem_seeds(&buf)
 }
 
-async fn provisioning(
-    flash: &mut FlashPort<'_>,
-    usbd: Peri<'static, USBD>,
-    dp: Peri<'static, PA12>,
-    dm: Peri<'static, PA11>,
-) -> ! {
+async fn provisioning(flash: &mut FlashPort<'_>, pins: serial::UartPins) -> ! {
     let mut console = Console::new(Mode::Configure);
-    let signal = usb::ActionSignal::new();
-    let usb = usb::serve(usbd, dp, dm, &mut console, flash, &signal);
-    match join(usb, reboot_watch(&signal)).await {}
+    let signal = serial::ActionSignal::new();
+    let link = serial::serve(pins, &mut console, flash, &signal);
+    match join(link, reboot_watch(&signal)).await {}
 }
 
-async fn reboot_watch(signal: &usb::ActionSignal) -> ! {
+async fn reboot_watch(signal: &serial::ActionSignal) -> ! {
     loop {
         if let Action::Reboot = signal.wait().await {
             system_reset();
@@ -178,7 +172,7 @@ async fn run_forever(
     pc: &'static mut VerifyPrecomp,
     rst: &'static mut Output<'static>,
     binding: &'static Binding,
-    signal: &usb::ActionSignal,
+    signal: &serial::ActionSignal,
 ) -> ! {
     let mut ticks = 0u32;
     let mut last = embassy_time::Instant::now();
@@ -226,15 +220,27 @@ async fn main(_spawner: Spawner) -> ! {
         spi_mosi: p.PA7,
         spi_miso: p.PA6,
         spi_cs: p.PA4,
-        fpga_rst: p.PA8,
-        usb_dm: p.PA11,
-        usb_dp: p.PA12,
+        fpga_rst: p.PA1,
+        uart_tx: p.PB6,
+        uart_rx: p.PB7,
     };
 
     let mut flash = FlashPort(Flash::new_blocking(p.FLASH));
     let (binding, identity) = match load_device(&mut flash) {
         Ok(loaded) => loaded,
-        Err(_) => provisioning(&mut flash, p.USBD, pins.usb_dp, pins.usb_dm).await,
+        Err(_) => {
+            provisioning(
+                &mut flash,
+                serial::UartPins {
+                    usart: p.USART1,
+                    tx: pins.uart_tx,
+                    rx: pins.uart_rx,
+                    tx_dma: p.DMA1_CH4,
+                    rx_dma: p.DMA1_CH5,
+                },
+            )
+            .await
+        }
     };
 
     watchdog_start();
@@ -258,14 +264,18 @@ async fn main(_spawner: Spawner) -> ! {
     let fsm = start_fsm(spi, cs, binding, seeds, identity);
     let pc = PC.take();
     let mut console = Console::new(Mode::Running);
-    let signal = usb::ActionSignal::new();
-    let usb = usb::serve(
-        p.USBD,
-        pins.usb_dp,
-        pins.usb_dm,
+    let signal = serial::ActionSignal::new();
+    let link = serial::serve(
+        serial::UartPins {
+            usart: p.USART1,
+            tx: pins.uart_tx,
+            rx: pins.uart_rx,
+            tx_dma: p.DMA1_CH4,
+            rx_dma: p.DMA1_CH5,
+        },
         &mut console,
         &mut flash,
         &signal,
     );
-    match join(usb, run_forever(fsm, pc, rst, binding, &signal)).await {}
+    match join(link, run_forever(fsm, pc, rst, binding, &signal)).await {}
 }
