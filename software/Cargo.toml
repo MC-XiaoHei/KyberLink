@@ -6,6 +6,7 @@ members = [
     "crates/kyberlink-core",
     "crates/kyberlink-firmware",
     "crates/kyberlink-simnode",
+    "crates/kyberlink-mdio",
 ]
 
 [profile.release]

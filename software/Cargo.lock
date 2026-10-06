@@ -799,10 +799,15 @@ dependencies = [
  "embassy-time",
  "kyberlink-core",
  "kyberlink-crypto",
+ "kyberlink-mdio",
  "portable-atomic",
  "riscv 0.12.1",
  "static_cell",
 ]
+
+[[package]]
+name = "kyberlink-mdio"
+version = "0.1.0"
 
 [[package]]
 name = "kyberlink-simnode"
