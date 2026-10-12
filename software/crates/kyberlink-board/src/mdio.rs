@@ -71,40 +71,80 @@ impl MdioPins for BitBangMdio<'_> {
     }
 }
 
+const PHY_RESET_HOLD_MS: u64 = 500;
+const MDIO_READY_TIMEOUT_MS: u64 = 1000;
+const MDIO_READY_INTERVAL_MS: u64 = 10;
+const CONFIG_ATTEMPTS: u32 = 5;
+const RGMIIDCTL: u16 = 0x0086;
+const RGMII_DELAY_2NS: u16 = 0x0077;
+const RGMII_DELAY_MASK: u16 = 0x00FF;
+
+fn retry<T>(mut op: impl FnMut() -> Result<T, MdioError>) -> Result<T, MdioError> {
+    let mut last = MdioError::NoResponse;
+    for _ in 0..CONFIG_ATTEMPTS {
+        match op() {
+            Ok(value) => return Ok(value),
+            Err(err) => last = err,
+        }
+    }
+    Err(last)
+}
+
+async fn wait_for_pair(lan: &BitBangMdio<'_>, wan: &BitBangMdio<'_>) -> Result<u8, MdioError> {
+    let mut waited = 0u64;
+    loop {
+        if let (Some(a), Some(b)) = (dp83867::scan(lan), dp83867::scan(wan)) {
+            if a == b {
+                return Ok(a);
+            }
+        }
+        if waited >= MDIO_READY_TIMEOUT_MS {
+            return Err(MdioError::NoResponse);
+        }
+        Timer::after_millis(MDIO_READY_INTERVAL_MS).await;
+        waited += MDIO_READY_INTERVAL_MS;
+    }
+}
+
+fn verify_rgmii_delay(pair: &PhysPair<'_>) -> Result<(), MdioError> {
+    for dev in [&pair.lan, &pair.wan] {
+        if retry(|| dev.read_reg(RGMIIDCTL))? & RGMII_DELAY_MASK != RGMII_DELAY_2NS {
+            return Err(MdioError::NoResponse);
+        }
+    }
+    Ok(())
+}
+
 pub async fn init_pair<'d>(
     lan: BitBangMdio<'d>,
     wan: BitBangMdio<'d>,
     phy_reset: &mut ActiveLow<'d>,
 ) -> Result<PhyPair<BitBangMdio<'d>, BitBangMdio<'d>>, MdioError> {
     phy_reset.enable();
-    Timer::after_millis(1).await;
+    Timer::after_millis(PHY_RESET_HOLD_MS).await;
     phy_reset.disable();
-    Timer::after_millis(200).await;
 
-    let lan_addr = dp83867::scan(&lan).ok_or(MdioError::NoResponse)?;
-    let wan_addr = dp83867::scan(&wan).ok_or(MdioError::NoResponse)?;
-    if lan_addr != wan_addr {
-        return Err(MdioError::BadAddress);
-    }
+    let addr = wait_for_pair(&lan, &wan).await?;
+    let pair = PhyPair::new(lan, wan, addr);
 
-    let pair = PhyPair::new(lan, wan, lan_addr);
     for dev in [&pair.lan, &pair.wan] {
-        if !dp83867::is_expected_id(dev.identify()?) {
+        if !dp83867::is_expected_id(retry(|| dev.identify())?) {
             return Err(MdioError::NoResponse);
         }
-        if dev.address_from_strap()? != dev.address() {
+        if retry(|| dev.address_from_strap())? != dev.address() {
             return Err(MdioError::BadAddress);
         }
     }
 
-    pair.set_rgmii_delay_both(DelayNs::Ns2_00, DelayNs::Ns2_00)?;
-    pair.set_rgmii_clock_delay_both(true)?;
-    pair.set_led_source_both(Led::Led0, LedSource::LinkBlinkActivity)?;
-    pair.set_led_source_both(Led::Led1, LedSource::Link1000)?;
+    retry(|| pair.set_rgmii_delay_both(DelayNs::Ns2_00, DelayNs::Ns2_00))?;
+    verify_rgmii_delay(&pair)?;
+    retry(|| pair.set_rgmii_clock_delay_both(true))?;
+    retry(|| pair.set_led_source_both(Led::Led0, LedSource::LinkBlinkActivity))?;
+    retry(|| pair.set_led_source_both(Led::Led1, LedSource::Link1000))?;
     for led in [Led::Led0, Led::Led1, Led::Led2, Led::Gpio] {
-        pair.set_led_polarity_both(led, true)?;
+        retry(|| pair.set_led_polarity_both(led, true))?;
     }
-    pair.set_led_blink_rate_both(BlinkRate::Hz5)?;
+    retry(|| pair.set_led_blink_rate_both(BlinkRate::Hz5))?;
     Ok(pair)
 }
 

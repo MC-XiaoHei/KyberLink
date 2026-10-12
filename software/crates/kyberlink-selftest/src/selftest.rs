@@ -3,7 +3,8 @@ use ch32_hal::spi::{Config as SpiConfig, Spi};
 use ch32_hal::time::Hertz;
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
-use kyberlink_board::mdio::{self, BitBangMdio, MdcPin};
+use kyberlink_board::bringup;
+use kyberlink_board::mdio::{BitBangMdio, MdcPin, PhysPair};
 use kyberlink_board::pinmap::{Board, Pins};
 use kyberlink_board::spi::SpiMaster;
 use kyberlink_board::uart;
@@ -23,6 +24,8 @@ const STATUS_LOCKED: u32 = 0x4;
 const STATUS_FAULT: u32 = 0x18;
 
 const PHASE_SECS: u64 = 3;
+const LINK_TIMEOUT_MS: u64 = 5000;
+const LINK_POLL_MS: u64 = 100;
 const STRESS_ROUNDS: u32 = 60;
 const STRESS_SECS: u64 = 10;
 
@@ -92,6 +95,21 @@ impl Phase {
     }
 }
 
+async fn wait_link(phys: &PhysPair<'_>) -> (bool, bool) {
+    let mut waited = 0u64;
+    loop {
+        let state = phys.link_status().unwrap_or((false, false));
+        if state.0 && state.1 {
+            return state;
+        }
+        if waited >= LINK_TIMEOUT_MS {
+            return state;
+        }
+        Timer::after_millis(LINK_POLL_MS).await;
+        waited += LINK_POLL_MS;
+    }
+}
+
 async fn run_phase(spi: &SpiMaster, ctrl: u32, secs: u64) -> Phase {
     spi.write_reg(REG_CTRL, CTRL_CLEAR);
     spi.write_reg(REG_CTRL, ctrl);
@@ -153,25 +171,32 @@ pub async fn main(_spawner: Spawner) -> ! {
     say!(log, "spi 2250khz mdc 1mhz");
 
     let mut phy_ok = false;
-    match mdio::init_pair(lan_bus, wan_bus, &mut board.phy_reset).await {
-        Ok(phys) => {
-            let lan_id = phys.lan.identify().unwrap_or(0);
-            let wan_id = phys.wan.identify().unwrap_or(0);
-            let lan_link = phys.lan.link_up().unwrap_or(false);
-            let wan_link = phys.wan.link_up().unwrap_or(false);
+    let mut fpga_ok = false;
+    match bringup::bring_up(&mut board, lan_bus, wan_bus, || {
+        spi.read_reg(REG_STATUS) & STATUS_LOCKED != 0
+    })
+    .await
+    {
+        Ok(out) => {
+            let lan_id = out.phys.lan.identify().unwrap_or(0);
+            let wan_id = out.phys.wan.identify().unwrap_or(0);
             phy_ok = is_expected_id(lan_id) && is_expected_id(wan_id);
-            say!(log, "lan phyid {:08x} link {}", lan_id, lan_link);
-            say!(log, "wan phyid {:08x} link {}", wan_id, wan_link);
+            fpga_ok = out.ready;
+            say!(
+                log,
+                "fpga configured {:?}ms reconfigs {} ready {} {}ms",
+                out.configured_ms,
+                out.reconfigs,
+                out.ready,
+                out.ready_ms
+            );
+            say!(log, "lan phyid {:08x}", lan_id);
+            say!(log, "wan phyid {:08x}", wan_id);
+            let (lan_link, wan_link) = wait_link(&out.phys).await;
+            say!(log, "link lan {} wan {}", lan_link, wan_link);
         }
-        Err(_) => say!(log, "mdio init failed"),
+        Err(_) => say!(log, "bringup failed"),
     }
-
-    board.fpga_reset.disable();
-    Timer::after_millis(10).await;
-
-    let status = spi.read_reg(REG_STATUS);
-    let fpga_ok = status & STATUS_LOCKED != 0;
-    say!(log, "fpga status {:08x} locked {}", status, fpga_ok);
 
     let loopback = run_phase(&spi, CTRL_ENABLE | CTRL_LOOPBACK, PHASE_SECS).await;
     say!(

@@ -40,7 +40,6 @@ pub struct Sense<'d> {
     pin: Input<'d>,
 }
 
-#[allow(dead_code)]
 impl<'d> Sense<'d> {
     pub fn new(pin: Input<'d>) -> Self {
         Self { pin }
@@ -51,7 +50,6 @@ impl<'d> Sense<'d> {
     }
 }
 
-#[allow(dead_code)]
 pub struct Board<'d> {
     pub fpga_reset: ActiveLow<'d>,
     pub fpga_reconfig: ActiveLow<'d>,

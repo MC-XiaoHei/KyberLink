@@ -821,6 +821,18 @@ name = "kyberlink-mdio"
 version = "0.1.0"
 
 [[package]]
+name = "kyberlink-selftest"
+version = "0.1.0"
+dependencies = [
+ "ch32-hal",
+ "embassy-executor",
+ "embassy-time",
+ "kyberlink-board",
+ "kyberlink-core",
+ "kyberlink-mdio",
+]
+
+[[package]]
 name = "kyberlink-simnode"
 version = "0.1.0"
 dependencies = [

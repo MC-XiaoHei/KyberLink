@@ -2,8 +2,6 @@ use core::sync::atomic::{AtomicU8, Ordering};
 
 use ch32_hal::flash::{Blocking as FlashBlocking, Flash};
 use ch32_hal::gpio::{Level, Output, OutputOpenDrain, Speed};
-use ch32_hal::mode::Blocking;
-use ch32_hal::peripherals::SPI1;
 use ch32_hal::spi::{Config as SpiConfig, Spi};
 use ch32_hal::time::Hertz;
 use embassy_executor::Spawner;
@@ -11,6 +9,7 @@ use embassy_futures::join::join;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::Timer;
+use kyberlink_board::bringup;
 use kyberlink_board::mdio;
 use kyberlink_board::pinmap::{self, Board, Pins};
 use kyberlink_board::spi::SpiMaster;
@@ -29,6 +28,8 @@ use static_cell::{ConstStaticCell, StaticCell};
 
 const FLASH_BASE: u32 = 0x0800_0000;
 const FLASH_LEN: u32 = 0x7_8000;
+const REG_SEQ: u8 = 0x74;
+const SEQ_PROBE: u32 = 0x5A5A_5A5A;
 const SA_SEQ_INIT: u32 = 1;
 const ERR_POLL_TICKS: u32 = 100;
 
@@ -156,13 +157,11 @@ async fn reboot_watch(signal: &ActionSignal) -> ! {
 }
 
 fn start_fsm(
-    spi: Spi<'static, SPI1, Blocking>,
-    cs: Output<'static>,
+    bus: SpiMaster,
     binding: &Binding,
     seeds: KemSeeds,
     identity: RomIdentity,
 ) -> &'static mut Fsm<SpiMaster, RomIdentity> {
-    let bus = SpiMaster::new(spi, cs);
     write_data_plane(&bus, binding);
     FSM.init(Fsm::new(Config::from_parts(binding, seeds, identity), bus))
 }
@@ -293,6 +292,7 @@ async fn main(_spawner: Spawner) -> ! {
         spi_config,
     );
     let cs = Output::new(pins.spi_cs, Level::High, Default::default());
+    let bus = SpiMaster::new(spi, cs);
 
     let seeds = sample_entropy();
 
@@ -307,17 +307,18 @@ async fn main(_spawner: Spawner) -> ! {
         OutputOpenDrain::new(pins.wan_mdio, Level::High, Speed::Low),
     );
 
-    let phys = mdio::init_pair(lan_bus, wan_bus, &mut board.phy_reset)
-        .await
-        .ok();
-    board.fpga_reset.disable();
-    Timer::after_millis(10).await;
+    let up = bringup::bring_up(&mut board, lan_bus, wan_bus, || {
+        bus.write_reg(REG_SEQ, SEQ_PROBE);
+        bus.read_reg(REG_SEQ) == SEQ_PROBE
+    })
+    .await;
+    let phys = up.as_ref().ok().map(|out| &out.phys);
     let binding: &'static Binding = BINDING.init(binding);
-    let fsm = start_fsm(spi, cs, binding, seeds, identity);
+    let fsm = start_fsm(bus, binding, seeds, identity);
     let pc = PC.take();
     let mut console = Console::new(Mode::Running);
     let signal = ActionSignal::new();
-    let console_phy = mdio::PhyConsole::new(phys.as_ref());
+    let console_phy = mdio::PhyConsole::new(phys);
     let link = serve(
         uart::UartPins {
             usart: p.USART1,
@@ -333,7 +334,7 @@ async fn main(_spawner: Spawner) -> ! {
     );
     match join(
         link,
-        run_forever(fsm, pc, &mut board, binding, phys.as_ref(), &signal),
+        run_forever(fsm, pc, &mut board, binding, phys, &signal),
     )
     .await {}
 }
