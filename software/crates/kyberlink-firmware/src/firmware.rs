@@ -8,23 +8,24 @@ use ch32_hal::spi::{Config as SpiConfig, Spi};
 use ch32_hal::time::Hertz;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
 use embassy_time::Timer;
+use kyberlink_board::mdio;
+use kyberlink_board::pinmap::{self, Board, Pins};
+use kyberlink_board::spi::SpiMaster;
+use kyberlink_board::uart;
 use kyberlink_core::cfg_msg::{self, Binding, IDENTITY_LEN};
 use kyberlink_core::cfg_store::{self, CfgError, NorFlash, IDENTITY_BASE, MAGIC_IDENTITY};
 use kyberlink_core::console::Console;
-use kyberlink_core::dispatch::{Action, Mode};
+use kyberlink_core::dispatch::{Action, Mode, PhyAccess};
 use kyberlink_core::handshake_fsm::{
     write_data_plane, write_sa, Config, Fsm, FsmOutcome, Role, SpiBus, REG_ERR,
 };
 use kyberlink_crypto::entropy::{derive_kem_seeds, KemSeeds};
 use kyberlink_crypto::handshake::RomIdentity;
 use kyberlink_crypto::mldsa_internal::VerifyPrecomp;
-use kyberlink_firmware::spi::SpiMaster;
 use static_cell::{ConstStaticCell, StaticCell};
-
-use crate::mdio;
-use crate::pinmap::{Board, Pins};
-use crate::serial;
 
 const FLASH_BASE: u32 = 0x0800_0000;
 const FLASH_LEN: u32 = 0x7_8000;
@@ -93,10 +94,7 @@ fn watchdog_feed() {
 }
 
 fn clock_config() -> ch32_hal::Config {
-    ch32_hal::Config {
-        rcc: ch32_hal::rcc::Config::SYSCLK_FREQ_144MHZ_HSI,
-        ..Default::default()
-    }
+    pinmap::clock_config()
 }
 
 fn load_device(flash: &mut FlashPort) -> Result<(Binding, RomIdentity), CfgError> {
@@ -141,15 +139,15 @@ fn sample_entropy() -> KemSeeds {
     derive_kem_seeds(&buf)
 }
 
-async fn provisioning(flash: &mut FlashPort<'_>, pins: serial::UartPins) -> ! {
+async fn provisioning(flash: &mut FlashPort<'_>, pins: uart::UartPins) -> ! {
     let mut console = Console::new(Mode::Configure);
-    let signal = serial::ActionSignal::new();
+    let signal = ActionSignal::new();
     let phy = mdio::PhyConsole::new(None);
-    let link = serial::serve(pins, &mut console, flash, &phy, &signal);
+    let link = serve(pins, &mut console, flash, &phy, &signal);
     match join(link, reboot_watch(&signal)).await {}
 }
 
-async fn reboot_watch(signal: &serial::ActionSignal) -> ! {
+async fn reboot_watch(signal: &ActionSignal) -> ! {
     loop {
         if let Action::Reboot = signal.wait().await {
             system_reset();
@@ -175,7 +173,7 @@ async fn run_forever(
     board: &mut Board<'_>,
     binding: &'static Binding,
     phys: Option<&mdio::PhysPair<'_>>,
-    signal: &serial::ActionSignal,
+    signal: &ActionSignal,
 ) -> ! {
     let mut ticks = 0u32;
     let mut last = embassy_time::Instant::now();
@@ -215,6 +213,36 @@ fn system_reset() -> ! {
     }
 }
 
+pub type ActionSignal = Signal<CriticalSectionRawMutex, Action>;
+
+pub async fn serve<F: NorFlash, P: PhyAccess>(
+    pins: uart::UartPins,
+    console: &mut Console,
+    flash: &mut F,
+    phy: &P,
+    signal: &ActionSignal,
+) -> ! {
+    let (mut tx, mut rx) = uart::open(pins).split();
+    let mut buf = [0u8; 64];
+    loop {
+        let n = match rx.read_until_idle(&mut buf).await {
+            Ok(n) => n,
+            Err(_) => continue,
+        };
+        console.set_err(err_flags());
+        for &byte in &buf[..n] {
+            let action = console.push_with(byte, flash, phy);
+            if let Some(reply) = console.take_reply() {
+                let _ = tx.write(reply.as_bytes()).await;
+            }
+            match action {
+                Action::Rekey | Action::Reboot => signal.signal(action),
+                _ => {}
+            }
+        }
+    }
+}
+
 #[embassy_executor::main(entry = "ch32_hal::entry")]
 async fn main(_spawner: Spawner) -> ! {
     let p = ch32_hal::init(clock_config());
@@ -241,7 +269,7 @@ async fn main(_spawner: Spawner) -> ! {
         Err(_) => {
             provisioning(
                 &mut flash,
-                serial::UartPins {
+                uart::UartPins {
                     usart: p.USART1,
                     tx: pins.uart_tx,
                     rx: pins.uart_rx,
@@ -288,10 +316,10 @@ async fn main(_spawner: Spawner) -> ! {
     let fsm = start_fsm(spi, cs, binding, seeds, identity);
     let pc = PC.take();
     let mut console = Console::new(Mode::Running);
-    let signal = serial::ActionSignal::new();
+    let signal = ActionSignal::new();
     let console_phy = mdio::PhyConsole::new(phys.as_ref());
-    let link = serial::serve(
-        serial::UartPins {
+    let link = serve(
+        uart::UartPins {
             usart: p.USART1,
             tx: pins.uart_tx,
             rx: pins.uart_rx,

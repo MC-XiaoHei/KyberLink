@@ -4,6 +4,7 @@ members = [
     "crates/kyberlink-vecgen",
     "crates/kyberlink-crypto",
     "crates/kyberlink-core",
+    "crates/kyberlink-board",
     "crates/kyberlink-firmware",
     "crates/kyberlink-simnode",
     "crates/kyberlink-mdio",

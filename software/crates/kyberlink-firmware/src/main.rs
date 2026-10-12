@@ -5,15 +5,6 @@
 mod firmware;
 
 #[cfg(target_arch = "riscv32")]
-mod mdio;
-
-#[cfg(target_arch = "riscv32")]
-mod pinmap;
-
-#[cfg(target_arch = "riscv32")]
-mod serial;
-
-#[cfg(target_arch = "riscv32")]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     loop {}

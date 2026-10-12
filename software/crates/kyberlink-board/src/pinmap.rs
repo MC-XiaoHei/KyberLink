@@ -74,3 +74,10 @@ impl<'d> Board<'d> {
         }
     }
 }
+
+pub fn clock_config() -> ch32_hal::Config {
+    ch32_hal::Config {
+        rcc: ch32_hal::rcc::Config::SYSCLK_FREQ_144MHZ_HSI,
+        ..Default::default()
+    }
+}

@@ -6,9 +6,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+kyberlink-board = { path = "../kyberlink-board" }
 kyberlink-core = { path = "../kyberlink-core" }
 kyberlink-crypto = { path = "../kyberlink-crypto" }
-kyberlink-mdio = { path = "../kyberlink-mdio" }
 
 [target.'cfg(target_arch = "riscv32")'.dependencies]
 ch32-hal = { git = "https://github.com/ch32-rs/ch32-hal", rev = "07663312c9da6b9962e8699a917c623bc833972e", features = ["ch32v208gbu6", "embassy", "rt", "memory-x"] }
