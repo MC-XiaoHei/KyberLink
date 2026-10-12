@@ -6,6 +6,7 @@ members = [
     "crates/kyberlink-core",
     "crates/kyberlink-board",
     "crates/kyberlink-firmware",
+    "crates/kyberlink-selftest",
     "crates/kyberlink-simnode",
     "crates/kyberlink-mdio",
 ]

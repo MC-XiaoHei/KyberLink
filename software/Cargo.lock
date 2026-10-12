@@ -766,6 +766,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "kyberlink-board"
+version = "0.1.0"
+dependencies = [
+ "ch32-hal",
+ "embassy-time",
+ "kyberlink-core",
+ "kyberlink-mdio",
+ "riscv 0.12.1",
+]
+
+[[package]]
 name = "kyberlink-core"
 version = "0.1.0"
 dependencies = [
@@ -797,9 +808,9 @@ dependencies = [
  "embassy-futures",
  "embassy-sync",
  "embassy-time",
+ "kyberlink-board",
  "kyberlink-core",
  "kyberlink-crypto",
- "kyberlink-mdio",
  "portable-atomic",
  "riscv 0.12.1",
  "static_cell",

@@ -10,7 +10,7 @@ def format():
     script = (
         f"cd {wsl_path(config.REPO)} && "
         f"~/kyberlink-venv/bin/python -m ruff format --silent {' '.join(py)} && "
-        f"~/verible/bin/verible-verilog-format --inplace hardware/rtl/*.v hardware/rtl/mac/*.v && "
+        f"~/verible/bin/verible-verilog-format --inplace hardware/rtl/*.v hardware/rtl/mac/*.v hardware/selftest/*.v && "
         f"cd {wsl_path(config.REPO)}/software && "
         "cargo fmt --all"
     )

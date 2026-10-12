@@ -15,15 +15,16 @@ def gen_sdc(out_dir):
     return path
 
 
-def build_tcl(sdc_path, cst, device, dev_ver, place_opt, route_opt):
-    files = _source_files()
-    lines = _option_lines(sdc_path, device, dev_ver, place_opt, route_opt)
+def build_tcl(sdc_path, cst, device, dev_ver, place_opt, route_opt, top=None, extra=()):
+    top = top or os.environ.get("PNR_TOP", "kyberlink_top")
+    files = _source_files(extra)
+    lines = _option_lines(sdc_path, device, dev_ver, place_opt, route_opt, top)
     lines += _file_lines(files, sdc_path, cst)
     lines.append("run all")
     return "\n".join(lines) + "\n", files
 
 
-def _source_files():
+def _source_files(extra=()):
     files = []
     for ext in ("*.v", "*.vhd"):
         files += glob.glob(os.path.join(config.RTL, "**", ext), recursive=True)
@@ -34,15 +35,17 @@ def _source_files():
         if top in files:
             files.remove(top)
         files.append(os.path.abspath(top_src).replace("\\", "/"))
+    for path in extra:
+        files.append(os.path.abspath(path).replace("\\", "/"))
     return sorted(files)
 
 
-def _option_lines(sdc_path, device, dev_ver, place_opt, route_opt):
+def _option_lines(sdc_path, device, dev_ver, place_opt, route_opt, top):
     lines = [
         "set_device %s -name %s -device_version %s"
         % (device, os.environ.get("DEVICE_NAME", "GW5A-25"), dev_ver),
         "set_option -include_path %s" % os.path.dirname(sdc_path).replace("\\", "/"),
-        "set_option -top_module %s" % os.environ.get("PNR_TOP", "kyberlink_top"),
+        "set_option -top_module %s" % top,
         "set_option -compiler_compatible 1",
         "set_option -resolve_multiple_driver 1",
         "set_option -place_option %d" % place_opt,
@@ -187,12 +190,14 @@ def _archive(work_dir, sub, rd, prefix, suffixes, renames):
             shutil.copy2(path, os.path.join(rd, prefix + name))
 
 
-def pnr_run(target, place_opt, route_opt, device, dev_ver, work_dir, log_path, cst=None):
+def pnr_run(
+    target, place_opt, route_opt, device, dev_ver, work_dir, log_path, cst=None, top=None, extra=()
+):
     if os.path.isdir(work_dir):
         force_rmtree(work_dir)
     os.makedirs(work_dir)
     sdc_path = gen_sdc(work_dir)
-    tcl_text, files = build_tcl(sdc_path, cst, device, dev_ver, place_opt, route_opt)
+    tcl_text, files = build_tcl(sdc_path, cst, device, dev_ver, place_opt, route_opt, top, extra)
     tcl_path = os.path.join(work_dir, "build.tcl")
     with open(tcl_path, "w") as f:
         f.write(tcl_text)
@@ -231,7 +236,7 @@ def _log_path(work_dir):
     return os.path.join(rd or work_dir, "pnr.log")
 
 
-def pnr():
+def pnr(top=None, extra=(), work_dir=None, cmd="pnr"):
     device = os.environ.get("DEVICE", "GW5A-LV25MG121NC1/I0")
     dev_ver = os.environ.get("DEVICE_VERSION", "A")
     place_opt = int(os.environ.get("PLACE_OPTION", "1"))
@@ -240,11 +245,22 @@ def pnr():
     if target < 1 or target > 800:
         raise AppError("TARGET_FREQ out of range: %s" % target, 2)
     work_dir = os.path.abspath(
-        os.environ.get("PNR_WORK_DIR") or os.path.join(config.BUILD, "synth", "impl")
+        work_dir or os.environ.get("PNR_WORK_DIR") or os.path.join(config.BUILD, "synth", "impl")
     )
     log_path = _log_path(work_dir)
     cst = os.path.join(config.SYNTH, "kyberlink_top.cst")
-    run = pnr_run(target, place_opt, route_opt, device, dev_ver, work_dir, log_path, cst=cst)
+    run = pnr_run(
+        target,
+        place_opt,
+        route_opt,
+        device,
+        dev_ver,
+        work_dir,
+        log_path,
+        cst=cst,
+        top=top,
+        extra=extra,
+    )
     cfg = {
         "target": target,
         "place": place_opt,
@@ -254,7 +270,7 @@ def pnr():
     ok = run["status"] == "ok"
     worst = run.get("worst_slack")
     return Result(
-        "pnr",
+        cmd,
         "ok" if ok else "fail",
         config=cfg,
         metrics={"worst_slack": worst, "paths": run.get("paths", [])},

@@ -5,6 +5,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RTL = os.path.join(REPO, "hardware", "rtl")
 TEST_DIR = os.path.join(REPO, "hardware", "test")
 SYNTH = os.path.join(REPO, "hardware", "synth")
+SELFTEST_DIR = os.path.join(REPO, "hardware", "selftest")
 VECTORS = os.path.join(REPO, "vectors")
 BUILD = os.path.join(REPO, "build")
 LOGS = os.path.join(REPO, "logs")
@@ -30,12 +31,23 @@ def S(*p):
     return os.path.join(TEST_DIR, *p)
 
 
+def ST(*p):
+    return os.path.join(SELFTEST_DIR, *p)
+
+
 GOWIN_DPB = S("gowin_dpb_sim.v")
 GOWIN_PLL = S("gowin_pll_sim.v")
 
 
+SELFTEST = [
+    ST("self_test_port.v"),
+    ST("self_test_regs.v"),
+    ST("self_test_top.v"),
+]
+
+
 UNIT = ["aes_pipe", "gcm", "spi"]
-INTG = ["bridge", "bw", "full", "node", "gmii_rx", "diag2", "spi_big", "top", "fifo"]
+INTG = ["bridge", "bw", "full", "node", "gmii_rx", "diag2", "spi_big", "top", "fifo", "selftest"]
 MIRI = ["kyberlink-core", "kyberlink-simnode"]
 
 AES_CORE = [
@@ -171,6 +183,16 @@ CONF = {
         "top": "axis_sync_fifo",
         "test_module": "tb_axis_fifo",
         "src": [R("kyberlink_top.v")],
+    },
+    "selftest": {
+        "top": "selftest_sim",
+        "test_module": "tb_selftest",
+        "src": [
+            ST("self_test_port.v"),
+            ST("self_test_regs.v"),
+            R("spi_slave.v"),
+            S("selftest_sim.v"),
+        ],
     },
 }
 
