@@ -7,13 +7,14 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from utils import build, check, clean, config, env, format, genvec, test
+from utils import build, check, clean, config, env, flash, format, genvec, test
 from utils.core import AppError, Reporter, Tee
 
 REGISTRY = {
     "test": test,
     "genvec": genvec,
     "build": build,
+    "flash": flash,
     "format": format,
     "check": check,
     "env": env,
