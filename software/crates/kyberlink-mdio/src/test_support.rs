@@ -114,11 +114,12 @@ impl MdioPins for MockPhy {
             }
             TA_FIRST => {}
             TA_SECOND => {
-                self.slave_out.replace(if self.is_read() && self.addressed() {
-                    Some(false)
-                } else {
-                    None
-                });
+                self.slave_out
+                    .replace(if self.is_read() && self.addressed() {
+                        Some(false)
+                    } else {
+                        None
+                    });
             }
             _ if i >= DATA_FIRST => {
                 if self.is_read() {

@@ -246,7 +246,10 @@ impl<B: MdioPins> Dp83867<B> {
     }
 
     pub fn restart_autoneg(&self) -> Result<(), MdioError> {
-        self.wr(regs::BMCR, regs::bmcr::AUTONEG_EN | regs::bmcr::RESTART_AUTONEG)
+        self.wr(
+            regs::BMCR,
+            regs::bmcr::AUTONEG_EN | regs::bmcr::RESTART_AUTONEG,
+        )
     }
 
     pub fn set_led_source(&self, led: Led, src: LedSource) -> Result<(), MdioError> {
@@ -452,8 +455,14 @@ mod tests {
     #[test]
     fn link_and_speed_decode() {
         let phy = MockPhy::new();
-        phy.poke(regs::BMSR as u8, regs::bmsr::LINK_UP | regs::bmsr::AUTONEG_DONE);
-        phy.poke(regs::PHYSTS as u8, regs::physts::SPEED_1000 | regs::physts::DUPLEX);
+        phy.poke(
+            regs::BMSR as u8,
+            regs::bmsr::LINK_UP | regs::bmsr::AUTONEG_DONE,
+        );
+        phy.poke(
+            regs::PHYSTS as u8,
+            regs::physts::SPEED_1000 | regs::physts::DUPLEX,
+        );
         let d = dev(&phy);
         assert!(d.link_up().unwrap());
         assert!(d.autoneg_done().unwrap());
