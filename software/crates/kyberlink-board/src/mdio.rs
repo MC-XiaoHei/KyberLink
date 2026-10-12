@@ -72,6 +72,7 @@ impl MdioPins for BitBangMdio<'_> {
 }
 
 const PHY_RESET_HOLD_MS: u64 = 500;
+const PHY_RESET_ATTEMPTS: u32 = 3;
 const MDIO_READY_TIMEOUT_MS: u64 = 1000;
 const MDIO_READY_INTERVAL_MS: u64 = 10;
 const CONFIG_ATTEMPTS: u32 = 5;
@@ -115,26 +116,52 @@ fn verify_rgmii_delay(pair: &PhysPair<'_>) -> Result<(), MdioError> {
     Ok(())
 }
 
+fn verify_identity<'d>(
+    lan: &BitBangMdio<'d>,
+    wan: &BitBangMdio<'d>,
+    addr: u8,
+) -> Result<(), MdioError> {
+    for bus in [lan, wan] {
+        let dev = Dp83867::new(bus, addr);
+        if !dp83867::is_expected_id(retry(|| dev.identify())?) {
+            return Err(MdioError::NoResponse);
+        }
+        if retry(|| dev.address_from_strap())? != addr {
+            return Err(MdioError::BadAddress);
+        }
+    }
+    Ok(())
+}
+
+async fn power_on_pair<'d>(
+    lan: &BitBangMdio<'d>,
+    wan: &BitBangMdio<'d>,
+    phy_reset: &mut ActiveLow<'d>,
+) -> Result<u8, MdioError> {
+    let mut last = MdioError::NoResponse;
+    for _ in 0..PHY_RESET_ATTEMPTS {
+        phy_reset.enable();
+        Timer::after_millis(PHY_RESET_HOLD_MS).await;
+        phy_reset.disable();
+        let outcome = match wait_for_pair(lan, wan).await {
+            Ok(addr) => verify_identity(lan, wan, addr).map(|()| addr),
+            Err(err) => Err(err),
+        };
+        match outcome {
+            Ok(addr) => return Ok(addr),
+            Err(err) => last = err,
+        }
+    }
+    Err(last)
+}
+
 pub async fn init_pair<'d>(
     lan: BitBangMdio<'d>,
     wan: BitBangMdio<'d>,
     phy_reset: &mut ActiveLow<'d>,
 ) -> Result<PhyPair<BitBangMdio<'d>, BitBangMdio<'d>>, MdioError> {
-    phy_reset.enable();
-    Timer::after_millis(PHY_RESET_HOLD_MS).await;
-    phy_reset.disable();
-
-    let addr = wait_for_pair(&lan, &wan).await?;
+    let addr = power_on_pair(&lan, &wan, phy_reset).await?;
     let pair = PhyPair::new(lan, wan, addr);
-
-    for dev in [&pair.lan, &pair.wan] {
-        if !dp83867::is_expected_id(retry(|| dev.identify())?) {
-            return Err(MdioError::NoResponse);
-        }
-        if retry(|| dev.address_from_strap())? != dev.address() {
-            return Err(MdioError::BadAddress);
-        }
-    }
 
     retry(|| pair.set_rgmii_delay_both(DelayNs::Ns2_00, DelayNs::Ns2_00))?;
     verify_rgmii_delay(&pair)?;
