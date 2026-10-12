@@ -5,7 +5,7 @@ use kyberlink_mdio::dp83867::PhyPair;
 use crate::mdio::{self, BitBangMdio};
 use crate::pinmap::Board;
 
-const FPGA_CONFIG_TIMEOUT_MS: u64 = 2000;
+const FPGA_CONFIG_TIMEOUT_MS: u64 = 5000;
 const FPGA_POLL_MS: u64 = 1;
 const FPGA_READY_TIMEOUT_MS: u64 = 500;
 const FPGA_READY_STREAK: u32 = 2;
