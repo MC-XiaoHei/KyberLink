@@ -57,6 +57,8 @@ def _option_lines(sdc_path, device, dev_ver, place_opt, route_opt, top):
     if os.environ.get("PNR_RETIMING"):
         lines.append("set_option -retiming 1")
     lines += [
+        "set_option -multi_boot 1",
+        "set_option -multiboot_spi_flash_address 000000",
         "set_option -use_sspi_as_gpio 1",
         "set_option -use_cpu_as_gpio 1",
         "set_option -use_i2c_as_gpio 1",
