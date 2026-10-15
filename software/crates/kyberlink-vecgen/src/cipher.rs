@@ -1,4 +1,3 @@
-#[cfg(test)]
 use aes_gcm::aead::Tag;
 use aes_gcm::aead::{AeadInPlace, Nonce};
 use aes_gcm::{Aes256Gcm, Key, KeyInit};
@@ -32,7 +31,6 @@ impl GcmCipher {
         Ok(())
     }
 
-    #[cfg(test)]
     pub fn decrypt_in_place(
         &self,
         nonce: &[u8; 12],
