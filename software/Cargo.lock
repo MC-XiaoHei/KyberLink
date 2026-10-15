@@ -821,6 +821,16 @@ name = "kyberlink-mdio"
 version = "0.1.0"
 
 [[package]]
+name = "kyberlink-peer"
+version = "0.1.0"
+dependencies = [
+ "embassy-sync",
+ "kyberlink-core",
+ "kyberlink-crypto",
+ "kyberlink-vecgen",
+]
+
+[[package]]
 name = "kyberlink-selftest"
 version = "0.1.0"
 dependencies = [

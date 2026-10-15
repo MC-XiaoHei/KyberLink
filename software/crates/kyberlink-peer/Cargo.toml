@@ -1,0 +1,12 @@
+[package]
+name = "kyberlink-peer"
+description = "KyberLink peer implemented in software, for bring-up against a single board and throughput tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kyberlink-core = { path = "../kyberlink-core", features = ["std"] }
+kyberlink-crypto = { path = "../kyberlink-crypto", features = ["std"] }
+kyberlink-vecgen = { path = "../kyberlink-vecgen" }
+embassy-sync = "0.8.0"

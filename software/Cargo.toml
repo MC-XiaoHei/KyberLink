@@ -9,6 +9,7 @@ members = [
     "crates/kyberlink-selftest",
     "crates/kyberlink-simnode",
     "crates/kyberlink-mdio",
+    "crates/kyberlink-peer",
 ]
 
 [profile.release]
