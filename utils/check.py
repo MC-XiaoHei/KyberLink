@@ -21,6 +21,8 @@ def _lint():
         f"--target x86_64-unknown-linux-gnu --features kyberlink-core/std -- -D warnings && "
         f"cargo clippy -p kyberlink-simnode --all-targets "
         f"--target x86_64-unknown-linux-gnu -- -D warnings && "
+        f"cargo clippy -p kyberlink-vecgen -p kyberlink-peer --all-targets "
+        f"--target x86_64-unknown-linux-gnu -- -D warnings && "
         f"rustup run {tc} cargo clippy -Zbuild-std=core,alloc "
         f"-p kyberlink-board -p kyberlink-firmware -p kyberlink-selftest "
         f"--target riscv32imc-unknown-none-elf -- -D warnings"
