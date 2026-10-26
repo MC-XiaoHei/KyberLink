@@ -54,12 +54,12 @@ def fpga_cmd(fs, flash, log):
         device_name(),
         "--run",
         FPGA_RUN_FLASH if flash else FPGA_RUN_SRAM,
-        "-f",
+        "--fsFile",
         fs,
     ]
     if flash:
         cmd += ["--spiaddr", MSPI_ADDRESS]
-    cmd += ["-o", log]
+    cmd += ["--output", log]
     return cmd
 
 
