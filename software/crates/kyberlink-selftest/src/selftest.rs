@@ -5,7 +5,7 @@ use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
 use kyberlink_board::bringup;
 use kyberlink_board::mdio::{BitBangMdio, MdcPin, PhysPair};
-use kyberlink_board::pinmap::{Board, Pins};
+use kyberlink_board::pinmap::{self, Board, Pins};
 use kyberlink_board::spi::SpiMaster;
 use kyberlink_board::uart;
 use kyberlink_core::handshake_fsm::SpiBus;
@@ -168,6 +168,7 @@ pub async fn main(_spawner: Spawner) -> ! {
     );
 
     say!(log, "kyberlink selftest");
+    say!(log, "clock {} 144mhz", pinmap::clock_source());
     say!(log, "spi 2250khz mdc 1mhz");
 
     let mut phy_ok = false;
