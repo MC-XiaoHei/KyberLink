@@ -256,10 +256,10 @@ async fn main(_spawner: Spawner) -> ! {
         fpga_done: p.PA3,
         uart_tx: p.PB6,
         uart_rx: p.PB7,
-        phy_rst: p.PA11,
+        phy_rst: p.PC9,
         phy_mdc: p.PC6,
-        wan_mdio: p.PC8,
-        lan_mdio: p.PC9,
+        wan_mdio: p.PC7,
+        lan_mdio: p.PC8,
     };
 
     let mut flash = FlashPort(Flash::new_blocking(p.FLASH));

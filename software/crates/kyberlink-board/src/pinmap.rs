@@ -1,5 +1,5 @@
 use ch32_hal::gpio::{Input, Level, Output, Pull, Speed};
-use ch32_hal::peripherals::{PA1, PA11, PA2, PA3, PA4, PA5, PA6, PA7, PB6, PB7, PC6, PC8, PC9};
+use ch32_hal::peripherals::{PA1, PA2, PA3, PA4, PA5, PA6, PA7, PB6, PB7, PC6, PC7, PC8, PC9};
 use ch32_hal::Peri;
 
 pub struct Pins {
@@ -12,10 +12,10 @@ pub struct Pins {
     pub fpga_done: Peri<'static, PA3>,
     pub uart_tx: Peri<'static, PB6>,
     pub uart_rx: Peri<'static, PB7>,
-    pub phy_rst: Peri<'static, PA11>,
+    pub phy_rst: Peri<'static, PC9>,
     pub phy_mdc: Peri<'static, PC6>,
-    pub wan_mdio: Peri<'static, PC8>,
-    pub lan_mdio: Peri<'static, PC9>,
+    pub wan_mdio: Peri<'static, PC7>,
+    pub lan_mdio: Peri<'static, PC8>,
 }
 
 pub struct ActiveLow<'d> {
@@ -61,7 +61,7 @@ impl<'d> Board<'d> {
     pub fn new(
         fpga_reset: Peri<'d, PA1>,
         fpga_reconfig: Peri<'d, PA2>,
-        phy_reset: Peri<'d, PA11>,
+        phy_reset: Peri<'d, PC9>,
         fpga_done: Peri<'d, PA3>,
     ) -> Self {
         Self {
