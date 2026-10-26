@@ -2,7 +2,7 @@ use ch32_hal::gpio::{Level, Output, OutputOpenDrain, Speed};
 use ch32_hal::spi::{Config as SpiConfig, Spi};
 use ch32_hal::time::Hertz;
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use kyberlink_board::bringup;
 use kyberlink_board::mdio::{BitBangMdio, MdcPin, PhysPair};
 use kyberlink_board::pinmap::{self, Board, Pins};
@@ -24,15 +24,41 @@ const STATUS_LOCKED: u32 = 0x4;
 const STATUS_FAULT: u32 = 0x18;
 
 const PHASE_SECS: u64 = 3;
+const RATE_WARMUP_SECS: u64 = 2;
+const RATE_WINDOW_SECS: u64 = 10;
+const FRAME_MAC_BYTES: u64 = 68;
+const FRAME_WIRE_BYTES: u64 = 88;
 const LINK_TIMEOUT_MS: u64 = 5000;
 const LINK_POLL_MS: u64 = 100;
-const STRESS_ROUNDS: u32 = 60;
+const SOAK: bool = option_env!("KYBERLINK_SOAK").is_some();
+const STRESS_ROUNDS: u32 = if SOAK { 2880 } else { 60 };
 const STRESS_SECS: u64 = 10;
 
 macro_rules! say {
     ($log:expr, $($arg:tt)*) => {
         $log.line(format_args!($($arg)*))
     };
+}
+
+const LOG_BUF_CAP: usize = 4096;
+
+#[no_mangle]
+static mut LOG_BUF: [u8; LOG_BUF_CAP] = [0; LOG_BUF_CAP];
+#[no_mangle]
+static mut LOG_HEAD: usize = 0;
+#[no_mangle]
+static mut LOG_LEN: usize = 0;
+
+fn log_push(bytes: &[u8]) {
+    unsafe {
+        for &b in bytes {
+            LOG_BUF[LOG_HEAD] = b;
+            LOG_HEAD = (LOG_HEAD + 1) % LOG_BUF_CAP;
+            if LOG_LEN < LOG_BUF_CAP {
+                LOG_LEN += 1;
+            }
+        }
+    }
 }
 
 struct Log {
@@ -46,15 +72,16 @@ impl Log {
 
     fn line(&mut self, args: core::fmt::Arguments<'_>) {
         let _ = core::fmt::Write::write_fmt(&mut *self, args);
+        log_push(b"\n");
         let _ = self.uart.blocking_write(b"\r\n");
     }
 }
 
 impl core::fmt::Write for Log {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        self.uart
-            .blocking_write(s.as_bytes())
-            .map_err(|_| core::fmt::Error)
+        log_push(s.as_bytes());
+        let _ = self.uart.blocking_write(s.as_bytes());
+        Ok(())
     }
 }
 
@@ -110,9 +137,39 @@ async fn wait_link(phys: &PhysPair<'_>) -> (bool, bool) {
     }
 }
 
-async fn run_phase(spi: &SpiMaster, ctrl: u32, secs: u64) -> Phase {
+async fn run_rate(spi: &SpiMaster) -> (u64, u64, u64) {
+    restart(spi, CTRL_ENABLE).await;
+    Timer::after(Duration::from_secs(RATE_WARMUP_SECS)).await;
+    let lan_a = read_counts(spi, LAN_BASE);
+    let wan_a = read_counts(spi, WAN_BASE);
+    let start = Instant::now();
+    Timer::after(Duration::from_secs(RATE_WINDOW_SECS)).await;
+    let lan_b = read_counts(spi, LAN_BASE);
+    let wan_b = read_counts(spi, WAN_BASE);
+    let us = start.elapsed().as_micros().max(1);
+    let tx = u64::from(lan_b.tx.wrapping_sub(lan_a.tx));
+    let rx = u64::from(wan_b.good.wrapping_sub(wan_a.good));
+    spi.write_reg(REG_CTRL, 0);
+    Timer::after_millis(200).await;
     spi.write_reg(REG_CTRL, CTRL_CLEAR);
+    Timer::after_millis(50).await;
+    (us, tx, rx)
+}
+
+fn mbps(frames: u64, bytes: u64, us: u64) -> u64 {
+    frames * bytes * 8 / us
+}
+
+async fn restart(spi: &SpiMaster, ctrl: u32) {
+    spi.write_reg(REG_CTRL, 0);
+    Timer::after_millis(2).await;
+    spi.write_reg(REG_CTRL, CTRL_CLEAR);
+    Timer::after_millis(1).await;
     spi.write_reg(REG_CTRL, ctrl);
+}
+
+async fn run_phase(spi: &SpiMaster, ctrl: u32, secs: u64) -> Phase {
+    restart(spi, ctrl).await;
     Timer::after(Duration::from_secs(secs)).await;
     Phase {
         lan: read_counts(spi, LAN_BASE),
@@ -169,7 +226,7 @@ pub async fn main(_spawner: Spawner) -> ! {
 
     say!(log, "kyberlink selftest");
     say!(log, "clock {} 144mhz", pinmap::clock_source());
-    say!(log, "spi 2250khz mdc 1mhz");
+    say!(log, "spi 2250khz mdc 66khz");
 
     let mut phy_ok = false;
     let mut fpga_ok = false;
@@ -195,6 +252,20 @@ pub async fn main(_spawner: Spawner) -> ! {
             say!(log, "wan phyid {:08x}", wan_id);
             let (lan_link, wan_link) = wait_link(&out.phys).await;
             say!(log, "link lan {} wan {}", lan_link, wan_link);
+            say!(
+                log,
+                "phy speed lan {:?} wan {:?}",
+                out.phys.lan.speed(),
+                out.phys.wan.speed()
+            );
+            say!(
+                log,
+                "rgmii lan {:x?} {:x?} wan {:x?} {:x?}",
+                out.phys.lan.read_reg(0x0086),
+                out.phys.lan.read_reg(0x0032),
+                out.phys.wan.read_reg(0x0086),
+                out.phys.wan.read_reg(0x0032)
+            );
         }
         Err(_) => say!(log, "bringup failed"),
     }
@@ -229,8 +300,8 @@ pub async fn main(_spawner: Spawner) -> ! {
     );
     let cable_ok = cable.flowing() && cable.clean();
 
-    spi.write_reg(REG_CTRL, CTRL_CLEAR);
-    spi.write_reg(REG_CTRL, CTRL_ENABLE);
+
+    restart(&spi, CTRL_ENABLE).await;
     let mut lan_prev = read_counts(&spi, LAN_BASE);
     let mut wan_prev = read_counts(&spi, WAN_BASE);
     let mut frames = 0u64;
@@ -259,9 +330,38 @@ pub async fn main(_spawner: Spawner) -> ! {
             round_bad,
             round_diff
         );
+        if round % 360 == 0 {
+            say!(
+                log,
+                "soak {}h frames {} bad {} diff {}",
+                round / 360,
+                frames,
+                bad,
+                diff
+            );
+        }
         lan_prev = lan;
         wan_prev = wan;
     }
+
+    let (us, tx, rx) = run_rate(&spi).await;
+    say!(
+        log,
+        "rate {}ms tx {} rx {} fps {} wire {}mbps mac {}mbps",
+        us / 1000,
+        tx,
+        rx,
+        tx * 1_000_000 / us,
+        mbps(tx, FRAME_WIRE_BYTES, us),
+        mbps(tx, FRAME_MAC_BYTES, us)
+    );
+    say!(
+        log,
+        "rate mac {:08x} {:08x} status {:08x}",
+        spi.read_reg(0x38),
+        spi.read_reg(0x3c),
+        spi.read_reg(REG_STATUS)
+    );
 
     let pass = phy_ok && fpga_ok && loopback_ok && cable_ok && bad == 0 && diff == 0;
     say!(log, "stress frames {} bad {} diff {}", frames, bad, diff);
