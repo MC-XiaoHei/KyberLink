@@ -7,7 +7,7 @@ use kyberlink_mdio::dp83867::{self, BlinkRate, DelayNs, Dp83867, Led, LedSource,
 
 use crate::pinmap::ActiveLow;
 
-const HALF_PERIOD_CYCLES: usize = 72;
+const HALF_PERIOD_TICKS: u32 = 720;
 
 pub type PhysPair<'d> = PhyPair<BitBangMdio<'d>, BitBangMdio<'d>>;
 
@@ -38,10 +38,7 @@ impl<'d> BitBangMdio<'d> {
 }
 
 fn delay_half_period() {
-    let start = riscv::register::mcycle::read();
-    while riscv::register::mcycle::read().wrapping_sub(start) < HALF_PERIOD_CYCLES {
-        core::hint::spin_loop();
-    }
+    riscv::asm::delay(HALF_PERIOD_TICKS);
 }
 
 impl MdioPins for BitBangMdio<'_> {
@@ -58,12 +55,15 @@ impl MdioPins for BitBangMdio<'_> {
     }
 
     fn mdio(&self, level: bool) {
-        let mut pin = self.mdio.borrow_mut();
-        if level {
-            pin.set_high();
-        } else {
-            pin.set_low();
+        {
+            let mut pin = self.mdio.borrow_mut();
+            if level {
+                pin.set_high();
+            } else {
+                pin.set_low();
+            }
         }
+        delay_half_period();
     }
 
     fn mdio_level(&self) -> bool {

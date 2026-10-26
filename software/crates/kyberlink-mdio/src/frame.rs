@@ -59,14 +59,14 @@ pub fn read(pins: &impl MdioPins, phy: u8, reg: u8) -> Result<u16, MdioError> {
     pins.mdio(true);
     pins.mdc(true);
     pins.mdc(false);
-    if rx_bit(pins) {
-        return Err(MdioError::NoResponse);
-    }
     let mut v = 0u16;
     for _ in 0..16 {
         v = (v << 1) | rx_bit(pins) as u16;
     }
     pins.mdio(true);
+    if v == u16::MAX {
+        return Err(MdioError::NoResponse);
+    }
     Ok(v)
 }
 

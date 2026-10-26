@@ -4,6 +4,7 @@ use crate::regs::{ADDAR, REGCR};
 use core::cell::{Cell, RefCell};
 
 const EXT_LEN: usize = 512;
+const PREAMBLE_LAST: usize = PREAMBLE_BITS - 1;
 
 pub struct MockPhy {
     regs: RefCell<[u16; 32]>,
@@ -99,41 +100,35 @@ impl MdioPins for MockPhy {
             return;
         }
         let i = self.idx.get();
-        self.idx.set((i + 1) % 64);
+        let last = if self.is_read() { 62 } else { 63 };
+        self.idx.set(if i == last { 0 } else { i + 1 });
         let d = self.master_drive.get();
+        if i == 0 {
+            self.slave_out.replace(None);
+            self.header.replace(0);
+            self.data.replace(0);
+        }
         match i {
-            0 => {
-                self.slave_out.replace(None);
-                self.header.replace(0);
-                self.data.replace(0);
-            }
-            1..=PREAMBLE_BITS => {}
+            0..=PREAMBLE_LAST => {}
             _ if i < TA_FIRST => {
                 let h = *self.header.borrow();
                 self.header.replace((h << 1) | d as u32);
             }
-            TA_FIRST => {}
+            _ if (TA_SECOND..63).contains(&i) && self.is_read() => {
+                self.slave_out.replace(if self.addressed() {
+                    Some(self.reg_value(self.reg_index()) >> (62 - i) & 1 != 0)
+                } else {
+                    None
+                });
+            }
             TA_SECOND => {
-                self.slave_out
-                    .replace(if self.is_read() && self.addressed() {
-                        Some(false)
-                    } else {
-                        None
-                    });
+                self.slave_out.replace(None);
             }
             _ if i >= DATA_FIRST => {
-                if self.is_read() {
-                    self.slave_out.replace(if self.addressed() {
-                        Some(self.reg_value(self.reg_index()) >> (63 - i) & 1 != 0)
-                    } else {
-                        None
-                    });
-                } else {
-                    let acc = (*self.data.borrow() << 1) | d as u32;
-                    self.data.replace(acc);
-                    if i == 63 && self.addressed() {
-                        self.store(self.reg_index(), acc as u16);
-                    }
+                let acc = (*self.data.borrow() << 1) | d as u32;
+                self.data.replace(acc);
+                if i == 63 && self.addressed() {
+                    self.store(self.reg_index(), acc as u16);
                 }
             }
             _ => {}
