@@ -26,6 +26,7 @@ fn hex_arr<const N: usize>(v: &Value) -> [u8; N] {
 
 #[test]
 fn mlkem_keygen_internal() {
+    let mut kem = ki::KemScratch::new();
     let j = load_json("wycheproof", "mlkem_768_keygen_seed_test.json");
     for g in j["testGroups"].as_array().unwrap() {
         for t in g["tests"].as_array().unwrap() {
@@ -48,7 +49,9 @@ fn mlkem_keygen_internal() {
             let mut z = [0u8; 32];
             d.copy_from_slice(&seed[..32]);
             z.copy_from_slice(&seed[32..]);
-            let (ek, dk) = ki::keygen_internal(&d, &z);
+            let mut ek = [0u8; ki::EK_LEN];
+            let mut dk = [0u8; ki::DK_LEN];
+            ki::keygen_internal(&d, &z, &mut kem, &mut ek, &mut dk);
             let ek_e = hex::decode(t["ek"].as_str().unwrap()).unwrap();
             let dk_e = hex::decode(t["dk"].as_str().unwrap()).unwrap();
             if valid {
@@ -63,6 +66,7 @@ fn mlkem_keygen_internal() {
 
 #[test]
 fn mlkem_encaps_internal() {
+    let mut kem = ki::KemScratch::new();
     let j = load_json("wycheproof", "mlkem_768_encaps_test.json");
     for g in j["testGroups"].as_array().unwrap() {
         for t in g["tests"].as_array().unwrap() {
@@ -86,7 +90,9 @@ fn mlkem_encaps_internal() {
                 .try_into()
                 .unwrap();
             let m = hex_arr::<32>(&t["m"]);
-            let (k, c) = ki::encaps_internal(&ek, &m);
+            let mut k = [0u8; 32];
+            let mut c = [0u8; ki::CT_LEN];
+            ki::encaps_internal(&ek, &m, &mut kem, &mut k, &mut c);
             let c_e = hex::decode(t["c"].as_str().unwrap()).unwrap();
             let k_e = hex_arr::<32>(&t["K"]);
             if valid {
@@ -101,6 +107,7 @@ fn mlkem_encaps_internal() {
 
 #[test]
 fn mlkem_decaps_internal() {
+    let mut kem = ki::KemScratch::new();
     let j = load_json("wycheproof", "mlkem_768_test.json");
     for g in j["testGroups"].as_array().unwrap() {
         for t in g["tests"].as_array().unwrap() {
@@ -117,8 +124,10 @@ fn mlkem_decaps_internal() {
             let mut z = [0u8; 32];
             d.copy_from_slice(&seed[..32]);
             z.copy_from_slice(&seed[32..]);
-            let (_, dk) = ki::keygen_internal(&d, &z);
-            let got = ki::decaps_internal(&dk, &c);
+            let mut ek = [0u8; ki::EK_LEN];
+            let mut dk = [0u8; ki::DK_LEN];
+            ki::keygen_internal(&d, &z, &mut kem, &mut ek, &mut dk);
+            let got = ki::decaps_internal(&dk, &c, &mut kem);
             let expect = hex_arr::<32>(&t["K"]);
             if valid {
                 assert_eq!(got.as_slice(), &expect, "tcId={}", t["tcId"]);

@@ -47,6 +47,7 @@ fn has_flag(t: &Value, flag: &str) -> bool {
 
 #[test]
 fn mldsa_sign_seed_internal() {
+    let mut ms = mi::MldsaScratch::new();
     let j = load_json("wycheproof", "mldsa_65_sign_seed_test.json");
     for g in j["testGroups"].as_array().unwrap() {
         if g["privateSeed"].as_str().map(|s| s.len()).unwrap_or(0) != 64 {
@@ -68,7 +69,7 @@ fn mldsa_sign_seed_internal() {
                 let ctx = ctx_of(t);
                 let ref_sig: [u8; 3309] = hex_vec(&t["sig"]).try_into().unwrap();
                 assert!(
-                    mi::verify_internal(&vk, &msg, &ctx, &ref_sig),
+                    mi::verify_internal(&vk, &msg, &ctx, &ref_sig, &mut ms),
                     "randomized sig rejected tcId={}",
                     t["tcId"]
                 );
@@ -84,6 +85,7 @@ fn mldsa_sign_seed_internal() {
 
 #[test]
 fn mldsa_sign_noseed_internal() {
+    let mut ms = mi::MldsaScratch::new();
     let j = load_json("wycheproof", "mldsa_65_sign_noseed_test.json");
     for g in j["testGroups"].as_array().unwrap() {
         if g["privateKey"].as_str().map(|s| s.len()).unwrap_or(0) != 8064 {
@@ -98,7 +100,7 @@ fn mldsa_sign_noseed_internal() {
             if has_flag(t, "Internal") {
                 let mu = hex_arr::<64>(&t["mu"]);
                 assert!(
-                    mi::verify_mu_internal(&vk, &mu, &sig),
+                    mi::verify_mu_internal(&vk, &mu, &sig, &mut ms),
                     "ref sig rejected tcId={}",
                     t["tcId"]
                 );
@@ -106,7 +108,7 @@ fn mldsa_sign_noseed_internal() {
                 let msg = hex_vec(&t["msg"]);
                 let ctx = ctx_of(t);
                 assert!(
-                    mi::verify_internal(&vk, &msg, &ctx, &sig),
+                    mi::verify_internal(&vk, &msg, &ctx, &sig, &mut ms),
                     "ref sig rejected tcId={}",
                     t["tcId"]
                 );
@@ -117,6 +119,7 @@ fn mldsa_sign_noseed_internal() {
 
 #[test]
 fn mldsa_verify_internal() {
+    let mut ms = mi::MldsaScratch::new();
     let j = load_json("wycheproof", "mldsa_65_verify_test.json");
     for g in j["testGroups"].as_array().unwrap() {
         if g["publicKey"].as_str().map(|s| s.len()).unwrap_or(0) != 3904 {
@@ -130,7 +133,7 @@ fn mldsa_verify_internal() {
             let valid = t["result"].as_str() == Some("valid");
             let got = if sig.len() == mi::SIG_LEN {
                 let sig_arr: [u8; 3309] = sig.as_slice().try_into().unwrap();
-                mi::verify_internal(&vk, &msg, &ctx, &sig_arr)
+                mi::verify_internal(&vk, &msg, &ctx, &sig_arr, &mut ms)
             } else {
                 false
             };

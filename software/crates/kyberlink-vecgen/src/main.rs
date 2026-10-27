@@ -193,21 +193,41 @@ fn gen_handshake(out_dir: &Path) {
     let id_i = mk_identity([0x11u8; 32]);
     let id_r = mk_identity([0xa1u8; 32]);
 
-    let (mut st_i, m1) = hs::initiator_start(&id_i, &[0x12u8; 32], &[0x22u8; 32], &[0x55u8; 32]);
+    let mut kem = hs::Scratch::new();
+    let mut st_i = hs::InitiatorState::empty();
+    let mut m1b = [0u8; hs::M1_LEN];
+    let n1 = hs::initiator_start(
+        &id_i,
+        &kyberlink_crypto::entropy::KemSeeds { d: [0x12u8; 32], z: [0x22u8; 32], nonce: [0x55u8; 32] },
+        &mut kem,
+        &mut st_i,
+        &mut m1b,
+    );
+    let m1 = &m1b[..n1];
     let fp_i = hs::fingerprint(&m1[32 + hs::EK_LEN..32 + hs::EK_LEN + hs::VK_LEN]);
-    let (mut st_r, m2) = hs::responder_start(
+    let mut st_r = hs::ResponderState::empty();
+    let mut m2b = [0u8; hs::M2_LEN];
+    let n2 = hs::responder_start(
         &id_r,
-        &[0xa2u8; 32],
-        &[0xa3u8; 32],
-        &[0xa5u8; 32],
-        &m1,
+        &kyberlink_crypto::entropy::KemSeeds { d: [0xa2u8; 32], z: [0xa3u8; 32], nonce: [0xa5u8; 32] },
+        m1,
         &fp_i,
+        &mut kem,
+        &mut st_r,
+        &mut m2b,
     )
     .unwrap();
+    let m2 = &m2b[..n2];
     let fp_r = hs::fingerprint(&m2[32 + hs::EK_LEN..32 + hs::EK_LEN + hs::VK_LEN]);
-    let (m3, spi_i) = hs::initiator_recv_m2(&mut st_i, &id_i, &m2, &fp_r, None).unwrap();
-    let (m4, sa_r) = hs::responder_recv_m3(&mut st_r, &id_r, &m3, spi_i, None).unwrap();
-    let sa_i = hs::initiator_recv_m4(&mut st_i, &m4, spi_i, None).unwrap();
+    let mut m3b = [0u8; hs::M3_LEN];
+    let (n3, spi_i) =
+        hs::initiator_recv_m2(&mut st_i, &id_i, m2, &fp_r, None, &mut kem, &mut m3b).unwrap();
+    let m3 = &m3b[..n3];
+    let mut m4b = [0u8; hs::M4_LEN];
+    let (n4, sa_r) =
+        hs::responder_recv_m3(&mut st_r, &id_r, m3, spi_i, None, &mut kem, &mut m4b).unwrap();
+    let m4 = &m4b[..n4];
+    let sa_i = hs::initiator_recv_m4(&mut st_i, m4, spi_i, None, &mut kem).unwrap();
     assert_eq!(sa_i.spi_i, sa_r.spi_i);
     assert_eq!(sa_i.spi_r, sa_r.spi_r);
     assert_eq!(sa_i.sk_ei, sa_r.sk_ei);

@@ -215,6 +215,7 @@ fn mldsa_siggen() {
 
 #[test]
 fn mldsa_sigver() {
+    let mut ms = mi::MldsaScratch::new();
     let prompt = load_json("ML-DSA-sigVer-FIPS204", "prompt.json");
     let expected = load_json("ML-DSA-sigVer-FIPS204", "expectedResults.json");
     for (pg, eg) in prompt["testGroups"]
@@ -240,13 +241,13 @@ fn mldsa_sigver() {
             let ok = match (pre, ext_mu) {
                 (Some("preHash"), _) => {
                     let m2 = prehash_m2(pt);
-                    mi::verify_prehash_internal(&vk, &m2, &sig)
+                    mi::verify_prehash_internal(&vk, &m2, &sig, &mut ms)
                 }
-                (None, Some(true)) => mi::verify_mu_internal(&vk, &hex_arr::<64>(&pt["mu"]), &sig),
+                (None, Some(true)) => mi::verify_mu_internal(&vk, &hex_arr::<64>(&pt["mu"]), &sig, &mut ms),
                 (None, Some(false)) => {
-                    mi::verify_prehash_internal(&vk, &hex_vec(&pt["message"]), &sig)
+                    mi::verify_prehash_internal(&vk, &hex_vec(&pt["message"]), &sig, &mut ms)
                 }
-                _ => mi::verify_internal(&vk, &hex_vec(&pt["message"]), &ctx_of(pt), &sig),
+                _ => mi::verify_internal(&vk, &hex_vec(&pt["message"]), &ctx_of(pt), &sig, &mut ms),
             };
             assert_eq!(want, ok, "tcId={}", pt["tcId"]);
         }

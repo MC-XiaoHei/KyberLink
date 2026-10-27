@@ -34,6 +34,7 @@ fn groups(v: &Value) -> &Vec<Value> {
 
 #[test]
 fn kem_keygen() {
+    let mut kem = ki::KemScratch::new();
     let prompt = load_json("ML-KEM-keyGen-FIPS203", "prompt.json");
     let expected = load_json("ML-KEM-keyGen-FIPS203", "expectedResults.json");
     for (pg, eg) in groups(&prompt).iter().zip(groups(&expected)) {
@@ -48,7 +49,9 @@ fn kem_keygen() {
         {
             let d = hex_arr::<32>(&pt["d"]);
             let z = hex_arr::<32>(&pt["z"]);
-            let (ek, dk) = ki::keygen_internal(&d, &z);
+            let mut ek = [0u8; ki::EK_LEN];
+            let mut dk = [0u8; ki::DK_LEN];
+            ki::keygen_internal(&d, &z, &mut kem, &mut ek, &mut dk);
             assert_eq!(hex_vec(&et["ek"]), ek, "tcId={}", pt["tcId"]);
             assert_eq!(hex_vec(&et["dk"]), dk, "tcId={}", pt["tcId"]);
         }
@@ -57,6 +60,7 @@ fn kem_keygen() {
 
 #[test]
 fn kem_encap() {
+    let mut kem = ki::KemScratch::new();
     let prompt = load_json("ML-KEM-encapDecap-FIPS203", "prompt.json");
     let expected = load_json("ML-KEM-encapDecap-FIPS203", "expectedResults.json");
     for (pg, eg) in groups(&prompt).iter().zip(groups(&expected)) {
@@ -71,7 +75,9 @@ fn kem_encap() {
         {
             let ek = hex_arr::<1184>(&pt["ek"]);
             let m = hex_arr::<32>(&pt["m"]);
-            let (k, c) = ki::encaps_internal(&ek, &m);
+            let mut k = [0u8; 32];
+            let mut c = [0u8; ki::CT_LEN];
+            ki::encaps_internal(&ek, &m, &mut kem, &mut k, &mut c);
             assert_eq!(hex_vec(&et["c"]), c, "tcId={}", pt["tcId"]);
             assert_eq!(hex_vec(&et["k"]), k, "tcId={}", pt["tcId"]);
         }
@@ -80,6 +86,7 @@ fn kem_encap() {
 
 #[test]
 fn kem_decap() {
+    let mut kem = ki::KemScratch::new();
     let prompt = load_json("ML-KEM-encapDecap-FIPS203", "prompt.json");
     let expected = load_json("ML-KEM-encapDecap-FIPS203", "expectedResults.json");
     for (pg, eg) in groups(&prompt).iter().zip(groups(&expected)) {
@@ -94,7 +101,7 @@ fn kem_decap() {
         {
             let dk = hex_arr::<2400>(&pt["dk"]);
             let c = hex_vec(&pt["c"]);
-            let k = ki::decaps_internal(&dk, &c);
+            let k = ki::decaps_internal(&dk, &c, &mut kem);
             assert_eq!(hex_vec(&et["k"]), k, "tcId={}", pt["tcId"]);
         }
     }

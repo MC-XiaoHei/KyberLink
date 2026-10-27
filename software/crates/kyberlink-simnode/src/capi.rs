@@ -30,7 +30,7 @@ pub unsafe extern "C" fn kyb_simnode_set_status(h: &mut FsmHandle, value: u32) {
 
 #[no_mangle]
 pub unsafe extern "C" fn kyb_fsm_poll(h: &mut FsmHandle) -> u32 {
-    match h.fsm.poll(&mut h.pc) {
+    match h.fsm.poll(Some(&mut h.pc)) {
         FsmOutcome::Sa(sa) => {
             write_sa(&h.fsm.spi, &sa, h.fsm.role == Role::Initiator, 1);
             1

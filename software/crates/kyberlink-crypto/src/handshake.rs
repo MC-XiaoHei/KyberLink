@@ -5,6 +5,8 @@ pub use crate::mldsa_internal::{
     sign_precomp_into, sign_precomp_kk_into, verify_internal, verify_precomp, SignPrecomp,
     VerifyPrecomp, SIG_LEN, SK_LEN, VK_LEN,
 };
+pub use crate::entropy::KemSeeds;
+pub use crate::scratch::{KemScratch, MldsaScratch, Scratch};
 use crate::shake;
 
 pub const NONCE_LEN: usize = 32;
@@ -30,13 +32,26 @@ pub fn fingerprint(vk: &[u8]) -> [u8; 32] {
     shake::sha3_256(vk)
 }
 
-fn sign_stage<I: Identity + ?Sized>(id: &I, tag: u8, h: &[u8; 32]) -> [u8; SIG_LEN] {
+fn sign_stage<I: Identity + ?Sized>(
+    id: &I,
+    tag: u8,
+    h: &[u8; 32],
+    scratch: &mut Scratch,
+    out: &mut [u8],
+) {
     let mut smsg = [0u8; 33];
     smsg[0] = tag;
     smsg[1..].copy_from_slice(h);
     let mut mu_b = [0u8; 64];
     shake::shake256_squeeze(&[id.tr(), &[0x00], &[0u8], &smsg], &mut mu_b);
-    sign_precomp_kk_into(id.spc(), id.kk(), &mu_b, &[0u8; 32])
+    sign_precomp_kk_into(
+        id.spc(),
+        id.kk(),
+        &mu_b,
+        &[0u8; 32],
+        scratch.mldsa(),
+        &mut out[..SIG_LEN],
+    );
 }
 
 fn verify_stage(
@@ -45,13 +60,14 @@ fn verify_stage(
     h: &[u8; 32],
     sig: &[u8; SIG_LEN],
     precomp: Option<&VerifyPrecomp>,
+    scratch: &mut Scratch,
 ) -> bool {
     let mut smsg = [0u8; 33];
     smsg[0] = tag;
     smsg[1..].copy_from_slice(h);
     match precomp {
-        Some(pc) => verify_precomp(pc, &smsg, b"", sig),
-        None => verify_internal(vk, &smsg, b"", sig),
+        Some(pc) => verify_precomp(pc, &smsg, b"", sig, scratch.mldsa()),
+        None => verify_internal(vk, &smsg, b"", sig, scratch.mldsa()),
     }
 }
 
@@ -185,33 +201,77 @@ pub struct InitiatorState {
     m_i: [u8; 32],
 }
 
+impl InitiatorState {
+    pub const fn empty() -> Self {
+        Self {
+            nonce_i: [0; 32],
+            dk_i: [0; DK_LEN],
+            vk_r: [0; VK_LEN],
+            ss_i: [0; 32],
+            h: [0; 32],
+            m_i: [0; 32],
+        }
+    }
+}
+
+impl InitiatorState {
+    pub fn vk_r(&self) -> &[u8] {
+        &self.vk_r
+    }
+}
+
+impl ResponderState {
+    pub fn vk_i(&self) -> &[u8] {
+        &self.vk_i
+    }
+
+    pub const fn empty() -> Self {
+        Self {
+            nonce_r: [0; 32],
+            dk_r: [0; DK_LEN],
+            vk_i: [0; VK_LEN],
+            ek_i: [0; EK_LEN],
+            ss_r: [0; 32],
+            h: [0; 32],
+            m_r: [0; 32],
+        }
+    }
+}
+
 pub fn initiator_start<I: Identity + ?Sized>(
     id: &I,
-    seed_kem_d: &[u8; 32],
-    seed_kem_z: &[u8; 32],
-    nonce: &[u8; 32],
-) -> (InitiatorState, [u8; M1_LEN]) {
-    let (ek, dk) = kem_keygen(seed_kem_d, seed_kem_z);
+    seeds: &KemSeeds,
+    scratch: &mut Scratch,
+    st: &mut InitiatorState,
+    out: &mut [u8],
+) -> usize {
     let vk = id.vk();
-    let mut m1 = [0u8; M1_LEN];
-    m1[..32].copy_from_slice(nonce);
-    m1[32..32 + EK_LEN].copy_from_slice(&ek);
+    let (m1, _) = out.split_at_mut(M1_LEN);
+    m1[..32].copy_from_slice(&seeds.nonce);
     m1[32 + EK_LEN..].copy_from_slice(vk);
-    let mut hbuf = [0u8; 64 + M1_LEN];
-    hbuf[..H0.len()].copy_from_slice(H0);
-    hbuf[H0.len()..H0.len() + M1_LEN].copy_from_slice(&m1);
-    let h1 = shake::sha3_256(&hbuf[..H0.len() + M1_LEN]);
-    (
-        InitiatorState {
-            nonce_i: *nonce,
-            dk_i: dk,
-            vk_r: [0u8; VK_LEN],
-            ss_i: [0u8; 32],
-            h: h1,
-            m_i: encap_m(seed_kem_d, seed_kem_z, &h1),
-        },
-        m1,
-    )
+    {
+        let InitiatorState { dk_i, .. } = st;
+        kem_keygen(
+            &seeds.d,
+            &seeds.z,
+            scratch.kem(),
+            &mut m1[32..32 + EK_LEN],
+            dk_i,
+        );
+    }
+    let h1 = {
+        let hb = scratch.hs_buf();
+        hb[..H0.len()].copy_from_slice(H0);
+        hb[H0.len()..H0.len() + M1_LEN].copy_from_slice(m1);
+        shake::sha3_256(&hb[..H0.len() + M1_LEN])
+    };
+
+    st.nonce_i = seeds.nonce;
+    st.vk_r = [0u8; VK_LEN];
+    st.ss_i = [0u8; 32];
+    st.h = h1;
+    st.m_i = encap_m(&seeds.d, &seeds.z, &h1);
+    M1_LEN
 }
 
 pub fn initiator_recv_m2<I: Identity + ?Sized>(
@@ -220,7 +280,9 @@ pub fn initiator_recv_m2<I: Identity + ?Sized>(
     m2: &[u8],
     fp_r: &[u8; 32],
     precomp: Option<&VerifyPrecomp>,
-) -> Result<([u8; M3_LEN], u32), &'static str> {
+    scratch: &mut Scratch,
+    out: &mut [u8],
+) -> Result<(usize, u32), &'static str> {
     if m2.len() != M2_LEN {
         return Err("bad m2 len");
     }
@@ -231,36 +293,46 @@ pub fn initiator_recv_m2<I: Identity + ?Sized>(
     if fingerprint(vk_rb) != *fp_r {
         return Err("fp_r mismatch");
     }
-    let mut hbuf = [0u8; 32 + NONCE_LEN + EK_LEN + VK_LEN];
-    hbuf[..32].copy_from_slice(&st.h);
-    hbuf[32..32 + NONCE_LEN].copy_from_slice(nonce_r);
-    hbuf[32 + NONCE_LEN..32 + NONCE_LEN + EK_LEN].copy_from_slice(ek_rb);
-    hbuf[32 + NONCE_LEN + EK_LEN..].copy_from_slice(vk_rb);
-    let h2 = shake::sha3_256(&hbuf);
-    let vk_bytes: [u8; VK_LEN] = vk_rb.try_into().unwrap();
-    let ok = verify_stage(&vk_bytes, 0x01, &h2, sigb, precomp);
+    let h2 = {
+        let hb = scratch.hs_buf();
+        hb[..32].copy_from_slice(&st.h);
+        hb[32..32 + NONCE_LEN].copy_from_slice(nonce_r);
+        hb[32 + NONCE_LEN..32 + NONCE_LEN + EK_LEN].copy_from_slice(ek_rb);
+        hb[32 + NONCE_LEN + EK_LEN..32 + NONCE_LEN + EK_LEN + VK_LEN].copy_from_slice(vk_rb);
+        shake::sha3_256(&hb[..32 + NONCE_LEN + EK_LEN + VK_LEN])
+    };
+    let vk_bytes: &[u8; VK_LEN] = vk_rb.try_into().unwrap();
+    let ok = verify_stage(vk_bytes, 0x01, &h2, sigb, precomp, scratch);
     if !ok {
         return Err("m2 verify fail");
     }
     st.h = h2;
     st.vk_r.copy_from_slice(vk_rb);
-    let (ss, ct) = encaps_internal(ek_rb.try_into().unwrap(), &st.m_i);
-    st.ss_i = ss;
     let spi_i: u32 = (0x1000_0001u32
         ^ u32::from_be_bytes([st.nonce_i[0], st.nonce_i[1], st.nonce_i[2], st.nonce_i[3]]))
         | 1;
-    let mut m3 = [0u8; M3_LEN];
-    m3[..CT_LEN].copy_from_slice(&ct);
+    let (m3, _) = out.split_at_mut(M3_LEN);
+    {
+        let InitiatorState { ss_i, m_i, .. } = st;
+        encaps_internal(
+            ek_rb.try_into().unwrap(),
+            m_i,
+            scratch.kem(),
+            ss_i,
+            &mut m3[..CT_LEN],
+        );
+    }
     m3[CT_LEN..CT_LEN + 4].copy_from_slice(&spi_i.to_be_bytes());
-    let mut hbuf3 = [0u8; 32 + CT_LEN + 4];
-    hbuf3[..32].copy_from_slice(&st.h);
-    hbuf3[32..32 + CT_LEN].copy_from_slice(&ct);
-    hbuf3[32 + CT_LEN..].copy_from_slice(&spi_i.to_be_bytes());
-    let h3 = shake::sha3_256(&hbuf3);
-    let sig3 = sign_stage(id, 0x02, &h3);
-    m3[CT_LEN + 4..].copy_from_slice(&sig3);
+    let h3 = {
+        let hb = scratch.hs_buf();
+        hb[..32].copy_from_slice(&st.h);
+        hb[32..32 + CT_LEN].copy_from_slice(&m3[..CT_LEN]);
+        hb[32 + CT_LEN..32 + CT_LEN + 4].copy_from_slice(&spi_i.to_be_bytes());
+        shake::sha3_256(&hb[..32 + CT_LEN + 4])
+    };
+    sign_stage(id, 0x02, &h3, scratch, &mut m3[CT_LEN + 4..]);
     st.h = h3;
-    Ok((m3, spi_i))
+    Ok((M3_LEN, spi_i))
 }
 
 pub fn initiator_recv_m4(
@@ -268,6 +340,7 @@ pub fn initiator_recv_m4(
     m4: &[u8],
     spi_i: u32,
     precomp: Option<&VerifyPrecomp>,
+    scratch: &mut Scratch,
 ) -> Result<SaParams, &'static str> {
     if m4.len() != M4_LEN {
         return Err("bad m4 len");
@@ -280,11 +353,11 @@ pub fn initiator_recv_m4(
     hbuf[32..32 + CT_LEN].copy_from_slice(ctb);
     hbuf[32 + CT_LEN..].copy_from_slice(&spi_r.to_be_bytes());
     let h4 = shake::sha3_256(&hbuf);
-    let ok = verify_stage(&st.vk_r, 0x03, &h4, sigb, precomp);
+    let ok = verify_stage(&st.vk_r, 0x03, &h4, sigb, precomp, scratch);
     if !ok {
         return Err("m4 verify fail");
     }
-    let ss_r = decaps_internal(&st.dk_i, ctb);
+    let ss_r = decaps_internal(&st.dk_i, ctb, scratch.kem());
     let mut ss = [0u8; 64];
     ss[..32].copy_from_slice(&st.ss_i);
     ss[32..].copy_from_slice(&ss_r);
@@ -303,12 +376,13 @@ pub struct ResponderState {
 
 pub fn responder_start<I: Identity + ?Sized>(
     id: &I,
-    seed_kem_d: &[u8; 32],
-    seed_kem_z: &[u8; 32],
-    nonce: &[u8; 32],
+    seeds: &KemSeeds,
     m1: &[u8],
     fp_i: &[u8; 32],
-) -> Result<(ResponderState, [u8; M2_LEN]), &'static str> {
+    scratch: &mut Scratch,
+    st: &mut ResponderState,
+    out: &mut [u8],
+) -> Result<usize, &'static str> {
     if m1.len() != M1_LEN {
         return Err("bad m1 len");
     }
@@ -318,37 +392,43 @@ pub fn responder_start<I: Identity + ?Sized>(
     if fingerprint(vk_ib) != *fp_i {
         return Err("fp_i mismatch");
     }
-    let mut hbuf = [0u8; 64 + M1_LEN];
-    hbuf[..H0.len()].copy_from_slice(H0);
-    hbuf[H0.len()..H0.len() + M1_LEN].copy_from_slice(m1);
-    let h1 = shake::sha3_256(&hbuf[..H0.len() + M1_LEN]);
-    let (ek_r, dk_r) = kem_keygen(seed_kem_d, seed_kem_z);
+    let h1 = {
+        let hb = scratch.hs_buf();
+        hb[..H0.len()].copy_from_slice(H0);
+        hb[H0.len()..H0.len() + M1_LEN].copy_from_slice(m1);
+        shake::sha3_256(&hb[..H0.len() + M1_LEN])
+    };
     let vk_r = id.vk();
-    let mut m2 = [0u8; M2_LEN];
-    m2[..32].copy_from_slice(nonce);
-    m2[32..32 + EK_LEN].copy_from_slice(&ek_r);
+    let (m2, _) = out.split_at_mut(M2_LEN);
+    m2[..32].copy_from_slice(&seeds.nonce);
     m2[32 + EK_LEN..32 + EK_LEN + VK_LEN].copy_from_slice(vk_r);
-    let mut hbuf2 = [0u8; 32 + NONCE_LEN + EK_LEN + VK_LEN];
-    hbuf2[..32].copy_from_slice(&h1);
-    hbuf2[32..32 + NONCE_LEN].copy_from_slice(nonce);
-    hbuf2[32 + NONCE_LEN..32 + NONCE_LEN + EK_LEN].copy_from_slice(&ek_r);
-    hbuf2[32 + NONCE_LEN + EK_LEN..].copy_from_slice(vk_r);
-    let h2 = shake::sha3_256(&hbuf2);
-    let sig = sign_stage(id, 0x01, &h2);
-    m2[32 + EK_LEN + VK_LEN..].copy_from_slice(&sig);
-    let _ = nonce_i;
-    Ok((
-        ResponderState {
-            nonce_r: *nonce,
+    {
+        let ResponderState { dk_r, .. } = st;
+        kem_keygen(
+            &seeds.d,
+            &seeds.z,
+            scratch.kem(),
+            &mut m2[32..32 + EK_LEN],
             dk_r,
-            vk_i: *vk_ib,
-            ek_i: *ek_ib,
-            ss_r: [0u8; 32],
-            h: h2,
-            m_r: encap_m(seed_kem_d, seed_kem_z, &h1),
-        },
-        m2,
-    ))
+        );
+    }
+    let h2 = {
+        let hb = scratch.hs_buf();
+        hb[..32].copy_from_slice(&h1);
+        hb[32..32 + NONCE_LEN].copy_from_slice(&seeds.nonce);
+        hb[32 + NONCE_LEN..32 + NONCE_LEN + EK_LEN].copy_from_slice(&m2[32..32 + EK_LEN]);
+        hb[32 + NONCE_LEN + EK_LEN..32 + NONCE_LEN + EK_LEN + VK_LEN].copy_from_slice(vk_r);
+        shake::sha3_256(&hb[..32 + NONCE_LEN + EK_LEN + VK_LEN])
+    };
+    sign_stage(id, 0x01, &h2, scratch, &mut m2[32 + EK_LEN + VK_LEN..]);
+    let _ = nonce_i;
+    st.nonce_r = seeds.nonce;
+    st.vk_i = *vk_ib;
+    st.ek_i = *ek_ib;
+    st.ss_r = [0u8; 32];
+    st.h = h2;
+    st.m_r = encap_m(&seeds.d, &seeds.z, &h1);
+    Ok(M2_LEN)
 }
 
 pub fn responder_recv_m3<I: Identity + ?Sized>(
@@ -357,44 +437,60 @@ pub fn responder_recv_m3<I: Identity + ?Sized>(
     m3: &[u8],
     spi_i: u32,
     precomp: Option<&VerifyPrecomp>,
-) -> Result<([u8; M4_LEN], SaParams), &'static str> {
+    scratch: &mut Scratch,
+    out: &mut [u8],
+) -> Result<(usize, SaParams), &'static str> {
     if m3.len() != M3_LEN {
         return Err("bad m3 len");
     }
     let ctb: &[u8; CT_LEN] = m3[..CT_LEN].try_into().unwrap();
     let sigb: &[u8; SIG_LEN] = m3[CT_LEN + 4..].try_into().unwrap();
-    let mut hbuf = [0u8; 32 + CT_LEN + 4];
-    hbuf[..32].copy_from_slice(&st.h);
-    hbuf[32..32 + CT_LEN].copy_from_slice(ctb);
-    hbuf[32 + CT_LEN..].copy_from_slice(&spi_i.to_be_bytes());
-    let h3 = shake::sha3_256(&hbuf);
-    let ok = verify_stage(&st.vk_i, 0x02, &h3, sigb, precomp);
+    let h3 = {
+        let hb = scratch.hs_buf();
+        hb[..32].copy_from_slice(&st.h);
+        hb[32..32 + CT_LEN].copy_from_slice(ctb);
+        hb[32 + CT_LEN..32 + CT_LEN + 4].copy_from_slice(&spi_i.to_be_bytes());
+        shake::sha3_256(&hb[..32 + CT_LEN + 4])
+    };
+    let ok = verify_stage(&st.vk_i, 0x02, &h3, sigb, precomp, scratch);
     if !ok {
         return Err("m3 verify fail");
     }
     st.h = h3;
-    let ss_i = decaps_internal(&st.dk_r, ctb);
-    let (ss_r, ct_r) = encaps_internal(&st.ek_i, &st.m_r);
-    st.ss_r = ss_r;
+    let ss_i = decaps_internal(&st.dk_r, ctb, scratch.kem());
     let spi_r = spi_i.wrapping_add(0x20000001u32);
-    let mut m4 = [0u8; M4_LEN];
-    m4[..CT_LEN].copy_from_slice(&ct_r);
+    let (m4, _) = out.split_at_mut(M4_LEN);
+    {
+        let ResponderState {
+            ek_i, m_r, ss_r, ..
+        } = st;
+        encaps_internal(ek_i, m_r, scratch.kem(), ss_r, &mut m4[..CT_LEN]);
+    }
     m4[CT_LEN..CT_LEN + 4].copy_from_slice(&spi_r.to_be_bytes());
-    let mut hbuf4 = [0u8; 32 + CT_LEN + 4];
-    hbuf4[..32].copy_from_slice(&st.h);
-    hbuf4[32..32 + CT_LEN].copy_from_slice(&ct_r);
-    hbuf4[32 + CT_LEN..].copy_from_slice(&spi_r.to_be_bytes());
-    let h4 = shake::sha3_256(&hbuf4);
-    let sig4 = sign_stage(id, 0x03, &h4);
-    m4[CT_LEN + 4..].copy_from_slice(&sig4);
+    let h4 = {
+        let hb = scratch.hs_buf();
+        hb[..32].copy_from_slice(&st.h);
+        hb[32..32 + CT_LEN].copy_from_slice(&m4[..CT_LEN]);
+        hb[32 + CT_LEN..32 + CT_LEN + 4].copy_from_slice(&spi_r.to_be_bytes());
+        shake::sha3_256(&hb[..32 + CT_LEN + 4])
+    };
+    sign_stage(id, 0x03, &h4, scratch, &mut m4[CT_LEN + 4..]);
     let mut ss = [0u8; 64];
     ss[..32].copy_from_slice(&ss_i);
     ss[32..].copy_from_slice(&st.ss_r);
-    Ok((m4, hkdf_derive(&h4, &ss, spi_i, spi_r)))
+    Ok((M4_LEN, hkdf_derive(&h4, &ss, spi_i, spi_r)))
 }
 
 #[cfg(test)]
 mod tests {
+    fn test_seeds(d: u8, z: u8, nonce: u8) -> KemSeeds {
+        KemSeeds {
+            d: [d; 32],
+            z: [z; 32],
+            nonce: [nonce; 32],
+        }
+    }
+
     use super::*;
     use crate::mldsa_internal::{sign_precomp_new_into, SignPrecomp};
     use std::vec::Vec;
@@ -442,12 +538,40 @@ mod tests {
         let fp_i = id_i.fingerprint();
         let fp_r = id_r.fingerprint();
 
-        let (mut ia, m1) = initiator_start(&id_i, &[1u8; 32], &[2u8; 32], &[4u8; 32]);
-        let (mut rb, m2) =
-            responder_start(&id_r, &[5u8; 32], &[6u8; 32], &[8u8; 32], &m1, &fp_i).unwrap();
-        let (m3, spi_i) = initiator_recv_m2(&mut ia, &id_i, &m2, &fp_r, None).unwrap();
-        let (m4, sa_r) = responder_recv_m3(&mut rb, &id_r, &m3, spi_i, None).unwrap();
-        let sa_i = initiator_recv_m4(&mut ia, &m4, spi_i, None).unwrap();
+        let mut scratch = Scratch::new();
+        let mut ia = InitiatorState::empty();
+        let mut m1b = [0u8; M1_LEN];
+        let n1 =
+            initiator_start(&id_i, &test_seeds(1, 2, 4), &mut scratch, &mut ia, &mut m1b);
+        let mut rb = ResponderState::empty();
+        let mut m2b = [0u8; M2_LEN];
+        let n2 = responder_start(
+            &id_r,
+            &test_seeds(5, 6, 8),
+            &m1b[..n1],
+            &fp_i,
+            &mut scratch,
+            &mut rb,
+            &mut m2b,
+        )
+        .unwrap();
+        let mut m3b = [0u8; M3_LEN];
+        let (n3, spi_i) = initiator_recv_m2(
+            &mut ia,
+            &id_i,
+            &m2b[..n2],
+            &fp_r,
+            None,
+            &mut scratch,
+            &mut m3b,
+        )
+        .unwrap();
+        let m3 = &m3b[..n3];
+        let mut m4b = [0u8; M4_LEN];
+        let (n4, sa_r) =
+            responder_recv_m3(&mut rb, &id_r, m3, spi_i, None, &mut scratch, &mut m4b).unwrap();
+        let m4 = &m4b[..n4];
+        let sa_i = initiator_recv_m4(&mut ia, m4, spi_i, None, &mut scratch).unwrap();
         assert_eq!(sa_i.spi_i, sa_r.spi_i);
         assert_eq!(sa_i.spi_r, sa_r.spi_r);
         assert_eq!(sa_i.sk_ei, sa_r.sk_ei);
@@ -508,28 +632,59 @@ mod tests {
 
     #[test]
     fn tamper_m2_fails() {
+        let mut scratch = Scratch::new();
         let id_i = TestIdentity::new([3u8; 32]);
         let id_r = TestIdentity::new([7u8; 32]);
         let fp_i = id_i.fingerprint();
         let fp_r = id_r.fingerprint();
-        let (mut ia, m1) = initiator_start(&id_i, &[1u8; 32], &[2u8; 32], &[4u8; 32]);
-        let (_, mut m2) =
-            responder_start(&id_r, &[5u8; 32], &[6u8; 32], &[8u8; 32], &m1, &fp_i).unwrap();
-        m2[100] ^= 0xff;
-        assert!(initiator_recv_m2(&mut ia, &id_i, &m2, &fp_r, None).is_err());
+        let mut ia = InitiatorState::empty();
+        let mut m1b = [0u8; M1_LEN];
+        let n1 =
+            initiator_start(&id_i, &test_seeds(1, 2, 4), &mut scratch, &mut ia, &mut m1b);
+        let mut rb = ResponderState::empty();
+        let mut m2b = [0u8; M2_LEN];
+        let n2 = responder_start(
+            &id_r,
+            &test_seeds(5, 6, 8),
+            &m1b[..n1],
+            &fp_i,
+            &mut scratch,
+            &mut rb,
+            &mut m2b,
+        )
+        .unwrap();
+        m2b[100] ^= 0xff;
+        let mut m3b = [0u8; M3_LEN];
+        assert!(initiator_recv_m2(
+            &mut ia,
+            &id_i,
+            &m2b[..n2],
+            &fp_r,
+            None,
+            &mut scratch,
+            &mut m3b
+        )
+        .is_err());
     }
 
     #[test]
     fn wrong_fp_rejected() {
+        let mut scratch = Scratch::new();
         let id_i = TestIdentity::new([3u8; 32]);
-        let (_, m1) = initiator_start(&id_i, &[1u8; 32], &[2u8; 32], &[4u8; 32]);
+        let mut ia = InitiatorState::empty();
+        let mut m1b = [0u8; M1_LEN];
+        let n1 =
+            initiator_start(&id_i, &test_seeds(1, 2, 4), &mut scratch, &mut ia, &mut m1b);
+        let mut rb = ResponderState::empty();
+        let mut m2b = [0u8; M2_LEN];
         assert!(responder_start(
             &TestIdentity::new([7u8; 32]),
-            &[5u8; 32],
-            &[6u8; 32],
-            &[8u8; 32],
-            &m1,
-            &[0xffu8; 32]
+            &test_seeds(5, 6, 8),
+            &m1b[..n1],
+            &[0xffu8; 32],
+            &mut scratch,
+            &mut rb,
+            &mut m2b
         )
         .is_err());
     }

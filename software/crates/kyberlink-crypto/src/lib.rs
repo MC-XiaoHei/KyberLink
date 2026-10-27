@@ -8,5 +8,6 @@ pub mod kem_internal;
 pub mod mldsa_internal;
 pub mod mldsa_mont;
 pub mod ntt;
+pub mod scratch;
 pub mod shake;
 pub mod sign;
