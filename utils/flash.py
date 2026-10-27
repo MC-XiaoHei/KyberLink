@@ -21,6 +21,7 @@ OPENOCD = os.environ.get("WCH_OPENOCD") or os.path.join(
 OPENOCD_CFG = os.path.join(os.path.dirname(OPENOCD), "wch-riscv.cfg")
 
 MSPI_ADDRESS = "0x000000"
+PROG_OK = {"0x70026020"}
 FPGA_RUN_SRAM = "4"
 FPGA_RUN_FLASH = "9"
 
@@ -63,6 +64,18 @@ def fpga_cmd(fs, flash, log):
     return cmd
 
 
+def run_step(cmd):
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace"
+    )
+    status = []
+    for line in proc.stdout:
+        sys.stdout.write(line)
+        if "Status Code is:" in line:
+            status.append(line.split(":", 1)[1].strip())
+    return proc.wait(), status
+
+
 def steps_for(args, fs, elf, log):
     if args.mcu_only:
         return [("mcu", mcu_cmd(elf, "reset run"))]
@@ -92,10 +105,13 @@ def run(args, reporter):
         if args.dry_run:
             continue
         started = time.monotonic()
-        rc = subprocess.call(cmd)
+        rc, status = run_step(cmd)
         metrics[name + "_s"] = round(time.monotonic() - started, 2)
         if rc != 0:
             raise AppError("%s failed rc=%d" % (name, rc), rc)
+        bad = [s for s in status if s not in PROG_OK]
+        if bad:
+            raise AppError("%s failed, status %s" % (name, " ".join(bad)), 1)
     return Result("flash %s" % args.target, config={"dry_run": args.dry_run}, metrics=metrics)
 
 
