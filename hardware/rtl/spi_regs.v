@@ -55,6 +55,7 @@ module spi_regs (
   reg [ 31:0] r_dst_mac_lo;
   reg [ 15:0] r_dst_mac_hi;
   reg [ 31:0] r_seq;
+  reg [ 7:0] r_scratch;
   reg [255:0] r_key_enc;
   reg [255:0] r_key_dec;
   reg [ 15:0] r_hsk_tx_len;
@@ -158,6 +159,7 @@ module spi_regs (
       rx_rd_hold <= 32'd0;
       key_load <= 1'b0;
       r_seq <= 32'd1;
+      r_scratch <= 8'd0;
       err_flags <= 6'd0;
       soft_rst_r <= 1'b0;
       rx_wr_ptr <= 9'd0;
@@ -209,6 +211,7 @@ module spi_regs (
           7'h2C:   r_dst_mac_lo <= wdata;
           7'h30:   r_dst_mac_hi <= wdata[15:0];
           7'h74:   r_seq <= wdata;
+          7'h78:   r_scratch <= wdata[7:0];
           7'h3C:   r_hsk_tx_len <= wdata[15:0];
           7'h40: begin
             if (tx_cnt != 10'd512) begin
@@ -311,6 +314,7 @@ module spi_regs (
       7'h38:   rdata_c = rx_rd_hold;
       7'h50:   rdata_c = {26'd0, err_flags};
       7'h74:   rdata_c = r_seq;
+      7'h78:   rdata_c = {24'd0, r_scratch};
       default: rdata_c = 32'd0;
     endcase
   end

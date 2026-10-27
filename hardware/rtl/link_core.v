@@ -208,7 +208,4 @@ module link_core (
   assign lan_tx_last = dec_m_tlast;
   assign dec_m_tready = lan_tx_ready;
 
-  wire rst_n_i = ~rst_n;
-  GSR gsr_inst (.GSRI(rst_n_i));
-
 endmodule

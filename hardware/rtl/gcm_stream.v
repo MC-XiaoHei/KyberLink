@@ -236,6 +236,8 @@ module gcm_stream (
           if (start) begin
             aes_start <= 1'b1;
             aes_key_load <= key_dirty || key_load;
+            h_submit <= 1'b0;
+            j0_submit <= 1'b0;
             busy <= 1'b1;
             phase <= PHASE_AES_H;
           end
