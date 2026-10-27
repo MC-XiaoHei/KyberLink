@@ -26,9 +26,11 @@ pub async fn bring_up<'d, F: Fn() -> bool>(
     wan: BitBangMdio<'d>,
     probe: F,
 ) -> Result<Outcome<'d>, MdioError> {
-    let phys = mdio::init_pair(lan, wan, &mut board.phy_reset).await?;
-
+    board.fpga_reset.enable();
+    Timer::after_millis(2).await;
     board.fpga_reset.disable();
+    let phys = mdio::init_pair(lan, wan, &mut board.phy_reset).await;
+
     let mut configured_ms = wait_configured(board).await;
     let mut reconfigs = 0;
     while configured_ms.is_none() && reconfigs < RECONFIG_ATTEMPTS {
@@ -41,7 +43,7 @@ pub async fn bring_up<'d, F: Fn() -> bool>(
 
     let (ready, ready_ms) = wait_ready(&probe).await;
     Ok(Outcome {
-        phys,
+        phys: phys?,
         configured_ms,
         reconfigs,
         ready,

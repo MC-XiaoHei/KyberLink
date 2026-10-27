@@ -1,4 +1,3 @@
-use core::sync::atomic::{AtomicBool, Ordering};
 
 use ch32_hal::gpio::{Input, Level, Output, Pull, Speed};
 use ch32_hal::peripherals::{PA1, PA2, PA3, PA4, PA5, PA6, PA7, PB6, PB7, PC6, PC7, PC8, PC9};
@@ -67,7 +66,7 @@ impl<'d> Board<'d> {
         fpga_done: Peri<'d, PA3>,
     ) -> Self {
         Self {
-            fpga_reset: ActiveLow::new(Output::new(fpga_reset, Level::Low, Speed::Low)),
+            fpga_reset: ActiveLow::new(Output::new(fpga_reset, Level::High, Speed::Low)),
             fpga_reconfig: ActiveLow::new(Output::new(fpga_reconfig, Level::High, Speed::Low)),
             phy_reset: ActiveLow::new(Output::new(phy_reset, Level::High, Speed::Low)),
             fpga_done: Sense::new(Input::new(fpga_done, Pull::None)),
@@ -75,54 +74,22 @@ impl<'d> Board<'d> {
     }
 }
 
-const HSE_HZ: u32 = 32_000_000;
-
-const HSE_POLL: u32 = 500_000;
-
-static HSE_RUNNING: AtomicBool = AtomicBool::new(false);
-
-fn hse_ready() -> bool {
-    ch32_hal::pac::RCC.ctlr().modify(|w| w.set_hsebyp(false));
-    ch32_hal::pac::RCC.ctlr().modify(|w| w.set_hseon(true));
-    for _ in 0..HSE_POLL {
-        if ch32_hal::pac::RCC.ctlr().read().hserdy() {
-            return true;
-        }
-    }
-    false
-}
-
-fn hse_144mhz() -> ch32_hal::rcc::Config {
+fn hsi_120mhz() -> ch32_hal::rcc::Config {
     let mut config = ch32_hal::rcc::Config::SYSCLK_FREQ_144MHZ_HSI;
-    config.hse = Some(ch32_hal::rcc::Hse {
-        freq: ch32_hal::time::Hertz(HSE_HZ),
-        mode: ch32_hal::rcc::HseMode::Oscillator,
-    });
-    config.pll_src = ch32_hal::rcc::PllSource::HSE;
     config.pll = Some(ch32_hal::rcc::Pll {
-        prediv: ch32_hal::rcc::PllPreDiv::DIV4,
-        mul: ch32_hal::rcc::PllMul::MUL18,
+        prediv: ch32_hal::rcc::PllPreDiv::DIV1,
+        mul: ch32_hal::rcc::PllMul::MUL15,
     });
     config
 }
 
 pub fn clock_config() -> ch32_hal::Config {
-    let running = hse_ready();
-    HSE_RUNNING.store(running, Ordering::Relaxed);
     ch32_hal::Config {
-        rcc: if running {
-            hse_144mhz()
-        } else {
-            ch32_hal::rcc::Config::SYSCLK_FREQ_144MHZ_HSI
-        },
+        rcc: hsi_120mhz(),
         ..Default::default()
     }
 }
 
 pub fn clock_source() -> &'static str {
-    if HSE_RUNNING.load(Ordering::Relaxed) {
-        "hse"
-    } else {
-        "hsi"
-    }
+    "hsi"
 }

@@ -5,8 +5,12 @@
 mod firmware;
 
 #[cfg(target_arch = "riscv32")]
+mod panic_report;
+
+#[cfg(target_arch = "riscv32")]
 #[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    panic_report::report(info);
     loop {}
 }
 
