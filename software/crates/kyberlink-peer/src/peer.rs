@@ -107,7 +107,7 @@ impl Peer {
         let elapsed = now.duration_since(self.last).as_millis() as u32;
         self.last = now;
         self.pump();
-        let outcome = self.fsm.poll_ms(elapsed, &mut self.pc);
+        let outcome = self.fsm.poll_ms(elapsed, Some(&mut self.pc));
         if let FsmOutcome::Sa(sa) = &outcome {
             if !self.sa_written {
                 let initiator = self.fsm.role == Role::Initiator;

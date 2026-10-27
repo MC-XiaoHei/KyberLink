@@ -26,9 +26,11 @@ fn wire_layout_matches_rtl() {
     let sa = sa();
     let (_bus, mut tx) = plane(true);
     let inner = b"kyberlink inner frame";
+    let pad = (16 - ((inner.len() + 2) & 0xF)) & 0xF;
+    let plain_len = inner.len() + pad + 2;
     let mut pkt = [0u8; 128];
     let n = tx.seal(inner, &mut pkt).unwrap();
-    assert_eq!(n, HEADER + inner.len() + TAG);
+    assert_eq!(n, HEADER + plain_len + TAG);
     assert_eq!(&pkt[..4], &sa.spi_i.to_be_bytes());
     assert_eq!(&pkt[4..8], &1u32.to_be_bytes());
     assert_eq!(&pkt[8..12], &1u32.to_be_bytes());
@@ -37,17 +39,20 @@ fn wire_layout_matches_rtl() {
     let mut nonce = [0u8; 12];
     nonce[..4].copy_from_slice(&1u32.to_be_bytes());
     nonce[4..].copy_from_slice(&sa.sa_salt[..8]);
-    let mut aad = [0u8; 16];
+    let mut aad = [0u8; 8];
     aad[..4].copy_from_slice(&sa.spi_i.to_be_bytes());
     aad[4..8].copy_from_slice(&1u32.to_be_bytes());
 
     let mut expect = inner.to_vec();
+    expect.extend(std::iter::repeat_n(pad as u8, pad));
+    expect.push(pad as u8);
+    expect.push(0x04);
     let mut tag = [0u8; TAG];
     GcmCipher::new(&sa.sk_ei)
         .encrypt_in_place(&nonce, &aad, &mut expect, &mut tag)
         .unwrap();
-    assert_eq!(&pkt[HEADER..HEADER + inner.len()], expect.as_slice());
-    assert_eq!(&pkt[HEADER + inner.len()..n], &tag);
+    assert_eq!(&pkt[HEADER..HEADER + plain_len], expect.as_slice());
+    assert_eq!(&pkt[HEADER + plain_len..n], &tag);
 }
 
 #[test]

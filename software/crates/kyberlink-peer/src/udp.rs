@@ -39,7 +39,7 @@ impl Link for UdpLink {
     }
 
     fn recv(&self) -> Option<Vec<u8>> {
-        let mut buf = [0u8; 2048];
+        let mut buf = [0u8; 8192];
         match self.sock.recv_from(&mut buf) {
             Ok((n, _)) => Some(buf[..n].to_vec()),
             Err(_) => None,
