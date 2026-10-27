@@ -45,6 +45,10 @@ impl Console {
         self.phase = phase;
     }
 
+    pub fn abandon_line(&mut self) {
+        self.len = 0;
+    }
+
     pub fn set_err(&mut self, err: u8) {
         self.err = err;
     }

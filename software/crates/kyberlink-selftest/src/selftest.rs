@@ -181,6 +181,8 @@ async fn run_phase(spi: &SpiMaster, ctrl: u32, secs: u64) -> Phase {
 #[embassy_executor::main(entry = "ch32_hal::entry")]
 pub async fn main(_spawner: Spawner) -> ! {
     let p = ch32_hal::init(kyberlink_board::pinmap::clock_config());
+    let ctlr = ch32_hal::pac::RCC.ctlr().read().0;
+    let cfgr0 = ch32_hal::pac::RCC.cfgr0().read().0;
 
     let pins = Pins {
         spi_sck: p.PA5,
@@ -226,6 +228,7 @@ pub async fn main(_spawner: Spawner) -> ! {
 
     say!(log, "kyberlink selftest");
     say!(log, "clock {} 144mhz", pinmap::clock_source());
+    say!(log, "rcc ctlr {:08x} cfgr0 {:08x}", ctlr, cfgr0);
     say!(log, "spi 2250khz mdc 66khz");
 
     let mut phy_ok = false;
