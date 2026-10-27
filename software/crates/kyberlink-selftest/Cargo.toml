@@ -1,6 +1,5 @@
 [package]
 name = "kyberlink-selftest"
-description = "KyberLink Board Self Test Firmware"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

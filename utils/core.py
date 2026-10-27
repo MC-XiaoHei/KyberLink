@@ -10,7 +10,7 @@ from . import config
 
 class Tee:
     def __init__(self, path):
-        self.f = open(path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
+        self.f = open(path, "w", encoding="utf-8", errors="replace")
         self.orig = os.dup(1)
         r, w = os.pipe()
         os.dup2(w, 1)

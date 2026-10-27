@@ -7,7 +7,6 @@ module clk_pll (
   wire gw_gnd;
   assign gw_gnd = 1'b0;
 
-  // Fclkin=50MHz, Fpfd=50/IDIV=50MHz, Fvco=Fpfd*FBDIV*MDIV=1000MHz, Fclkout0=Fvco/ODIV0=125MHz
   PLLA #(
       .FCLKIN("50"),
       .IDIV_SEL(1),

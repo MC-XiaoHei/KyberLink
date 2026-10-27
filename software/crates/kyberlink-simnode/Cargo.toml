@@ -1,6 +1,5 @@
 [package]
 name = "kyberlink-simnode"
-description = "KyberLink firmware logic hosted as a simulation node (cdylib for cocotb)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

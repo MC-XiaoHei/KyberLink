@@ -1,7 +1,7 @@
 const Q_U32: u32 = 8380417;
-const Q_INV: u32 = 4236238847; // -Q^{-1} mod 2^32
-const R2: u32 = 2365951; // R^2 mod Q
-const INV_256_MONT: u32 = 16382; // 256^{-1} * R mod Q
+const Q_INV: u32 = 4236238847;
+const R2: u32 = 2365951;
+const INV_256_MONT: u32 = 16382;
 
 const ZETAS: [u32; 256] = include!("zetas_const.rs");
 
