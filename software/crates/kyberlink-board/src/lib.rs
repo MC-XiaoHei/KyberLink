@@ -3,9 +3,13 @@
 #[cfg(target_arch = "riscv32")]
 pub mod bringup;
 #[cfg(target_arch = "riscv32")]
+pub mod clock;
+#[cfg(target_arch = "riscv32")]
 pub mod mdio;
 #[cfg(target_arch = "riscv32")]
 pub mod pinmap;
+#[cfg(target_arch = "riscv32")]
+pub mod reset;
 #[cfg(target_arch = "riscv32")]
 pub mod spi;
 #[cfg(target_arch = "riscv32")]

@@ -1,46 +1,62 @@
 use ch32_hal::mode::Blocking;
-use ch32_hal::peripherals::{DMA1_CH4, DMA1_CH5, PB6, PB7, USART1};
-use ch32_hal::usart::{Config, InterruptHandler, Uart};
+use ch32_hal::peripherals::{PB6, PB7, USART1};
+use ch32_hal::usart::{Config, Uart};
 use ch32_hal::Peri;
 
-ch32_hal::bind_interrupts!(pub struct Irqs {
-    USART1 => InterruptHandler<USART1>;
-});
+use crate::clock;
 
 const BAUDRATE: u32 = 115_200;
 const REMAP_PB6_PB7: u8 = 1;
-
-pub type BlockingUart = Uart<'static, USART1, Blocking>;
 
 pub struct UartPins {
     pub usart: Peri<'static, USART1>,
     pub tx: Peri<'static, PB6>,
     pub rx: Peri<'static, PB7>,
-    pub tx_dma: Peri<'static, DMA1_CH4>,
-    pub rx_dma: Peri<'static, DMA1_CH5>,
 }
 
-fn config() -> Config {
-    let mut cfg = Config::default();
-    cfg.baudrate = BAUDRATE;
-    cfg
+pub enum Read {
+    Bytes(usize),
+    Framing,
+    Idle,
 }
 
-pub fn open(pins: UartPins) -> Uart<'static, USART1, ch32_hal::mode::Async> {
-    let UartPins {
-        usart,
-        tx,
-        rx,
-        tx_dma,
-        rx_dma,
-    } = pins;
-    Uart::new::<REMAP_PB6_PB7>(usart, rx, tx, Irqs, tx_dma, rx_dma, config()).expect("usart1 init")
+pub struct Port {
+    uart: Uart<'static, USART1, Blocking>,
 }
 
-pub fn open_blocking(
-    usart: Peri<'static, USART1>,
-    rx: Peri<'static, PB7>,
-    tx: Peri<'static, PB6>,
-) -> BlockingUart {
-    Uart::new_blocking::<REMAP_PB6_PB7>(usart, rx, tx, config()).expect("usart1 init")
+impl Port {
+    pub fn open(pins: UartPins) -> Self {
+        let mut config = Config::default();
+        config.baudrate = BAUDRATE;
+        let uart = Uart::new_blocking::<REMAP_PB6_PB7>(pins.usart, pins.rx, pins.tx, config)
+            .expect("usart1 init");
+        clock::resync_uart_baud();
+        Self { uart }
+    }
+
+    pub fn read(&mut self, buf: &mut [u8]) -> Read {
+        let regs = ch32_hal::pac::USART1;
+        let statr = regs.statr().read();
+        if statr.ore() || statr.ne() || statr.fe() || statr.pe() {
+            let _ = regs.datar().read();
+            return Read::Framing;
+        }
+        let mut n = 0;
+        while n < buf.len() {
+            if !regs.statr().read().rxne() {
+                break;
+            }
+            buf[n] = regs.datar().read().dr() as u8;
+            n += 1;
+        }
+        if n == 0 {
+            Read::Idle
+        } else {
+            Read::Bytes(n)
+        }
+    }
+
+    pub fn write(&mut self, text: &str) {
+        let _ = self.uart.blocking_write(text.as_bytes());
+    }
 }

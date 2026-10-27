@@ -1,22 +1,56 @@
-
+use ch32_hal::flash::{Blocking as FlashBlocking, Flash};
 use ch32_hal::gpio::{Input, Level, Output, Pull, Speed};
-use ch32_hal::peripherals::{PA1, PA2, PA3, PA4, PA5, PA6, PA7, PB6, PB7, PC6, PC7, PC8, PC9};
-use ch32_hal::Peri;
+use ch32_hal::peripherals::{
+    PA1, PA2, PA3, PA4, PA5, PA6, PA7, PC6, PC7, PC8, PC9, SPI1,
+};
+use ch32_hal::{Peri, Peripherals};
 
-pub struct Pins {
-    pub spi_sck: Peri<'static, PA5>,
-    pub spi_mosi: Peri<'static, PA7>,
-    pub spi_miso: Peri<'static, PA6>,
-    pub spi_cs: Peri<'static, PA4>,
-    pub fpga_rst: Peri<'static, PA1>,
-    pub fpga_recfg: Peri<'static, PA2>,
-    pub fpga_done: Peri<'static, PA3>,
-    pub uart_tx: Peri<'static, PB6>,
-    pub uart_rx: Peri<'static, PB7>,
-    pub phy_rst: Peri<'static, PC9>,
-    pub phy_mdc: Peri<'static, PC6>,
-    pub wan_mdio: Peri<'static, PC7>,
-    pub lan_mdio: Peri<'static, PC8>,
+use crate::uart::UartPins;
+
+pub struct SpiPins {
+    pub spi: Peri<'static, SPI1>,
+    pub sck: Peri<'static, PA5>,
+    pub mosi: Peri<'static, PA7>,
+    pub miso: Peri<'static, PA6>,
+    pub cs: Peri<'static, PA4>,
+}
+
+pub struct MdioPins {
+    pub mdc: Peri<'static, PC6>,
+    pub wan: Peri<'static, PC7>,
+    pub lan: Peri<'static, PC8>,
+}
+
+pub struct Parts {
+    pub board: Board<'static>,
+    pub spi: SpiPins,
+    pub uart: UartPins,
+    pub mdio: MdioPins,
+    pub flash: Flash<'static, FlashBlocking>,
+}
+
+pub fn take(p: Peripherals) -> Parts {
+    Parts {
+        board: Board::new(p.PA1, p.PA2, p.PC9, p.PA3),
+        spi: SpiPins {
+            spi: p.SPI1,
+            sck: p.PA5,
+            mosi: p.PA7,
+            miso: p.PA6,
+            cs: p.PA4,
+        },
+        uart: UartPins {
+            usart: p.USART1,
+            tx: p.PB6,
+            rx: p.PB7,
+        },
+        mdio: MdioPins {
+            mdc: p.PC6,
+            wan: p.PC7,
+            lan: p.PC8,
+        },
+        flash: Flash::new_blocking(p.FLASH),
+    }
 }
 
 pub struct ActiveLow<'d> {
@@ -72,24 +106,4 @@ impl<'d> Board<'d> {
             fpga_done: Sense::new(Input::new(fpga_done, Pull::None)),
         }
     }
-}
-
-fn hsi_120mhz() -> ch32_hal::rcc::Config {
-    let mut config = ch32_hal::rcc::Config::SYSCLK_FREQ_144MHZ_HSI;
-    config.pll = Some(ch32_hal::rcc::Pll {
-        prediv: ch32_hal::rcc::PllPreDiv::DIV1,
-        mul: ch32_hal::rcc::PllMul::MUL15,
-    });
-    config
-}
-
-pub fn clock_config() -> ch32_hal::Config {
-    ch32_hal::Config {
-        rcc: hsi_120mhz(),
-        ..Default::default()
-    }
-}
-
-pub fn clock_source() -> &'static str {
-    "hsi"
 }

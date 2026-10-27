@@ -1,15 +1,15 @@
-use ch32_hal::gpio::{Level, Output, OutputOpenDrain, Speed};
-use ch32_hal::spi::{Config as SpiConfig, Spi};
-use ch32_hal::time::Hertz;
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Instant, Timer};
 use kyberlink_board::bringup;
-use kyberlink_board::mdio::{BitBangMdio, MdcPin, PhysPair};
-use kyberlink_board::pinmap::{self, Board, Pins};
+use kyberlink_board::clock;
+use kyberlink_board::mdio::{self, PhysPair};
+use kyberlink_board::pinmap;
 use kyberlink_board::spi::SpiMaster;
 use kyberlink_board::uart;
 use kyberlink_core::handshake_fsm::SpiBus;
 use kyberlink_mdio::dp83867::is_expected_id;
+
+const SPI_KHZ: u32 = 2250;
 
 const REG_CTRL: u8 = 0x00;
 const REG_STATUS: u8 = 0x04;
@@ -62,25 +62,25 @@ fn log_push(bytes: &[u8]) {
 }
 
 struct Log {
-    uart: uart::BlockingUart,
+    uart: uart::Port,
 }
 
 impl Log {
-    fn new(uart: uart::BlockingUart) -> Self {
+    fn new(uart: uart::Port) -> Self {
         Self { uart }
     }
 
     fn line(&mut self, args: core::fmt::Arguments<'_>) {
         let _ = core::fmt::Write::write_fmt(&mut *self, args);
         log_push(b"\n");
-        let _ = self.uart.blocking_write(b"\r\n");
+        self.uart.write("\r\n");
     }
 }
 
 impl core::fmt::Write for Log {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         log_push(s.as_bytes());
-        let _ = self.uart.blocking_write(s.as_bytes());
+        self.uart.write(s);
         Ok(())
     }
 }
@@ -180,54 +180,18 @@ async fn run_phase(spi: &SpiMaster, ctrl: u32, secs: u64) -> Phase {
 
 #[embassy_executor::main(entry = "ch32_hal::entry")]
 pub async fn main(_spawner: Spawner) -> ! {
-    let p = ch32_hal::init(kyberlink_board::pinmap::clock_config());
+    let p = ch32_hal::init(clock::config());
     let ctlr = ch32_hal::pac::RCC.ctlr().read().0;
     let cfgr0 = ch32_hal::pac::RCC.cfgr0().read().0;
 
-    let pins = Pins {
-        spi_sck: p.PA5,
-        spi_mosi: p.PA7,
-        spi_miso: p.PA6,
-        spi_cs: p.PA4,
-        fpga_rst: p.PA1,
-        fpga_recfg: p.PA2,
-        fpga_done: p.PA3,
-        uart_tx: p.PB6,
-        uart_rx: p.PB7,
-        phy_rst: p.PC9,
-        phy_mdc: p.PC6,
-        wan_mdio: p.PC7,
-        lan_mdio: p.PC8,
-    };
-
-    let mut log = Log::new(uart::open_blocking(p.USART1, pins.uart_rx, pins.uart_tx));
-
-    let mut spi_config = SpiConfig::default();
-    spi_config.frequency = Hertz::khz(2250);
-    let spi = SpiMaster::new(
-        Spi::new_blocking::<0>(
-            p.SPI1,
-            pins.spi_sck,
-            pins.spi_mosi,
-            pins.spi_miso,
-            spi_config,
-        ),
-        Output::new(pins.spi_cs, Level::High, Default::default()),
-    );
-
-    let mut board = Board::new(pins.fpga_rst, pins.fpga_recfg, pins.phy_rst, pins.fpga_done);
-    let mdc = MdcPin::new(Output::new(pins.phy_mdc, Level::Low, Default::default()));
-    let lan_bus = BitBangMdio::new(
-        &mdc,
-        OutputOpenDrain::new(pins.lan_mdio, Level::High, Speed::Low),
-    );
-    let wan_bus = BitBangMdio::new(
-        &mdc,
-        OutputOpenDrain::new(pins.wan_mdio, Level::High, Speed::Low),
-    );
+    let parts = pinmap::take(p);
+    let mut log = Log::new(uart::Port::open(parts.uart));
+    let spi = SpiMaster::open(parts.spi, SPI_KHZ);
+    let mut board = parts.board;
+    let (lan_bus, wan_bus) = mdio::open(parts.mdio);
 
     say!(log, "kyberlink selftest");
-    say!(log, "clock {} 144mhz", pinmap::clock_source());
+    say!(log, "clock {} {}mhz", clock::source(), clock::mhz());
     say!(log, "rcc ctlr {:08x} cfgr0 {:08x}", ctlr, cfgr0);
     say!(log, "spi 2250khz mdc 66khz");
 

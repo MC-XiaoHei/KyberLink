@@ -1,10 +1,13 @@
 use core::cell::RefCell;
 
-use ch32_hal::gpio::Output;
+use ch32_hal::gpio::{Level, Output};
 use ch32_hal::mode::Blocking;
 use ch32_hal::peripherals::SPI1;
-use ch32_hal::spi::Spi;
+use ch32_hal::spi::{Config, Spi};
+use ch32_hal::time::Hertz;
 use kyberlink_core::spi_frames::{read_frame, write_frame};
+
+use crate::pinmap::SpiPins;
 
 pub struct SpiMaster {
     spi: RefCell<Spi<'static, SPI1, Blocking>>,
@@ -12,6 +15,16 @@ pub struct SpiMaster {
 }
 
 impl SpiMaster {
+    pub fn open(pins: SpiPins, khz: u32) -> Self {
+        let mut config = Config::default();
+        config.frequency = Hertz::khz(khz);
+        let spi = Spi::new_blocking::<0>(pins.spi, pins.sck, pins.mosi, pins.miso, config);
+        Self {
+            spi: RefCell::new(spi),
+            cs: RefCell::new(Output::new(pins.cs, Level::High, Default::default())),
+        }
+    }
+
     pub fn new(spi: Spi<'static, SPI1, Blocking>, cs: Output<'static>) -> Self {
         SpiMaster {
             spi: RefCell::new(spi),

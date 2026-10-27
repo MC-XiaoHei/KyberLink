@@ -2,10 +2,10 @@ use ch32_hal::gpio::{Output, OutputOpenDrain};
 use core::cell::RefCell;
 use embassy_time::Timer;
 use kyberlink_core::dispatch::{PhyAccess, PhyDev};
-use kyberlink_mdio::bus::{MdioError, MdioPins};
+use kyberlink_mdio::bus::{MdioError, MdioPins as MdioBus};
 use kyberlink_mdio::dp83867::{self, BlinkRate, DelayNs, Dp83867, Led, LedSource, PhyPair};
 
-use crate::pinmap::ActiveLow;
+use crate::pinmap::{ActiveLow, MdioPins};
 
 const HALF_PERIOD_TICKS: u32 = 720;
 
@@ -41,7 +41,7 @@ fn delay_half_period() {
     riscv::asm::delay(HALF_PERIOD_TICKS);
 }
 
-impl MdioPins for BitBangMdio<'_> {
+impl MdioBus for BitBangMdio<'_> {
     fn mdc(&self, level: bool) {
         {
             let mut pin = self.mdc.pin.borrow_mut();
@@ -209,4 +209,13 @@ pub fn link_flags(phys: &PhysPair<'_>) -> u8 {
         Ok((lan, wan)) => (lan as u8) << 5 | (wan as u8) << 6,
         Err(_) => 0,
     }
+}
+
+static MDC: static_cell::StaticCell<MdcPin<'static>> = static_cell::StaticCell::new();
+
+pub fn open(pins: MdioPins) -> (BitBangMdio<'static>, BitBangMdio<'static>) {
+    let mdc = MDC.init(MdcPin::new(Output::new(pins.mdc, ch32_hal::gpio::Level::Low, Default::default())));
+    let lan = BitBangMdio::new(mdc, OutputOpenDrain::new(pins.lan, ch32_hal::gpio::Level::High, ch32_hal::gpio::Speed::Low));
+    let wan = BitBangMdio::new(mdc, OutputOpenDrain::new(pins.wan, ch32_hal::gpio::Level::High, ch32_hal::gpio::Speed::Low));
+    (lan, wan)
 }

@@ -12,3 +12,5 @@ kyberlink-mdio = { path = "../kyberlink-mdio" }
 ch32-hal = { git = "https://github.com/ch32-rs/ch32-hal", rev = "07663312c9da6b9962e8699a917c623bc833972e", features = ["ch32v208gbu6", "embassy", "rt", "memory-x"] }
 embassy-time = "0.5.1"
 riscv = "0.12"
+static_cell = "2"
+portable-atomic = { version = "1", features = ["critical-section"] }

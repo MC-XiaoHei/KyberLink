@@ -805,7 +805,9 @@ dependencies = [
  "embassy-time",
  "kyberlink-core",
  "kyberlink-mdio",
+ "portable-atomic",
  "riscv 0.12.1",
+ "static_cell",
 ]
 
 [[package]]
