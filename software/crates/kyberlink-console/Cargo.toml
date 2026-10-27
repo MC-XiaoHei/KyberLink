@@ -1,0 +1,12 @@
+[package]
+name = "kyberlink-console"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kyberlink-core = { path = "../kyberlink-core", features = ["std"] }
+kyberlink-crypto = { path = "../kyberlink-crypto", features = ["std"] }
+# Only explicit port paths are used, so the libudev-based enumeration is not needed
+# and would add a system dependency on Linux hosts.
+serialport = { version = "4", default-features = false }
