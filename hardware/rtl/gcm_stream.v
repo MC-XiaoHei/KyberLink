@@ -51,6 +51,9 @@ module gcm_stream (
   reg out_wr;
   reg out_rd;
   reg [2:0] out_cnt;
+  reg decrypt_q;
+  reg [15:0] stall;
+  reg [15:0] stall_ref;
   reg [7:0] cntr;
   reg [3:0] cb_gap;
   reg [127:0] pending_q[0:2];
@@ -175,6 +178,9 @@ module gcm_stream (
       pt_len_r <= 12'd0;
       last_nb_r <= 5'd0;
       cb_gap <= 4'd0;
+      stall <= 16'd0;
+      stall_ref <= 16'd0;
+      decrypt_q <= 1'b0;
     end else begin
       done <= 1'b0;
       aes_start <= 1'b0;
@@ -183,6 +189,13 @@ module gcm_stream (
         pt_fifo[pt_wr] <= pt_data;
         pt_wr <= ~pt_wr;
       end
+      if (!busy) begin
+        stall <= 16'd0;
+        stall_ref <= {phase, cntr, pt_cnt};
+      end else if (aes_done || ({phase, cntr, pt_cnt} != stall_ref)) begin
+        stall <= 16'd0;
+        stall_ref <= {phase, cntr, pt_cnt};
+      end else if (stall != 16'hFFFF) stall <= stall + 16'd1;
       if (aes_done) begin
         if (h_submit) begin
           h_reg <= aes_out;
@@ -235,7 +248,8 @@ module gcm_stream (
           tag_valid <= 1'b0;
           if (start) begin
             aes_start <= 1'b1;
-            aes_key_load <= key_dirty || key_load;
+            aes_key_load <= key_dirty || key_load || (decrypt != decrypt_q);
+            decrypt_q <= decrypt;
             h_submit <= 1'b0;
             j0_submit <= 1'b0;
             busy <= 1'b1;
@@ -283,8 +297,20 @@ module gcm_stream (
             phase <= PHASE_IDLE;
           end
         end
-        default: phase <= PHASE_IDLE;
+        default: begin
+          phase <= PHASE_IDLE;
+          busy <= 1'b0;
+          tag_valid <= 1'b1;
+          tag <= 128'd0;
+        end
       endcase
+      if (busy && (phase == PHASE_IDLE || stall == 16'hFFFF)) begin
+        tag <= 128'd0;
+        tag_valid <= 1'b1;
+        busy <= 1'b0;
+        done <= 1'b1;
+        phase <= PHASE_IDLE;
+      end
       if (start) key_dirty <= 1'b0;
       else if (key_load) key_dirty <= 1'b1;
     end
