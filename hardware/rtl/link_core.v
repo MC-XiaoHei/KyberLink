@@ -54,13 +54,7 @@ module link_core (
   wire         dec_m_tlast;
   wire         dec_m_tready;
 
-  wire [31:0] dbg_bridge;
-  wire [31:0] dbg_gcm;
   wire [31:0] dbg_wan_rx;
-  wire [31:0] dbg_wan_rx2;
-  wire [31:0] dbg_wan_head;
-  wire [31:0] dbg_key;
-  wire [31:0] dbg_arb;
 
   wire         hsk_wr;
   wire [ 31:0] hsk_data;
@@ -92,13 +86,7 @@ module link_core (
       .hsk_rx_data(hsk_data),
       .hsk_rx_last(hsk_last),
       .hsk_rx_len(hsk_len),
-      .dbg_bridge(dbg_bridge),
-      .dbg_gcm(dbg_gcm),
-      .dbg3(dbg_wan_rx),
-      .dbg4(dbg_wan_rx2),
-      .dbg5(dbg_wan_head),
-      .dbg6(dbg_key),
-      .dbg7(dbg_arb),
+      .dbg_wan(dbg_wan_rx),
       .hsk_tx_valid(hsk_tx_valid),
       .hsk_tx_data(hsk_tx_data),
       .hsk_tx_last(hsk_tx_last),
@@ -168,11 +156,7 @@ module link_core (
       .err_badtag(err_badtag_w),
       .err_badpad(err_badpad_w),
       .err_replay(err_replay_w),
-      .err_oversize(err_oversize_w),
-      .dbg(dbg_bridge),
-      .dbg2(dbg_gcm),
-      .dbg_key(dbg_key),
-      .dbg_arb(dbg_arb)
+      .err_oversize(err_oversize_w)
   );
 
   assign lan_rx_ready = enc_s_tready;
@@ -196,9 +180,7 @@ module link_core (
       .hsk_len(hsk_len),
       .hsk_ready(hsk_ready),
       .hsk_room(hsk_room),
-      .dbg_rx(dbg_wan_rx),
-      .dbg_rx2(dbg_wan_rx2),
-      .dbg_head(dbg_wan_head)
+      .dbg_rx(dbg_wan_rx)
   );
 
   ip_udp_eth_tx u_tx_wan (

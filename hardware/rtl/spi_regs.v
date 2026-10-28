@@ -8,13 +8,7 @@ module spi_regs (
     input  wire [ 6:0] raddr,
     input  wire        rreq,
     output wire [31:0] rdata,
-    input  wire [31:0] dbg_bridge,
-    input  wire [31:0] dbg_gcm,
-    input  wire [31:0] dbg3,
-    input  wire [31:0] dbg4,
-    input  wire [31:0] dbg5,
-    input  wire [31:0] dbg6,
-    input  wire [31:0] dbg7,
+    input  wire [31:0] dbg_wan,
 
     input wire        hsk_rx_wr,
     input wire [31:0] hsk_rx_data,
@@ -323,13 +317,7 @@ module spi_regs (
       7'h50:   rdata_c = {26'd0, err_flags};
       7'h74:   rdata_c = r_seq;
       7'h78:   rdata_c = {24'd0, r_scratch};
-      7'h7C:   rdata_c = dbg_bridge;
-      7'h7E:   rdata_c = dbg_gcm;
-      7'h72:   rdata_c = dbg3;
-      7'h70:   rdata_c = dbg4;
-      7'h6E:   rdata_c = dbg5;
-      7'h68:   rdata_c = dbg6;
-      7'h6C:   rdata_c = dbg7;
+      7'h70:   rdata_c = dbg_wan;
       default: rdata_c = 32'd0;
     endcase
   end

@@ -72,7 +72,7 @@ pub struct Ctx {
     pub mode: Mode,
     pub phase: u8,
     pub err: u8,
-    pub dbg: [u32; 15],
+    pub dbg: [u32; 9],
 }
 
 pub struct LineBuf {
@@ -245,9 +245,9 @@ fn write_binding(out: &mut LineBuf, b: &Binding) {
 fn cmd_stat(ctx: &Ctx, out: &mut LineBuf) -> Action {
     let _ = writeln!(
         out,
-        "STAT phase={} err={:02x} bridge={:08x} gcm={:08x} wanrx={:08x} rxb={:08x} head={:08x} key={:08x} arb={:08x} d={}/{}/{}/{}/{}/{}",
-        ctx.phase, ctx.err, ctx.dbg[0], ctx.dbg[1], ctx.dbg[10], ctx.dbg[11], ctx.dbg[12], ctx.dbg[13], ctx.dbg[14],
-        ctx.dbg[2], ctx.dbg[3], ctx.dbg[4], ctx.dbg[5], ctx.dbg[6], ctx.dbg[7]
+        "STAT phase={} err={:02x} wan={:08x} d={}/{}/{}/{}/{}/{}/{}/{}",
+        ctx.phase, ctx.err, ctx.dbg[0], ctx.dbg[1], ctx.dbg[2], ctx.dbg[3],
+        ctx.dbg[4], ctx.dbg[5], ctx.dbg[6], ctx.dbg[7], ctx.dbg[8]
     );
     Action::None
 }
@@ -409,7 +409,7 @@ mod tests {
                 mode,
                 phase: 0,
                 err: 0,
-                dbg: [0; 15],
+                dbg: [0; 9],
             },
             flash,
             &mut out,
@@ -463,7 +463,7 @@ mod tests {
                 mode: Mode::Running,
                 phase: 0,
                 err: 0,
-                dbg: [0; 15],
+                dbg: [0; 9],
             },
             &mut f,
             &FakePhy,

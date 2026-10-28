@@ -34,13 +34,7 @@ pub const REG_ERR: u8 = 0x50;
 pub const REG_KEY_DEC: u8 = 0x64;
 pub const REG_SEQ: u8 = 0x74;
 pub const REG_SCRATCH: u8 = 0x78;
-pub const REG_DBG_BRIDGE: u8 = 0x7C;
-pub const REG_DBG_GCM: u8 = 0x7E;
 pub const REG_DBG_WANRX: u8 = 0x72;
-pub const REG_DBG_WANBYTES: u8 = 0x70;
-pub const REG_DBG_WANHEAD: u8 = 0x6E;
-pub const REG_DBG_KEY: u8 = 0x68;
-pub const REG_DBG_ARB: u8 = 0x6C;
 
 const CTRL_KEY_LOAD: u32 = 1 << 0;
 const CTRL_HSK_SEND: u32 = 1 << 1;

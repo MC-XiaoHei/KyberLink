@@ -39,11 +39,7 @@ module bridge_top (
     output wire err_badtag,
     output wire err_badpad,
     output wire err_replay,
-    output wire err_oversize,
-    output wire [31:0] dbg,
-    output wire [31:0] dbg2,
-    output wire [31:0] dbg_key,
-    output wire [31:0] dbg_arb
+    output wire err_oversize
 );
 
   wire enc_pt_valid;
@@ -237,30 +233,5 @@ module bridge_top (
       .err_badpad(err_badpad),
       .err_replay(err_replay)
   );
-
-  reg [15:0] dec_foreign;
-  reg [15:0] enc_foreign;
-  reg        last_own;
-
-  always @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      dec_foreign <= 16'd0;
-      enc_foreign <= 16'd0;
-      last_own <= 1'b0;
-    end else if (gcm_start_w) begin
-      last_own <= enc_own;
-      if (dec_start_w && enc_own) dec_foreign <= dec_foreign + 16'd1;
-      if (enc_start_w && !enc_own) enc_foreign <= enc_foreign + 16'd1;
-    end
-  end
-
-  assign dbg_key = gcm_key[31:0];
-  assign dbg_arb = {14'd0, enc_own, last_own, dec_foreign, enc_foreign};
-  assign dbg2 = {9'd0, u_gcm.nct_r, u_gcm.cntr, u_gcm.pt_cnt, u_gcm.phase};
-
-  assign dbg = {u_dec.rx_state, u_dec.rx_sel, u_dec.dec_sel, u_dec.dec_pend,
-                u_dec.ct_avail, u_dec.tx_busy, u_dec.ts, u_dec.ds,
-                u_enc.es, u_enc.enc_pend, u_enc.tx_busy, u_enc.rx_state,
-                dir_enc, gcm_busy, u_dec.grant_used, u_dec.tag_valid_q};
 
 endmodule

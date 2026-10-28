@@ -12,7 +12,7 @@ pub struct Console {
     mode: Mode,
     phase: u8,
     err: u8,
-    dbg: [u32; 15],
+    dbg: [u32; 9],
     spill: Option<FrameStream>,
     out: LineBuf,
     out_ready: bool,
@@ -32,7 +32,7 @@ impl Console {
             mode,
             phase: 0,
             err: 0,
-            dbg: [0; 15],
+            dbg: [0; 9],
             spill: None,
             out: LineBuf::new(),
             out_ready: false,
@@ -55,7 +55,7 @@ impl Console {
         self.err = err;
     }
 
-    pub fn set_dbg(&mut self, dbg: [u32; 15]) {
+    pub fn set_dbg(&mut self, dbg: [u32; 9]) {
         self.dbg = dbg;
     }
 
