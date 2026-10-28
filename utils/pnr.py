@@ -241,7 +241,7 @@ def _log_path(work_dir):
 def pnr(top=None, extra=(), work_dir=None, cmd="pnr"):
     device = os.environ.get("DEVICE", "GW5A-LV25MG121NC1/I0")
     dev_ver = os.environ.get("DEVICE_VERSION", "A")
-    place_opt = int(os.environ.get("PLACE_OPTION", "1"))
+    place_opt = int(os.environ.get("PLACE_OPTION", "0"))
     route_opt = int(os.environ.get("ROUTE_OPTION", "2"))
     target = float(os.environ.get("TARGET_FREQ", "125.0"))
     if target < 1 or target > 800:
