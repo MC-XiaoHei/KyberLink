@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use kyberlink_vecgen::cipher::GcmCipher;
+use kyberlink_crypto::gcm::GcmCipher;
 
 const ESP_OVERHEAD: usize = 78;
 

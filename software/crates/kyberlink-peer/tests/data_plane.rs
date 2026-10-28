@@ -2,7 +2,7 @@ use kyberlink_core::handshake_fsm::{write_sa, REG_KEY_DEC, REG_KEY_ENC};
 use kyberlink_crypto::handshake::SaParams;
 use kyberlink_peer::bus::PeerBus;
 use kyberlink_peer::esp::{DataPlane, HEADER, TAG};
-use kyberlink_vecgen::cipher::GcmCipher;
+use kyberlink_crypto::gcm::GcmCipher;
 
 fn sa() -> SaParams {
     SaParams {

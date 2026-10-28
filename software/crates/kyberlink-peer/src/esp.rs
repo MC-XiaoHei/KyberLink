@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use kyberlink_core::handshake_fsm::{
     REG_KEY_DEC, REG_KEY_ENC, REG_SALT_HI, REG_SALT_LO, REG_SEQ, REG_SPI,
 };
-use kyberlink_vecgen::cipher::GcmCipher;
+use kyberlink_crypto::gcm::GcmCipher;
 
 use crate::bus::PeerBus;
 

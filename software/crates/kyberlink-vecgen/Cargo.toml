@@ -6,8 +6,7 @@ license.workspace = true
 
 [dependencies]
 aes = "0.8"
-aes-gcm = "0.10"
 sha3 = "0.10"
 hex = "0.4"
 serde_json = "1"
-kyberlink-crypto = { path = "../kyberlink-crypto" }
+kyberlink-crypto = { path = "../kyberlink-crypto", features = ["gcm"] }

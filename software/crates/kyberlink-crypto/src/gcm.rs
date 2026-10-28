@@ -22,11 +22,9 @@ impl GcmCipher {
         buffer: &mut [u8],
         tag: &mut [u8; 16],
     ) -> Result<(), Error> {
-        let t = self.cipher.encrypt_in_place_detached(
-            Nonce::<Aes256Gcm>::from_slice(nonce),
-            aad,
-            buffer,
-        )?;
+        let t =
+            self.cipher
+                .encrypt_in_place_detached(Nonce::<Aes256Gcm>::from_slice(nonce), aad, buffer)?;
         tag.copy_from_slice(&t);
         Ok(())
     }

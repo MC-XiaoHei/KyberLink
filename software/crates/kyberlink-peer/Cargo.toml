@@ -6,6 +6,5 @@ license.workspace = true
 
 [dependencies]
 kyberlink-core = { path = "../kyberlink-core", features = ["std"] }
-kyberlink-crypto = { path = "../kyberlink-crypto", features = ["std"] }
-kyberlink-vecgen = { path = "../kyberlink-vecgen" }
+kyberlink-crypto = { path = "../kyberlink-crypto", features = ["std", "gcm"] }
 embassy-sync = "0.8.0"

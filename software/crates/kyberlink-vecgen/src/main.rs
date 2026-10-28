@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use sha3::digest::{ExtendableOutput, Update, XofReader};
 use sha3::Shake256;
 
-use kyberlink_vecgen::cipher::GcmCipher;
+use kyberlink_crypto::gcm::GcmCipher;
 
 const BASE: &[u8] = b"KyberLink vector generator v1";
 
