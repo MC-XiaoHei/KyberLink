@@ -6,6 +6,7 @@ use std::vec::Vec;
 use crate::peer::Link;
 
 const READ_TIMEOUT: Duration = Duration::from_millis(1);
+const RECV_BUFFER: usize = 16 << 20;
 
 pub struct UdpLink {
     sock: UdpSocket,
@@ -18,6 +19,7 @@ impl UdpLink {
     }
 
     pub fn from_socket(sock: UdpSocket, peer: SocketAddr) -> Self {
+        widen_recv_buffer(&sock);
         let _ = sock.set_read_timeout(Some(READ_TIMEOUT));
         UdpLink { sock, peer }
     }
@@ -25,6 +27,10 @@ impl UdpLink {
     pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
         self.sock.local_addr()
     }
+}
+
+pub fn widen_recv_buffer(sock: &UdpSocket) {
+    let _ = socket2::SockRef::from(sock).set_recv_buffer_size(RECV_BUFFER);
 }
 
 fn resolve<B: ToSocketAddrs>(peer: B) -> std::io::Result<SocketAddr> {

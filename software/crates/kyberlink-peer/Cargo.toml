@@ -8,3 +8,7 @@ license.workspace = true
 kyberlink-core = { path = "../kyberlink-core", features = ["std"] }
 kyberlink-crypto = { path = "../kyberlink-crypto", features = ["std", "gcm"] }
 embassy-sync = "0.8.0"
+socket2 = "0.5"
+
+[dev-dependencies]
+parking_lot = "0.12"
