@@ -206,7 +206,7 @@ impl PhyAccess for PhyConsole<'_, '_> {
 
 pub fn link_flags(phys: &PhysPair<'_>) -> u8 {
     match phys.link_status() {
-        Ok((lan, wan)) => (lan as u8) << 5 | (wan as u8) << 6,
+        Ok((lan, wan)) => (lan as u8) << 6 | (wan as u8) << 7,
         Err(_) => 0,
     }
 }

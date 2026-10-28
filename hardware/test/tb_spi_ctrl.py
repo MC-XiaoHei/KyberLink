@@ -199,6 +199,39 @@ async def spi_hsk_fifo(dut):
 
 
 @cocotb.test()
+async def tx_overflow_flag(dut):
+    cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
+    dut.rst_n.value = 0
+    dut.spi_sck.value = 0
+    dut.spi_mosi.value = 0
+    dut.spi_csn.value = 1
+    dut.err_badtag_i.value = 0
+    dut.err_badpad_i.value = 0
+    dut.err_replay_i.value = 0
+    dut.err_oversize_i.value = 0
+    dut.hsk_rx_wr.value = 0
+    dut.hsk_rx_data.value = 0
+    dut.hsk_rx_last.value = 0
+    dut.hsk_rx_len.value = 0
+    dut.hsk_tx_ready.value = 0
+    dut.seq_upd.value = 0
+    dut.seq_val.value = 0
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+
+    for w in range(600):
+        await spi_write(dut, 0x40, w)
+
+    st = await spi_read(dut, 0x50)
+    assert st & 32, "tx overflow flag"
+    assert not (st & 31), "overflow alone must not set other flags"
+
+    await spi_write(dut, 0x50, 0)
+    assert await spi_read(dut, 0x50) == 0, "overflow flag not cleared"
+
+
+@cocotb.test()
 async def err_counters_and_soft_rst(dut):
     cocotb.start_soon(Clock(dut.clk, 8, "ns").start())
     dut.rst_n.value = 0
@@ -243,7 +276,7 @@ async def err_counters_and_soft_rst(dut):
     assert not (st & 2), "badpad flag"
     assert st & 4, "replay flag"
     assert st & 8, "oversize flag"
-    assert not (st & 16), "rxdrop flag retired"
+    assert not (st & 16), "reserved bit"
 
     await spi_write(dut, 0x00, 4)
     await ClockCycles(dut.clk, 2)
