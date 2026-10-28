@@ -47,7 +47,7 @@ SELFTEST = [
 
 
 UNIT = ["aes_pipe", "gcm", "spi"]
-INTG = ["bridge", "bw", "full", "node", "gmii_rx", "diag2", "spi_big", "top", "fifo", "selftest"]
+INTG = ["bridge", "flow", "bw", "full", "node", "line", "gmii_rx", "diag2", "spi_big", "top", "fifo", "selftest"]
 MIRI = ["kyberlink-core", "kyberlink-simnode"]
 
 AES_CORE = [
@@ -132,6 +132,11 @@ CONF = {
         "top": "bridge_top",
         "src": AES_CORE + GCM + BRIDGE + [GOWIN_DPB],
     },
+    "flow": {
+        "top": "link_core",
+        "test_module": "tb_flow",
+        "src": FULL_CORE + [GOWIN_DPB],
+    },
     "diag2": {
         "top": "bridge_top",
         "test_module": "tb_enc_maxframe",
@@ -174,6 +179,11 @@ CONF = {
         "test_module": "tb_gmii_rx",
         "src": MAC + [S("gmii_rx_top.v")],
     },
+    "line": {
+        "top": "link_core",
+        "test_module": "tb_line_rate",
+        "src": FULL_CORE + [GOWIN_DPB],
+    },
     "top": {
         "top": "kyberlink_top",
         "test_module": "tb_top",
@@ -209,6 +219,7 @@ INTG_TEST = {
     "spi_big": "tb_spi_hsk_big",
     "full": "tb_full",
     "node": "tb_node",
+    "line": "tb_line_rate",
 }
 
 
