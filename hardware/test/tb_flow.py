@@ -196,8 +196,8 @@ async def decrypt_during_encrypt_storm(dut):
             await ClockCycles(dut.clk, 1)
             if int(dut.dec_s_tvalid.value) and int(dut.dec_s_tready.value):
                 state["dec_in"] = state.get("dec_in", 0) + 1
-            if int(dut.u_rx_wan.err_rxdrop.value):
-                state["rxdrop"] = state.get("rxdrop", 0) + 1
+            if int(dut.wan_rx_dv.value) and not int(dut.wan_rx_ready.value):
+                state["stall"] = state.get("stall", 0) + 1
 
     async def snoop():
         nonlocal prev_sig
@@ -210,7 +210,7 @@ async def decrypt_during_encrypt_storm(dut):
             if sig != prev_sig:
                 prev_sig = sig
                 events.append((get_sim_time("ns"), sig))
-    counters = {"dec_in": 0, "rxdrop": 0}
+    counters = {"dec_in": 0, "stall": 0}
     snoop_task = cocotb.start_soon(snoop())
     sink_task = cocotb.start_soon(sink_watch(counters))
     storm = MacSource(STORM, PAYLOAD)
@@ -227,7 +227,7 @@ async def decrypt_during_encrypt_storm(dut):
             break
         await ClockCycles(dut.clk, 50)
     probe(dut, "after wait")
-    print(f"dec_in={counters.get('dec_in')} rxdrop_pulses={counters.get('rxdrop')}", flush=True)
+    print(f"dec_in={counters.get('dec_in')} stall_cycles={counters.get('stall')}", flush=True)
     stop["done"] = True
     for stamp, sig in events[-40:]:
         print(f"  ev t={stamp} start,vld,done,ldrdy,phase,cntr,ptcnt={sig}", flush=True)
@@ -244,9 +244,8 @@ async def decrypt_during_encrypt_storm(dut):
         f"lan_out={len(produced)} mismatch={mismatch}",
         flush=True,
     )
-    assert counters.get("rxdrop", 0) == 0, (
-        f"receiver dropped {counters.get('rxdrop')} payload bytes when the decrypt "
-        f"path was busy, corrupting {len(burst) - len(produced)} of {len(burst)} frames"
+    assert not (mismatch["enc"] or mismatch["dec"] or mismatch["flip_busy"]), (
+        f"key direction faulted while the decrypt path was busy: {mismatch}"
     )
     assert produced, "decrypt during encrypt storm produced nothing"
 

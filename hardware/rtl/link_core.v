@@ -79,7 +79,6 @@ module link_core (
   wire         err_badpad_w;
   wire         err_replay_w;
   wire         err_oversize_w;
-  wire         err_rxdrop_w;
   wire         soft_rst_w;
 
   spi_top u_spi (
@@ -125,7 +124,6 @@ module link_core (
       .err_badpad_i(err_badpad_w),
       .err_replay_i(err_replay_w),
       .err_oversize_i(err_oversize_w),
-      .err_rxdrop_i(err_rxdrop_w),
 
       .soft_rst(soft_rst_w)
   );
@@ -198,7 +196,6 @@ module link_core (
       .hsk_len(hsk_len),
       .hsk_ready(hsk_ready),
       .hsk_room(hsk_room),
-      .err_rxdrop(err_rxdrop_w),
       .dbg_rx(dbg_wan_rx),
       .dbg_rx2(dbg_wan_rx2),
       .dbg_head(dbg_wan_head)

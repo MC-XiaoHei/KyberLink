@@ -46,7 +46,6 @@ module spi_top (
     input wire err_badpad_i,
     input wire err_replay_i,
     input wire err_oversize_i,
-    input wire err_rxdrop_i,
 
     output wire soft_rst
 );
@@ -114,7 +113,7 @@ module spi_top (
       .cfg_seq(cfg_seq),
       .seq_upd(seq_upd),
       .seq_val(seq_val),
-      .err_pulse({err_rxdrop_i, err_oversize_i, err_replay_i, err_badpad_i, err_badtag_i}),
+      .err_pulse({1'b0, err_oversize_i, err_replay_i, err_badpad_i, err_badtag_i}),
       .soft_rst(soft_rst)
   );
 

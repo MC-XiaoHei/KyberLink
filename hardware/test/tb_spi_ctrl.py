@@ -209,7 +209,6 @@ async def err_counters_and_soft_rst(dut):
     dut.err_badpad_i.value = 0
     dut.err_replay_i.value = 0
     dut.err_oversize_i.value = 0
-    dut.err_rxdrop_i.value = 0
     dut.hsk_rx_wr.value = 0
     dut.hsk_rx_data.value = 0
     dut.hsk_rx_last.value = 0
@@ -234,17 +233,17 @@ async def err_counters_and_soft_rst(dut):
         await ClockCycles(dut.clk, 1)
         dut.err_replay_i.value = 0
         await ClockCycles(dut.clk, 1)
-    dut.err_rxdrop_i.value = 1
+    dut.err_oversize_i.value = 1
     await ClockCycles(dut.clk, 1)
-    dut.err_rxdrop_i.value = 0
+    dut.err_oversize_i.value = 0
     await ClockCycles(dut.clk, 1)
 
     st = await spi_read(dut, 0x50)
     assert st & 1, "badtag flag"
     assert not (st & 2), "badpad flag"
     assert st & 4, "replay flag"
-    assert not (st & 8), "oversize flag"
-    assert st & 16, "rxdrop flag"
+    assert st & 8, "oversize flag"
+    assert not (st & 16), "rxdrop flag retired"
 
     await spi_write(dut, 0x00, 4)
     await ClockCycles(dut.clk, 2)
@@ -335,7 +334,6 @@ async def soft_rst_mid_traffic(dut):
     dut.err_badpad_i.value = 0
     dut.err_replay_i.value = 0
     dut.err_oversize_i.value = 0
-    dut.err_rxdrop_i.value = 0
     dut.hsk_rx_wr.value = 0
     dut.hsk_rx_data.value = 0
     dut.hsk_rx_last.value = 0
