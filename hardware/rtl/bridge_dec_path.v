@@ -78,7 +78,7 @@ module bridge_dec_path (
   reg [95:0] iv_p[0:1];
   reg [127:0] tag_p[0:1];
   reg [11:0] out_len_p[0:1];
-  reg [7:0] pt_idx;
+  reg [8:0] pt_idx;
   reg [7:0] pt_rd_addr;
   reg [127:0] pt_rd_data;
   reg pt_req;
@@ -469,8 +469,8 @@ module bridge_dec_path (
         end
       end
       if (ds == DS_RUN) begin
-        if (gcm_pt_ready && !pt_req && !pt_data_v && (pt_idx < nct_q[7:0])) begin
-          pt_rd_addr <= pt_idx;
+        if (gcm_pt_ready && !pt_req && !pt_data_v && (pt_idx < nct_q)) begin
+          pt_rd_addr <= pt_idx[7:0];
           pt_req <= 1'b1;
         end
         if (pt_req && !pt_data_v) begin
