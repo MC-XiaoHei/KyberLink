@@ -60,8 +60,16 @@ impl Console {
     }
 
     fn command(&mut self, text: &str) -> Result<String, String> {
-        self.line(text)?;
-        Ok(self.drain(Duration::from_secs(5)).trim().to_string())
+        let mut last = String::new();
+        for _ in 0..3 {
+            self.line(text)?;
+            last = self.drain(Duration::from_secs(5)).trim().to_string();
+            if !last.is_empty() && last != "ERR unknown" {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(120));
+        }
+        Ok(last)
     }
 
     fn expect_ok(&mut self, text: &str) -> Result<String, String> {
