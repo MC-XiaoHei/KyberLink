@@ -22,7 +22,10 @@ module ip_udp_eth_rx (
     input  wire        hsk_ready,
     input  wire [ 9:0] hsk_room,
 
-    output reg err_rxdrop
+    output reg err_rxdrop,
+    output wire [31:0] dbg_rx,
+    output wire [31:0] dbg_rx2,
+    output wire [31:0] dbg_head
 );
 
   localparam ST_IDLE = 1'b0;
@@ -41,7 +44,18 @@ module ip_udp_eth_rx (
   reg pay_done;
   reg [1:0] hsk_tail;
   reg hsk_tail_v;
+  reg [15:0] cnt_data_end;
+  reg [15:0] cnt_drop_end;
+  reg [15:0] cnt_hsk_end;
+  reg [15:0] cnt_rxdrop;
+  reg [15:0] cnt_bytes;
+  reg [4:0] drop_reason;
+  reg [31:0] head;
+  assign dbg_head = head;
   wire [7:0] d = s_tdata;
+
+  assign dbg_rx = {cnt_drop_end, cnt_data_end};
+  assign dbg_rx2 = {drop_reason, cnt_bytes};
 
   wire [15:0] pay_w = udp_len_r - 16'd8;
   wire in_pay = (cnt >= 14'd42) && (cnt < 14'd42 + {2'd0, pay_w});
@@ -75,6 +89,13 @@ module ip_udp_eth_rx (
       pay_done <= 1'b0;
       hsk_tail <= 2'd0;
       hsk_tail_v <= 1'b0;
+      cnt_data_end <= 16'd0;
+      cnt_drop_end <= 16'd0;
+      cnt_hsk_end <= 16'd0;
+      cnt_rxdrop <= 16'd0;
+      cnt_bytes <= 16'd0;
+      drop_reason <= 5'd0;
+      head <= 32'd0;
       m_data_tdata <= 8'd0;
       m_data_tvalid <= 1'b0;
       m_data_tlast <= 1'b0;
@@ -96,6 +117,7 @@ module ip_udp_eth_rx (
       case (state)
         ST_IDLE: begin
           if (s_tvalid) begin
+            head[31:24] <= d;
             cnt <= 14'd1;
             drop <= 1'b0;
             hsk_bc <= 2'd0;
@@ -112,12 +134,22 @@ module ip_udp_eth_rx (
         end
         ST_RX: begin
           if (s_tvalid && s_tready) begin
-            if (bad_here) drop <= 1'b1;
+            if (bad_here) begin
+              drop <= 1'b1;
+              if (!dmac_ok) drop_reason[0] <= 1'b1;
+              if (!etype_ok) drop_reason[1] <= 1'b1;
+              if (!ver_ok) drop_reason[2] <= 1'b1;
+              if (!proto_ok) drop_reason[3] <= 1'b1;
+              if (!dport_ok) drop_reason[4] <= 1'b1;
+            end
             if (cnt == 14'd37) begin
               if (d == 8'h95) hsk_seen <= 1'b1;
               else if ((d == 8'h94) || (d == cfg_dport[7:0])) is_data <= 1'b1;
             end
             if (cnt == 14'd40 && hsk_seen && hsk_ready && hsk_fit) is_hsk <= 1'b1;
+            if (cnt == 14'd1) head[23:16] <= d;
+            if (cnt == 14'd2) head[15:8] <= d;
+            if (cnt == 14'd3) head[7:0] <= d;
             if (cnt == 14'd38) udp_len_r[15:8] <= d;
             if (cnt == 14'd39) udp_len_r[7:0] <= d;
             if (cnt >= 14'd42 && in_pay && !drop && !pay_done) begin
@@ -154,6 +186,8 @@ module ip_udp_eth_rx (
             if (s_tlast) begin
               if (drop && is_data) err_rxdrop <= 1'b1;
               if (drop && is_hsk) err_rxdrop <= 1'b1;
+              if (drop) cnt_drop_end <= cnt_drop_end + 16'd1;
+              if (pay_done && is_data && !drop) cnt_data_end <= cnt_data_end + 16'd1;
               if (is_hsk && !drop && !pay_done) begin
                 hsk_tail <= hsk_bc + 2'd1;
                 hsk_tail_v <= 1'b1;
@@ -168,6 +202,9 @@ module ip_udp_eth_rx (
         end
         default: state <= ST_IDLE;
       endcase
+      if (err_rxdrop) cnt_rxdrop <= cnt_rxdrop + 16'd1;
+      if (s_tvalid && s_tready) cnt_bytes <= cnt_bytes + 16'd1;
+      if (hsk_last) cnt_hsk_end <= cnt_hsk_end + 16'd1;
       if (hsk_tail_v) begin
         hsk_tail_v <= 1'b0;
         hsk_last   <= 1'b1;

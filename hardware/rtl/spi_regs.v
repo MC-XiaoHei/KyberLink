@@ -8,6 +8,13 @@ module spi_regs (
     input  wire [ 6:0] raddr,
     input  wire        rreq,
     output wire [31:0] rdata,
+    input  wire [31:0] dbg_bridge,
+    input  wire [31:0] dbg_gcm,
+    input  wire [31:0] dbg3,
+    input  wire [31:0] dbg4,
+    input  wire [31:0] dbg5,
+    input  wire [31:0] dbg6,
+    input  wire [31:0] dbg7,
 
     input wire        hsk_rx_wr,
     input wire [31:0] hsk_rx_data,
@@ -89,6 +96,7 @@ module spi_regs (
   localparam TX_DUMP = 2'd1;
 
   wire tx_busy = (tx_cnt != 10'd0) || (tx_state == TX_DUMP);
+  wire tx_dumping = (tx_state == TX_DUMP);
   wire [15:0] tx_words = {2'd0, tx_len_lim_r[15:2]} + {14'd0, |tx_len_lim_r[1:0]};
   assign hsk_tx_len = tx_len_lim_r;
   wire [ 3:0] nxt_ptr = len_rd_ptr + 4'd1;
@@ -131,7 +139,7 @@ module spi_regs (
       .clk(clk),
       .waddr(tx_wr_ptr[8:0]),
       .wdata(wdata),
-      .we(wvalid && (waddr == 7'h40) && (tx_cnt != 10'd512)),
+      .we(wvalid && (waddr == 7'h40) && !tx_dumping && (tx_cnt != 10'd512)),
       .raddr(tx_rd_ptr[8:0]),
       .rdata(tx_rd_data)
   );
@@ -189,7 +197,7 @@ module spi_regs (
           7'h00: begin
             if (wdata[0]) key_load <= 1'b1;
             if (wdata[2]) soft_rst_r <= 1'b1;
-            if (wdata[1]) begin
+            if (wdata[1] && !tx_dumping) begin
               tx_state <= TX_DUMP;
               tx_n <= 13'd0;
               tx_len_r <= r_hsk_tx_len;
@@ -212,7 +220,7 @@ module spi_regs (
           7'h30:   r_dst_mac_hi <= wdata[15:0];
           7'h74:   r_seq <= wdata;
           7'h78:   r_scratch <= wdata[7:0];
-          7'h3C:   r_hsk_tx_len <= wdata[15:0];
+          7'h3C:   if (!tx_dumping) r_hsk_tx_len <= wdata[15:0];
           7'h40: begin
             if (tx_cnt != 10'd512) begin
               tx_wr_ptr <= tx_wr_ptr + 9'd1;
@@ -315,6 +323,13 @@ module spi_regs (
       7'h50:   rdata_c = {26'd0, err_flags};
       7'h74:   rdata_c = r_seq;
       7'h78:   rdata_c = {24'd0, r_scratch};
+      7'h7C:   rdata_c = dbg_bridge;
+      7'h7E:   rdata_c = dbg_gcm;
+      7'h72:   rdata_c = dbg3;
+      7'h70:   rdata_c = dbg4;
+      7'h6E:   rdata_c = dbg5;
+      7'h68:   rdata_c = dbg6;
+      7'h6C:   rdata_c = dbg7;
       default: rdata_c = 32'd0;
     endcase
   end

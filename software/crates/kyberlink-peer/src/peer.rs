@@ -62,10 +62,15 @@ pub struct Peer {
     sent: u32,
     recv: u32,
     sa_written: bool,
+    passive: bool,
     last: Instant,
 }
 
 impl Peer {
+    pub fn diag(&self) -> [u32; 8] {
+        self.fsm.diag
+    }
+
     pub fn new(
         peer_fp: [u8; 32],
         seeds: KemSeeds,
@@ -86,6 +91,7 @@ impl Peer {
             sent: 0,
             recv: 0,
             sa_written: false,
+            passive: false,
             last: Instant::now(),
         }
     }
@@ -98,8 +104,17 @@ impl Peer {
         self.fsm.role
     }
 
+    pub fn established_role(&self) -> Role {
+        self.fsm.established_role()
+    }
+
     pub fn counters(&self) -> (u32, u32) {
         (self.sent, self.recv)
+    }
+
+    pub fn set_passive(&mut self, on: bool) {
+        self.passive = on;
+        self.fsm.passive = on;
     }
 
     pub fn poll(&mut self) -> FsmOutcome {
@@ -110,7 +125,7 @@ impl Peer {
         let outcome = self.fsm.poll_ms(elapsed, Some(&mut self.pc));
         if let FsmOutcome::Sa(sa) = &outcome {
             if !self.sa_written {
-                let initiator = self.fsm.role == Role::Initiator;
+                let initiator = self.fsm.established_role() == Role::Initiator;
                 write_sa(&self.bus, sa, initiator, SA_SEQ_INIT);
                 self.sa_written = true;
             }

@@ -12,6 +12,7 @@ pub struct Console {
     mode: Mode,
     phase: u8,
     err: u8,
+    dbg: [u32; 15],
     spill: Option<FrameStream>,
     out: LineBuf,
     out_ready: bool,
@@ -31,6 +32,7 @@ impl Console {
             mode,
             phase: 0,
             err: 0,
+            dbg: [0; 15],
             spill: None,
             out: LineBuf::new(),
             out_ready: false,
@@ -51,6 +53,10 @@ impl Console {
 
     pub fn set_err(&mut self, err: u8) {
         self.err = err;
+    }
+
+    pub fn set_dbg(&mut self, dbg: [u32; 15]) {
+        self.dbg = dbg;
     }
 
     pub fn take_reply(&mut self) -> Option<&str> {
@@ -148,6 +154,7 @@ impl Console {
             mode: self.mode,
             phase: self.phase,
             err: self.err,
+            dbg: self.dbg,
         };
         let action = dispatch::exec_with(line, &ctx, flash, phy, &mut self.out);
         self.track_mode(action);

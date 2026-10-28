@@ -1,6 +1,6 @@
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 
 use ch32_hal::flash::{Blocking as FlashBlocking, Flash};
 use embassy_executor::Spawner;
@@ -20,7 +20,7 @@ use kyberlink_core::cfg_store::{self, CfgError, NorFlash, IDENTITY_BASE, MAGIC_I
 use kyberlink_core::console::Console;
 use kyberlink_core::dispatch::{Action, Mode, PhyAccess};
 use kyberlink_core::handshake_fsm::{
-    write_data_plane, write_sa, Config, Fsm, FsmOutcome, Role, SpiBus, REG_ERR, REG_SCRATCH,
+    write_data_plane, write_sa, Config, Fsm, FsmOutcome, Role, SpiBus, REG_DBG_BRIDGE, REG_DBG_GCM, REG_DBG_WANRX, REG_DBG_WANBYTES, REG_DBG_WANHEAD, REG_DBG_KEY, REG_DBG_ARB, REG_ERR, REG_SCRATCH,
 };
 use kyberlink_crypto::entropy::{derive_kem_seeds, KemSeeds};
 use kyberlink_crypto::handshake::RomIdentity;
@@ -65,6 +65,43 @@ unsafe impl Sync for FsmSlot {}
 static FSM: FsmSlot = FsmSlot(UnsafeCell::new(MaybeUninit::uninit()));
 static BINDING: StaticCell<Binding> = StaticCell::new();
 static ERR_FLAGS: AtomicU8 = AtomicU8::new(0);
+static DBG_BRIDGE: AtomicU32 = AtomicU32::new(0);
+static DBG_WANRX: AtomicU32 = AtomicU32::new(0);
+static DBG_WANBYTES: AtomicU32 = AtomicU32::new(0);
+static DBG_WANHEAD: AtomicU32 = AtomicU32::new(0);
+static DBG_GCM: AtomicU32 = AtomicU32::new(0);
+static DBG_KEY: AtomicU32 = AtomicU32::new(0);
+static DBG_ARB: AtomicU32 = AtomicU32::new(0);
+static DIAG: [AtomicU32; 8] = [
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+];
+
+fn dbg_regs() -> [u32; 15] {
+    [
+        DBG_BRIDGE.load(Ordering::Relaxed),
+        DBG_GCM.load(Ordering::Relaxed),
+        DIAG[0].load(Ordering::Relaxed),
+        DIAG[1].load(Ordering::Relaxed),
+        DIAG[2].load(Ordering::Relaxed),
+        DIAG[3].load(Ordering::Relaxed),
+        DIAG[4].load(Ordering::Relaxed),
+        DIAG[5].load(Ordering::Relaxed),
+        DIAG[6].load(Ordering::Relaxed),
+        DIAG[7].load(Ordering::Relaxed),
+        DBG_WANRX.load(Ordering::Relaxed),
+        DBG_WANBYTES.load(Ordering::Relaxed),
+        DBG_WANHEAD.load(Ordering::Relaxed),
+        DBG_KEY.load(Ordering::Relaxed),
+        DBG_ARB.load(Ordering::Relaxed),
+    ]
+}
 static LINK_FLAGS: AtomicU8 = AtomicU8::new(0);
 
 pub(crate) fn err_flags() -> u8 {
@@ -201,7 +238,7 @@ async fn run_forever(
         last = now;
 
         if let FsmOutcome::Sa(sa) = fsm.poll_ms(elapsed, None) {
-            write_sa(&fsm.spi, &sa, fsm.role == Role::Initiator, SA_SEQ_INIT);
+            write_sa(&fsm.spi, &sa, fsm.established_role() == Role::Initiator, SA_SEQ_INIT);
         }
         if signal.signaled() {
             handle(signal.wait().await, fsm, board, binding).await;
@@ -237,6 +274,16 @@ fn publish_status(
     phys: Option<&mdio::PhysPair<'_>>,
 ) {
     ERR_FLAGS.store(fsm.spi.read_reg(REG_ERR) as u8, Ordering::Relaxed);
+    for (slot, value) in DIAG.iter().zip(fsm.diag) {
+        slot.store(value, Ordering::Relaxed);
+    }
+    DBG_BRIDGE.store(fsm.spi.read_reg(REG_DBG_BRIDGE), Ordering::Relaxed);
+    DBG_GCM.store(fsm.spi.read_reg(REG_DBG_GCM), Ordering::Relaxed);
+    DBG_WANRX.store(fsm.spi.read_reg(REG_DBG_WANRX), Ordering::Relaxed);
+    DBG_WANBYTES.store(fsm.spi.read_reg(REG_DBG_WANBYTES), Ordering::Relaxed);
+    DBG_WANHEAD.store(fsm.spi.read_reg(REG_DBG_WANHEAD), Ordering::Relaxed);
+    DBG_KEY.store(fsm.spi.read_reg(REG_DBG_KEY), Ordering::Relaxed);
+    DBG_ARB.store(fsm.spi.read_reg(REG_DBG_ARB), Ordering::Relaxed);
     LINK_FLAGS.store(phys.map_or(0, mdio::link_flags), Ordering::Relaxed);
 }
 
@@ -281,6 +328,7 @@ async fn serve<F: NorFlash, P: PhyAccess>(
             uart::Read::Bytes(n) => n,
         };
         console.set_err(err_flags());
+        console.set_dbg(dbg_regs());
         for &byte in &buf[..n] {
             let action = console.push_with(byte, flash, phy);
             if let Some(reply) = console.take_reply() {
