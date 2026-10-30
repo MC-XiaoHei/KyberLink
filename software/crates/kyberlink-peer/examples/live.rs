@@ -85,6 +85,7 @@ struct Options {
     wait_ms: u64,
     quiet: bool,
     http: u16,
+    inner_dst_mac: [u8; 6],
 }
 
 struct Stats {
@@ -137,6 +138,7 @@ fn parse() -> Options {
         wait_ms: 2500,
         quiet: false,
         http: 8771,
+        inner_dst_mac: [0xb0, 0x25, 0xaa, 0x82, 0xcc, 0xee],
     };
     let mut args = env::args().skip(1);
     while let Some(flag) = args.next() {
@@ -162,6 +164,17 @@ fn parse() -> Options {
             "--size" => opts.size = value().parse().expect("size"),
             "--quiet" => opts.quiet = true,
             "--http" => opts.http = value().parse().expect("http port"),
+            "--inner-dst-mac" => {
+                let raw = value();
+                assert_eq!(raw.len(), 12, "expected 12 hex characters");
+                let mut mac = [0u8; 6];
+                for (i, slot) in mac.iter_mut().enumerate() {
+                    let hi = (raw.as_bytes()[2 * i] as char).to_digit(16).expect("hex") as u8;
+                    let lo = (raw.as_bytes()[2 * i + 1] as char).to_digit(16).expect("hex") as u8;
+                    *slot = (hi << 4) | lo;
+                }
+                opts.inner_dst_mac = mac;
+            }
             other => panic!("unknown flag {other}"),
         }
     }
@@ -372,7 +385,7 @@ fn esp_source(
     let mut plane = kyberlink_peer::esp::DataPlane::from_sa(sa, initiator);
     let mut inner = vec![0u8; MAX_PAYLOAD + 64];
     let body = vec![0x5au8; opts.size];
-    let n = inner_frame(&mut inner, &body);
+    let n = inner_frame(&mut inner, &body, opts.inner_dst_mac);
     let data_addr = match opts.peer.rsplit_once(':') {
         Some((host, port)) => format!("{host}:{}", port.parse::<u16>().unwrap_or(4501) - 1),
         None => opts.peer.clone(),
@@ -461,8 +474,8 @@ fn drain_esp(plane: &mut kyberlink_peer::esp::DataPlane, spi: Option<[u8; 4]>, s
     }
 }
 
-fn inner_frame(out: &mut [u8], payload: &[u8]) -> usize {
-    out[..6].copy_from_slice(&[0xb0, 0x25, 0xaa, 0x82, 0xcc, 0xee]);
+fn inner_frame(out: &mut [u8], payload: &[u8], dst_mac: [u8; 6]) -> usize {
+    out[..6].copy_from_slice(&dst_mac);
     out[6..12].copy_from_slice(&[0x02, 0x00, 0x00, 0x00, 0x00, 0x07]);
     out[12..14].copy_from_slice(&[0x08, 0x00]);
     let p = 14;
@@ -528,7 +541,7 @@ fn esp_peer_loop(
     };
     let mut inner = vec![0u8; MAX_PAYLOAD + 64];
     let body = vec![0x5au8; opts.size];
-    let n = inner_frame(&mut inner, &body);
+    let n = inner_frame(&mut inner, &body, opts.inner_dst_mac);
     let mut pkt = vec![0u8; MAX_PAYLOAD + 256];
     let mut buf = vec![0u8; 2048];
     let mut out = [0u8; 2048];
