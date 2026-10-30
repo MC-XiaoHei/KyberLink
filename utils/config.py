@@ -2,10 +2,10 @@ import os
 import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RTL = os.path.join(REPO, "hardware", "rtl")
-TEST_DIR = os.path.join(REPO, "hardware", "test")
-SYNTH = os.path.join(REPO, "hardware", "synth")
-SELFTEST_DIR = os.path.join(REPO, "hardware", "selftest")
+RTL = os.path.join(REPO, "rtl", "src")
+TEST_DIR = os.path.join(REPO, "rtl", "test")
+SYNTH = os.path.join(REPO, "rtl", "synth")
+SELFTEST_DIR = os.path.join(REPO, "rtl", "selftest")
 VECTORS = os.path.join(REPO, "vectors")
 BUILD = os.path.join(REPO, "build")
 LOGS = os.path.join(REPO, "logs")

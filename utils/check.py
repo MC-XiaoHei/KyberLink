@@ -13,7 +13,7 @@ def _lint():
     script = (
         f"cd {repo} && "
         f"~/kyberlink-venv/bin/python -m ruff check run.py utils/ && "
-        f"find hardware/rtl hardware/selftest -name '*.v' -print0 | xargs -0 "
+        f"find rtl/src rtl/selftest -name '*.v' -print0 | xargs -0 "
         f"$HOME/verible/bin/verible-verilog-lint --rules_config_search && "
         f"cd {repo}/software && cargo clippy -p kyberlink-crypto --all-targets "
         f"--target x86_64-unknown-linux-gnu --features kyberlink-crypto/std -- -D warnings && "
