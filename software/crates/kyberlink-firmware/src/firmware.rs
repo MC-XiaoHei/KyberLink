@@ -66,6 +66,7 @@ static FSM: FsmSlot = FsmSlot(UnsafeCell::new(MaybeUninit::uninit()));
 static BINDING: StaticCell<Binding> = StaticCell::new();
 static ERR_FLAGS: AtomicU8 = AtomicU8::new(0);
 static DBG_WANRX: AtomicU32 = AtomicU32::new(0);
+static SA_STATE: AtomicU32 = AtomicU32::new(0);
 static DIAG: [AtomicU32; 8] = [
     AtomicU32::new(0),
     AtomicU32::new(0),
@@ -227,6 +228,7 @@ async fn run_forever(
 
         if let FsmOutcome::Sa(sa) = fsm.poll_ms(elapsed, None) {
             write_sa(&fsm.spi, &sa, fsm.established_role() == Role::Initiator, SA_SEQ_INIT);
+            SA_STATE.store(1, Ordering::Relaxed);
         }
         if signal.signaled() {
             handle(signal.wait().await, fsm, board, binding).await;
@@ -310,6 +312,7 @@ async fn serve<F: NorFlash, P: PhyAccess>(
             uart::Read::Bytes(n) => n,
         };
         console.set_err(err_flags());
+        console.set_phase(SA_STATE.load(Ordering::Relaxed) as u8);
         console.set_dbg(dbg_regs());
         for &byte in &buf[..n] {
             let action = console.push_with(byte, flash, phy);
