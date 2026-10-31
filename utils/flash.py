@@ -23,7 +23,7 @@ OPENOCD_CFG = os.path.join(os.path.dirname(OPENOCD), "wch-riscv.cfg")
 MSPI_ADDRESS = "0x000000"
 PROG_OK = {"0x70026020"}
 FPGA_RUN_SRAM = "4"
-FPGA_RUN_FLASH = "9"
+FPGA_RUN_FLASH = "69"
 
 
 def bitstream(target):
