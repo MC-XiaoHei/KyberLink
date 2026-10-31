@@ -301,10 +301,6 @@ async fn serve<F: NorFlash, P: PhyAccess>(
     let mut buf = [0u8; 64];
     loop {
         let n = match uart.read(&mut buf) {
-            uart::Read::Framing => {
-                console.abandon_line();
-                continue;
-            }
             uart::Read::Idle => {
                 embassy_futures::yield_now().await;
                 continue;
