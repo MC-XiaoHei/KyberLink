@@ -107,6 +107,9 @@ async fn main(_spawner: Spawner) -> ! {
     let uart = uart::Port::open(parts.uart);
     let bus = SpiMaster::open(parts.spi, SPI_KHZ);
 
+    if clock::reconfig_take() {
+        provisioning(&mut flash, uart).await
+    }
     let (binding, identity) = match load_device(&mut flash) {
         Ok(loaded) => loaded,
         Err(_) => provisioning(&mut flash, uart).await,
@@ -127,7 +130,7 @@ async fn main(_spawner: Spawner) -> ! {
 
     match join(
         serve(uart, &mut console, &mut flash, &phy, &signal),
-        run_forever(fsm, &mut board, binding, phys, &signal),
+        run_forever(fsm, &mut board, phys, &signal),
     )
     .await
     {}
@@ -215,7 +218,6 @@ fn start_fsm(
 async fn run_forever(
     fsm: &'static mut Fsm<SpiMaster, RomIdentity>,
     board: &mut Board<'_>,
-    binding: &Binding,
     phys: Option<&mdio::PhysPair<'_>>,
     signal: &ActionSignal,
 ) -> ! {
@@ -231,7 +233,7 @@ async fn run_forever(
             SA_STATE.store(1, Ordering::Relaxed);
         }
         if signal.signaled() {
-            handle(signal.wait().await, fsm, board, binding).await;
+            handle(signal.wait().await, fsm, board).await;
         }
         ticks += 1;
         if ticks.is_multiple_of(ERR_POLL_TICKS) {
@@ -245,17 +247,16 @@ async fn handle(
     action: Action,
     fsm: &mut Fsm<SpiMaster, RomIdentity>,
     board: &mut Board<'_>,
-    binding: &Binding,
 ) {
     match action {
         Action::Rekey => fsm.reseed(sample_entropy()),
-        Action::Resume => write_data_plane(&fsm.spi, binding),
+        Action::Reconfig => clock::reconfig_request(),
         Action::Reboot => {
             board.fpga_reset.enable();
             Timer::after_millis(10).await;
             reset::system_reset();
         }
-        Action::None | Action::Spill | Action::Halt => {}
+        Action::None | Action::Spill => {}
     }
 }
 
@@ -286,6 +287,7 @@ async fn provisioning(flash: &mut FlashPort<'_>, uart: uart::Port) -> ! {
 async fn reboot_watch(signal: &ActionSignal) -> ! {
     loop {
         if let Action::Reboot = signal.wait().await {
+            Timer::after_millis(2).await;
             reset::system_reset();
         }
     }
@@ -315,7 +317,7 @@ async fn serve<F: NorFlash, P: PhyAccess>(
             if let Some(reply) = console.take_reply() {
                 uart.write(reply);
             }
-            if matches!(action, Action::Rekey | Action::Reboot) {
+            if matches!(action, Action::Rekey | Action::Reconfig | Action::Reboot) {
                 signal.signal(action);
             }
         }

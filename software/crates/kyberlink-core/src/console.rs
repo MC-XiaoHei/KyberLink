@@ -153,18 +153,9 @@ impl Console {
             dbg: self.dbg,
         };
         let action = dispatch::exec_with(line, &ctx, flash, phy, &mut self.out);
-        self.track_mode(action);
         match action {
             Action::Spill => self.begin_spill(flash),
             other => other,
-        }
-    }
-
-    fn track_mode(&mut self, action: Action) {
-        match action {
-            Action::Halt => self.mode = Mode::Configure,
-            Action::Resume => self.mode = Mode::Running,
-            _ => {}
         }
     }
 
@@ -290,17 +281,12 @@ mod tests {
     }
 
     #[test]
-    fn halt_flips_mode_and_unlocks_config() {
+    fn running_console_rejects_reconfig_commands() {
         let mut f = MemFlash::new(0x4_0000);
         let mut c = Console::new(Mode::Running);
-        let events = push_str(&mut c, &mut f, "HALT\n");
-        assert_eq!(events[0].0, Action::Halt);
-        assert_eq!(c.mode(), Mode::Configure);
         let events = push_str(&mut c, &mut f, &format!("FP {}\n", "ab".repeat(32)));
-        assert_eq!(events[0].1, "OK\n");
-        assert_eq!(Binding::load(&mut f).unwrap().peer_fp, [0xAB; 32]);
-        let events = push_str(&mut c, &mut f, "RESUME\n");
-        assert_eq!(events[0].0, Action::Resume);
+        assert_eq!(events[0].1, "ERR locked\n");
         assert_eq!(c.mode(), Mode::Running);
+        assert!(Binding::load(&mut f).is_err());
     }
 }

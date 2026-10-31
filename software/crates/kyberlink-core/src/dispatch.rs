@@ -61,8 +61,7 @@ impl Mode {
 pub enum Action {
     None,
     Spill,
-    Halt,
-    Resume,
+    Reconfig,
     Rekey,
     Reboot,
 }
@@ -376,10 +375,18 @@ pub fn exec_with<F: NorFlash, P: PhyAccess>(
         "SHOW" => cmd_show(flash, out),
         "STAT" => cmd_stat(ctx, out),
         "PHY" => cmd_phy(&mut args, phy, out),
-        "HALT" if !configure => Action::Halt,
-        "RESUME" if configure => Action::Resume,
-        "REKEY" if !configure => Action::Rekey,
-        "REBOOT" => Action::Reboot,
+        "RECONFIG" if !configure => {
+            ok(out);
+            Action::Reconfig
+        }
+        "REKEY" if !configure => {
+            ok(out);
+            Action::Rekey
+        }
+        "REBOOT" => {
+            ok(out);
+            Action::Reboot
+        }
         "SPK" if configure => {
             if args.next() != Some("CONFIRM") {
                 err(out, "confirm required")
@@ -390,7 +397,7 @@ pub fn exec_with<F: NorFlash, P: PhyAccess>(
         "FP" if configure => cmd_fp(args.next(), flash, out),
         "NET" if configure => cmd_net(&mut args, flash, out),
         "FACTORY" => cmd_factory(args.next(), flash, out),
-        "SPK" | "FP" | "NET" | "HALT" | "RESUME" | "REKEY" => err(out, "busy"),
+        "SPK" | "FP" | "NET" | "RECONFIG" | "REKEY" => err(out, "locked"),
         _ => err(out, "unknown"),
     }
 }
@@ -510,14 +517,14 @@ mod tests {
     #[test]
     fn configure_only_commands_rejected_when_running() {
         let mut f = seeded_flash();
-        for line in ["SPK", "FP 00", "NET a b c d e f", "RESUME"] {
+        for line in ["SPK", "FP 00", "NET a b c d e f"] {
             let (r, _) = run(line, Mode::Running, &mut f);
-            assert_eq!(r, "ERR busy\n", "line {line}");
+            assert_eq!(r, "ERR locked\n", "line {line}");
         }
-        let (r, _) = run("HALT", Mode::Configure, &mut f);
-        assert_eq!(r, "ERR busy\n");
+        let (r, _) = run("RECONFIG", Mode::Configure, &mut f);
+        assert_eq!(r, "ERR locked\n");
         let (r, _) = run("REKEY", Mode::Configure, &mut f);
-        assert_eq!(r, "ERR busy\n");
+        assert_eq!(r, "ERR locked\n");
     }
 
     #[test]
@@ -574,13 +581,14 @@ mod tests {
     #[test]
     fn mode_transitions_emit_actions() {
         let mut f = seeded_flash();
-        let (_, a) = run("HALT", Mode::Running, &mut f);
-        assert_eq!(a, Action::Halt);
-        let (_, a) = run("RESUME", Mode::Configure, &mut f);
-        assert_eq!(a, Action::Resume);
-        let (_, a) = run("REKEY", Mode::Running, &mut f);
+        let (r, a) = run("RECONFIG", Mode::Running, &mut f);
+        assert_eq!(r, "OK\n");
+        assert_eq!(a, Action::Reconfig);
+        let (r, a) = run("REKEY", Mode::Running, &mut f);
+        assert_eq!(r, "OK\n");
         assert_eq!(a, Action::Rekey);
-        let (_, a) = run("REBOOT", Mode::Configure, &mut f);
+        let (r, a) = run("REBOOT", Mode::Configure, &mut f);
+        assert_eq!(r, "OK\n");
         assert_eq!(a, Action::Reboot);
         let (_, a) = run("SPK CONFIRM", Mode::Configure, &mut f);
         assert_eq!(a, Action::Spill);

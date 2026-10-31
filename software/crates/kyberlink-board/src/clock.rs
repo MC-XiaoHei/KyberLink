@@ -2,6 +2,7 @@ const RCC_CTLR: u32 = 0x4002_1000;
 const RCC_APB1PCENR: u32 = 0x4002_101C;
 const RCC_BDCTLR: u32 = 0x4002_1020;
 const PWR_CTLR: u32 = 0x4000_7000;
+const BKP_DATAR1: u32 = 0x4000_6C04;
 const RTC_CTLRL: u32 = 0x4000_2804;
 const RTC_PSCH: u32 = 0x4000_2808;
 const RTC_PSCL: u32 = 0x4000_280C;
@@ -24,6 +25,8 @@ const BDCR_SPINS: u32 = 100_000;
 const PRESCALER_SPINS: u32 = 100_000;
 const BDCR_SETTLE_CYCLES: u32 = 200_000;
 const SYSCLK_MHZ: u32 = 120;
+
+const RECONFIG_MAGIC: u16 = 0x5A5A;
 
 fn rw(addr: u32) -> *mut u32 {
     addr as *mut u32
@@ -69,6 +72,26 @@ pub fn mhz() -> u32 {
     SYSCLK_MHZ
 }
 
+fn backup_enable() {
+    set_bits(RCC_APB1PCENR, PWR_BKP_EN | BKP_CLK_EN);
+    set_bits(PWR_CTLR, BKP_WRITE_EN);
+}
+
+pub fn reconfig_request() {
+    backup_enable();
+    // SAFETY: backup registers live in a fixed peripheral window.
+    unsafe { (BKP_DATAR1 as *mut u16).write_volatile(RECONFIG_MAGIC) }
+}
+
+pub fn reconfig_take() -> bool {
+    backup_enable();
+    // SAFETY: backup registers live in a fixed peripheral window.
+    let armed = unsafe { (BKP_DATAR1 as *const u16).read_volatile() } == RECONFIG_MAGIC;
+    // SAFETY: same register, clearing the flag so the next boot runs normally.
+    unsafe { (BKP_DATAR1 as *mut u16).write_volatile(0) }
+    armed
+}
+
 pub fn start_lsi() -> bool {
     set_bits(RCC_CTLR, LSI_ON);
     wait_flag(RCC_CTLR, LSI_READY, LSI_SPINS)
@@ -78,8 +101,7 @@ pub fn start_rtc() -> bool {
     if !start_lsi() {
         return false;
     }
-    set_bits(RCC_APB1PCENR, PWR_BKP_EN | BKP_CLK_EN);
-    set_bits(PWR_CTLR, BKP_WRITE_EN);
+    backup_enable();
 
     let base = select_rtc_source();
     // SAFETY: the addresses above are peripheral registers in fixed windows.
