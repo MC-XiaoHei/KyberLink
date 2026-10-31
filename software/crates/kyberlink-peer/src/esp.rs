@@ -17,14 +17,22 @@ const PAD_TRAILER: usize = 2;
 const MAX_PAD: usize = 15;
 const PAD_MARKER: u8 = 0x04;
 
-pub struct DataPlane {
+pub struct Sealer {
     enc: GcmCipher,
-    dec: GcmCipher,
     spi: [u8; 4],
     salt: [u8; 8],
     tx_seq: u32,
+}
+
+pub struct Opener {
+    dec: GcmCipher,
     rx_top: u32,
     rx_seen: u64,
+}
+
+pub struct DataPlane {
+    sealer: Sealer,
+    opener: Opener,
 }
 
 pub struct Shards {
@@ -41,6 +49,10 @@ impl Shards {
     pub fn seal(&self, plane: &mut DataPlane, payload: &[u8], frame: &mut [u8]) -> Option<usize> {
         plane.seal_at(self.next.fetch_add(1, Ordering::Relaxed), payload, frame)
     }
+
+    pub fn seal_with(&self, sealer: &mut Sealer, payload: &[u8], frame: &mut [u8]) -> Option<usize> {
+        sealer.seal_at(self.next.fetch_add(1, Ordering::Relaxed), payload, frame)
+    }
 }
 
 impl DataPlane {
@@ -56,14 +68,19 @@ impl DataPlane {
         salt[..4].copy_from_slice(&bus.reg(REG_SALT_HI).to_be_bytes());
         salt[4..].copy_from_slice(&bus.reg(REG_SALT_LO).to_be_bytes());
         let seq = bus.reg(REG_SEQ);
+        let spi = bus.reg(REG_SPI).to_be_bytes();
         Self {
-            enc: GcmCipher::new(&enc),
-            dec: GcmCipher::new(&dec),
-            spi: bus.reg(REG_SPI).to_be_bytes(),
-            salt,
-            tx_seq: seq.wrapping_add(1),
-            rx_top: seq,
-            rx_seen: 0,
+            sealer: Sealer {
+                enc: GcmCipher::new(&enc),
+                spi,
+                salt,
+                tx_seq: seq.wrapping_add(1),
+            },
+            opener: Opener {
+                dec: GcmCipher::new(&dec),
+                rx_top: seq,
+                rx_seen: 0,
+            },
         }
     }
 
@@ -75,42 +92,65 @@ impl DataPlane {
         };
         let mut salt = [0u8; 8];
         salt.copy_from_slice(&sa.sa_salt[..8]);
+        let spi = sa.spi_i.to_be_bytes();
         Self {
-            enc: GcmCipher::new(enc_key),
-            dec: GcmCipher::new(dec_key),
-            spi: sa.spi_i.to_be_bytes(),
-            salt,
-            tx_seq: 1,
-            rx_top: 0,
-            rx_seen: 0,
+            sealer: Sealer {
+                enc: GcmCipher::new(enc_key),
+                spi,
+                salt,
+                tx_seq: 1,
+            },
+            opener: Opener {
+                dec: GcmCipher::new(dec_key),
+                rx_top: 0,
+                rx_seen: 0,
+            },
         }
     }
 
     pub fn spi(&self) -> u32 {
-        u32::from_be_bytes(self.spi)
+        u32::from_be_bytes(self.sealer.spi)
     }
 
     pub fn tx_seq(&self) -> u32 {
-        self.tx_seq
+        self.sealer.tx_seq
     }
 
-    fn pad_len_for(inner_len: usize) -> usize {
-        const BLOCK: usize = 16;
-        (BLOCK - ((inner_len + PAD_TRAILER) % BLOCK)) % BLOCK
+    pub fn seal(&mut self, inner: &[u8], out: &mut [u8]) -> Option<usize> {
+        self.sealer.seal(inner, out)
     }
 
-    fn nonce(&self, seq: u32) -> [u8; 12] {
+    pub fn seal_at(&mut self, seq: u32, inner: &[u8], out: &mut [u8]) -> Option<usize> {
+        self.sealer.seal_at(seq, inner, out)
+    }
+
+    pub fn open(&mut self, packet: &[u8], out: &mut [u8]) -> Option<usize> {
+        self.opener.open(packet, out)
+    }
+
+    pub fn split(self) -> (Sealer, Opener) {
+        (self.sealer, self.opener)
+    }
+}
+
+fn pad_len_for(inner_len: usize) -> usize {
+    const BLOCK: usize = 16;
+    (BLOCK - ((inner_len + PAD_TRAILER) % BLOCK)) % BLOCK
+}
+
+fn aad(spi: &[u8], seq: &[u8]) -> [u8; 8] {
+    let mut a = [0u8; 8];
+    a[..4].copy_from_slice(spi);
+    a[4..8].copy_from_slice(seq);
+    a
+}
+
+impl Sealer {
+    pub fn nonce(&self, seq: u32) -> [u8; 12] {
         let mut n = [0u8; 12];
         n[..4].copy_from_slice(&seq.to_be_bytes());
         n[4..].copy_from_slice(&self.salt);
         n
-    }
-
-    fn aad(spi: &[u8], seq: &[u8]) -> [u8; 8] {
-        let mut a = [0u8; 8];
-        a[..4].copy_from_slice(spi);
-        a[4..8].copy_from_slice(seq);
-        a
     }
 
     pub fn seal(&mut self, inner: &[u8], out: &mut [u8]) -> Option<usize> {
@@ -129,7 +169,7 @@ impl DataPlane {
         out[12..HEADER].copy_from_slice(&self.salt);
         let inner_len = inner.len();
         out[HEADER..HEADER + inner_len].copy_from_slice(inner);
-        let pad_len = Self::pad_len_for(inner_len);
+        let pad_len = pad_len_for(inner_len);
         let body_len = inner_len + pad_len + PAD_TRAILER;
         if HEADER + body_len + TAG > out.len() {
             return None;
@@ -139,7 +179,7 @@ impl DataPlane {
         out[body.start + inner_len + pad_len] = pad_len as u8;
         out[body.start + inner_len + pad_len + 1] = PAD_MARKER;
         let nonce = self.nonce(seq);
-        let aad = Self::aad(&out[..4], &out[4..8]);
+        let aad = aad(&out[..4], &out[4..8]);
         let mut tag = [0u8; TAG];
         self.enc
             .encrypt_in_place(&nonce, &aad, &mut out[body], &mut tag)
@@ -148,6 +188,9 @@ impl DataPlane {
         Some(HEADER + body_len + TAG)
     }
 
+}
+
+impl Opener {
     pub fn open(&mut self, packet: &[u8], out: &mut [u8]) -> Option<usize> {
         if packet.len() < HEADER + TAG {
             return None;
@@ -159,7 +202,7 @@ impl DataPlane {
         }
         out[..n].copy_from_slice(&packet[HEADER..HEADER + n]);
         let nonce: [u8; 12] = packet[8..HEADER].try_into().ok()?;
-        let aad = Self::aad(&packet[..4], &packet[4..8]);
+        let aad = aad(&packet[..4], &packet[4..8]);
         let tag: [u8; TAG] = packet[HEADER + n..].try_into().ok()?;
         self.dec
             .decrypt_in_place(&nonce, &aad, &mut out[..n], &tag)
@@ -172,6 +215,33 @@ impl DataPlane {
         }
         let pad_len = out[n - PAD_TRAILER] as usize;
         if out[n - 1] != PAD_MARKER || pad_len > MAX_PAD || n < pad_len + PAD_TRAILER + 1 {
+            return None;
+        }
+        Some(n - PAD_TRAILER - pad_len)
+    }
+
+    pub fn open_in_place(&mut self, packet: &mut [u8]) -> Option<usize> {
+        if packet.len() < HEADER + TAG {
+            return None;
+        }
+        let seq = u32::from_be_bytes(packet[4..8].try_into().ok()?);
+        let n = packet.len() - HEADER - TAG;
+        let nonce: [u8; 12] = packet[8..HEADER].try_into().ok()?;
+        let aad = aad(&packet[..4], &packet[4..8]);
+        let mut tag = [0u8; TAG];
+        tag.copy_from_slice(&packet[HEADER + n..]);
+        self.dec
+            .decrypt_in_place(&nonce, &aad, &mut packet[HEADER..HEADER + n], &tag)
+            .ok()?;
+        if !self.accept(seq) {
+            return None;
+        }
+        if n <= PAD_TRAILER {
+            return None;
+        }
+        let body = &packet[HEADER..HEADER + n];
+        let pad_len = body[n - PAD_TRAILER] as usize;
+        if body[n - 1] != PAD_MARKER || pad_len > MAX_PAD || n < pad_len + PAD_TRAILER + 1 {
             return None;
         }
         Some(n - PAD_TRAILER - pad_len)

@@ -10,5 +10,8 @@ kyberlink-crypto = { path = "../kyberlink-crypto", features = ["std", "gcm"] }
 embassy-sync = "0.8.0"
 socket2 = "0.5"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 parking_lot = "0.12"
