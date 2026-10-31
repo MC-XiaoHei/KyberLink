@@ -859,7 +859,6 @@ dependencies = [
  "kyberlink-core",
  "kyberlink-crypto",
  "libc",
- "parking_lot",
  "socket2",
 ]
 
